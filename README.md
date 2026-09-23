@@ -197,11 +197,41 @@ local simulation when the backend is absent.
 | `POST` | `/api/v1/memory/ingest` | Push a memory through the ingest pipeline |
 | `GET` | `/api/v1/renewal/status` | Re-embedding progress, dual-space migration state |
 | `POST` | `/api/v1/chaos/{fault}` | Inject a fault (demo/testing only) |
+| `POST` | `/api/v1/ask` | Agentic answer: plan → retrieve → verify → cited answer |
+| `GET` | `/api/v1/audit` | Hash-chained audit entries + chain verification |
+| `GET` | `/api/v1/metrics` | Prometheus exposition (`/metrics/json` for the raw snapshot) |
+| `GET` | `/api/v1/sync/conflicts` | Conflict records and the human review queue |
 | `WS` | `/api/v1/stream` | Multiplexed live telemetry, sync events, reasoning traces |
+
+Full surface at `/docs` once the node is running.
 
 ---
 
-## 5. Frontend
+## 5. Running it
+
+```bash
+# backend — the node
+cd backend
+pip install -r requirements.txt
+uvicorn aegis.main:app --port 8000      # REST + WebSocket on :8000
+python3 scripts/demo.py                 # whole lifecycle in one process, no server
+python3 -m pytest tests -q              # 52 tests
+
+# frontend — the console
+cd frontend && python3 -m http.server 5173
+```
+
+The console auto-detects the node on `http://localhost:8000`. `backend/README.md`
+has the module map and the optional-dependency matrix.
+
+What the demo script actually exercises, end to end: cold boot and WAL replay,
+hybrid retrieval with the link down, policy blocking a restricted memory from
+egress, twelve observations queued through an outage, reconnection replaying
+them, fleet knowledge pulled back down, a contradiction detected and
+superseded, a dual-space re-embedding migration with shadow evaluation, and
+four injected faults.
+
+## 6. Frontend
 
 `frontend/index.html` — zero dependencies, zero build step. Open it, or serve
 the folder statically.
@@ -229,17 +259,20 @@ Point it at a live backend:
 
 ---
 
-## 6. Status
+## 7. Status
 
 - [x] Problem statement locked — PS03
 - [x] Backend architecture & feature plan
-- [x] Frontend shell + live backend contract
-- [ ] Qdrant Edge memory core
-- [ ] ONNX embed / rerank pipeline
-- [ ] Sync engine + conflict arbiter
-- [ ] Triton escalation tier
-- [ ] Renewal orchestrator
-- [ ] Chaos harness + benchmarks
+- [x] Frontend shell, live against the node
+- [x] Memory core — tiered store, quantization, WAL, compactor, consolidation
+- [x] ONNX embed / rerank pipeline — EP ladder, micro-batching, thermal governor
+- [x] Sync engine — CRDT + Merkle deltas, durable queue, conflict arbiter, resumption
+- [x] Policy, redaction vault, hash-chained audit
+- [x] Renewal orchestrator — freshness, dual-space migration, shadow eval
+- [x] Chaos harness · 52 tests
+- [x] Triton escalation tier (client + policy; needs a live endpoint to light up)
+- [ ] Qdrant Edge wheel pinned in CI (adapter is in, falls back to the native store)
+- [ ] Benchmarks: recall@k and sync-convergence numbers checked in
 
 ---
 

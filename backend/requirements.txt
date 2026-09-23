@@ -1,0 +1,11 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+numpy>=1.26
+PyYAML>=6.0
+httpx>=0.27
+# optional, auto-detected at runtime:
+# qdrant-client>=1.9      # Qdrant Edge embedded store
+# onnxruntime>=1.17       # local ONNX inference
+# tritonclient[grpc]      # cloud escalation tier
+# psutil                  # real thermal / battery telemetry

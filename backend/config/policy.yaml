@@ -1,0 +1,48 @@
+# AegisEdge data governance policy — hot-reloadable.
+# Evaluated top-down on every ingest; the first matching rule wins.
+version: 3
+default:
+  sync_class: sync_full
+  ttl_days: 90
+  redact: false
+
+rules:
+  - name: restricted-stays-home
+    when:
+      sensitivity: restricted
+    then:
+      sync_class: local_only
+      ttl_days: 30
+      pin: false
+      redact: false
+      reason: "restricted-class memory may never leave the device"
+
+  - name: sensitive-redacted-egress
+    when:
+      sensitivity: sensitive
+    then:
+      sync_class: sync_after_redaction
+      ttl_days: 60
+      redact: true
+      reason: "sensitive memory syncs only with entities masked"
+
+  - name: sensor-telemetry-metadata-only
+    when:
+      collection: sensor
+    then:
+      sync_class: sync_metadata_only
+      ttl_days: 14
+      reason: "raw telemetry is summarised centrally, not shipped verbatim"
+
+  - name: procedures-are-fleet-knowledge
+    when:
+      collection: procedural
+    then:
+      sync_class: sync_full
+      ttl_days: 365
+      pin: true
+      reason: "recovery procedures are exactly what the fleet should share"
+
+egress:
+  max_points_per_batch: 256
+  strip_payload_keys: [operator, device_serial, gps_raw]

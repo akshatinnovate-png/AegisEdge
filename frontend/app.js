@@ -123,17 +123,19 @@ async function probe() {
   try {
     const h = await get("/api/v1/health");
     const rtt = Math.round(performance.now() - t0);
-    if (!state.live) log("link", "node reachable — switching to <b>FUSED</b> mode", "ok");
+    if (!state.live) log("node", `node reachable in ${rtt} ms — reading live state`, "ok");
     state.live = true;
     state.retries = 0;
-    setLink(rtt > 220 ? "degraded" : "healthy", rtt);
-    $("dataSrc").textContent = "SOURCE · LIVE NODE";
+    // The pill tracks the NODE's uplink, not the browser's hop to it: a node
+    // we can reach may still be offline from the cloud, which is the normal
+    // case for this product. /node/state supplies that below.
+    $("dataSrc").textContent = "SOURCE · LIVE NODE · " + (h.memory_backend || "");
     if (h.execution_provider) $("epName").textContent = h.execution_provider;
     if (h.node_id) $("nodeId").textContent = h.node_id;
     await pullAll();
     openSocket();
   } catch {
-    if (state.live) log("link", "uplink lost — <b>local memory still serving</b>", "warn");
+    if (state.live) log("node", "node unreachable — falling back to <b>simulation</b>", "warn");
     state.live = false;
     setLink("offline", null);
     $("dataSrc").textContent = "SOURCE · SIMULATED";
@@ -187,16 +189,29 @@ function handleEvent(msg) {
     case "telemetry":
       if (msg.memory) applyMemory(msg.memory);
       if (msg.node) applyNode(msg.node);
+      if (msg.sync) applySync(msg.sync);
+      if (msg.kind === "heartbeat") return;
+      if (msg.message) log("node", msg.message, msg.level);
       break;
     case "sync":
       applySync(msg);
+      if (msg.message) log("sync", msg.message, msg.level);
       break;
     case "renewal":
       applyRenewal(msg);
+      if (msg.message) log("renewal", msg.message, msg.level);
       break;
+    case "link":
+      if (msg.state) setLink(msg.state, msg.rtt_ms);
+      if (msg.reconnect_ms != null) $("reconnMs").textContent = Math.round(msg.reconnect_ms);
+      if (msg.message) log("link", msg.message, msg.level);
+      break;
+    case "memory":
+    case "search":
+    case "reasoning":
     case "alerts":
     default:
-      if (msg.message) log(msg.kind || "node", msg.message, msg.level);
+      if (msg.message) log(msg.channel || msg.kind || "node", msg.message, msg.level);
   }
 }
 
@@ -211,9 +226,11 @@ function setLink(s, rtt) {
 }
 
 function applyNode(n) {
+  if (n.link && n.link.state) setLink(n.link.state, n.link.rtt_ms);
   if (n.execution_provider) $("epName").textContent = n.execution_provider;
   if (n.embedder) $("embName").textContent = n.embedder;
   if (n.precision) $("precName").textContent = n.precision;
+  if (n.governor && n.governor.variant) $("precName").textContent = n.governor.variant;
   if (n.embed_p95_ms != null) $("embP95").textContent = n.embed_p95_ms + " ms";
   if (n.escalations != null) $("escCount").textContent = n.escalations;
   if (n.node_id) $("nodeId").textContent = n.node_id;
@@ -235,6 +252,7 @@ function applyMemory(m) {
 
 function applySync(s) {
   if (s.state) $("syncState").textContent = s.state;
+  if (s.link) setLink(s.link, null);
   if (s.queued != null) $("syncQueued").textContent = s.queued;
   if (s.divergent != null) $("syncDiv").textContent = s.divergent;
   if (s.conflicts != null) $("syncConf").textContent = s.conflicts;
@@ -289,7 +307,9 @@ $("searchForm").addEventListener("submit", async (e) => {
   const ms = payload.latency_ms != null ? payload.latency_ms : Math.round(performance.now() - t0);
   $("searchMeta").textContent =
     `${payload.results.length} hits · ${ms} ms · dense+sparse · RRF · rerank` +
-    (payload.escalated ? " · ESCALATED → TRITON" : " · LOCAL ONLY");
+    (payload.escalated
+      ? " · ESCALATED → TRITON"
+      : " · LOCAL" + (payload.escalation && payload.escalation.reason ? " (" + payload.escalation.reason + ")" : ""));
 
   payload.results.forEach((r, i) => {
     const li = document.createElement("li");

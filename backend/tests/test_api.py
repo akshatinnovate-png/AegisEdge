@@ -1,0 +1,117 @@
+"""API surface: the exact contract the frontend is written against."""
+from __future__ import annotations
+
+import json
+import os
+
+import pytest
+from fastapi.testclient import TestClient
+
+import aegis.config
+from aegis.main import create_app
+
+
+@pytest.fixture(scope="module")
+def client(tmp_path_factory):
+    """A node with its own data directory.
+
+    The API tests must not inherit a WAL, an op queue or a migration
+    checkpoint from an earlier run or a locally running server — otherwise
+    they assert against whatever that process happened to leave behind.
+    """
+    os.environ["AEGIS_DATA_DIR"] = str(tmp_path_factory.mktemp("node"))
+    aegis.config._settings = None
+    try:
+        with TestClient(create_app()) as c:
+            yield c
+    finally:
+        os.environ.pop("AEGIS_DATA_DIR", None)
+        aegis.config._settings = None
+
+
+def test_health_reports_the_real_backend_and_provider(client):
+    body = client.get("/api/v1/health").json()
+    assert body["status"] in {"ok", "degraded"}
+    assert body["memory_backend"] in {"qdrant-edge", "native-tiered"}
+    assert "execution_provider" in body
+    assert body["points"] > 0                       # seeded
+
+
+def test_memory_stats_shape_matches_the_console(client):
+    body = client.get("/api/v1/memory/stats").json()
+    for key in ("hot", "warm", "cold", "total", "collections", "by_sensitivity", "wal"):
+        assert key in body
+
+
+def test_ingest_then_search_finds_it(client):
+    ingest = client.post("/api/v1/memory/ingest", json={
+        "text": "Spindle SP-9920 tripped the overcurrent relay at 14:02",
+        "collection": "episodic",
+    }).json()
+    assert ingest["sensitivity"] in {"internal", "public", "sensitive", "restricted"}
+    found = client.post("/api/v1/search", json={"query": "SP-9920 overcurrent", "k": 3}).json()
+    assert found["results"]
+    assert found["results"][0]["id"] == ingest["id"]
+    assert "explain" in found["results"][0]
+
+
+def test_search_reports_stage_latencies(client):
+    body = client.post("/api/v1/search", json={"query": "coolant pressure", "k": 3}).json()
+    assert {"embed_ms", "dense_ms", "sparse_ms", "fusion_ms"} <= set(body["stages"])
+    assert body["latency_ms"] > 0
+
+
+def test_ask_returns_a_cited_trace(client):
+    body = client.post("/api/v1/ask", json={"query": "how do i recover the drive"}).json()
+    assert [s["step"] for s in body["trace"]] == ["plan", "retrieve", "verify", "answer"]
+    assert body["citations"]
+
+
+def test_sync_status_and_manual_reconcile(client):
+    status = client.get("/api/v1/sync/status").json()
+    assert {"state", "queued", "divergent", "conflicts", "cursor"} <= set(status)
+    after = client.post("/api/v1/sync/trigger", json={"reason": "test"}).json()
+    assert after["cycle"]["state"] in {"CONVERGED", "BACKOFF"}
+
+
+def test_renewal_status_and_migration(client):
+    assert "state" in client.get("/api/v1/renewal/status").json()
+    started = client.post("/api/v1/renewal/migrate", json={"to_version": "bge-small-en-v9"}).json()
+    assert started["to_version"] == "bge-small-en-v9"
+
+
+def test_point_detail_exposes_lineage(client):
+    points = client.get("/api/v1/memory/points?limit=1").json()["points"]
+    detail = client.get(f"/api/v1/memory/points/{points[0]['id']}").json()
+    assert "lineage" in detail and "resolved_text" in detail
+
+
+def test_audit_chain_is_exposed_and_intact(client):
+    body = client.get("/api/v1/audit").json()
+    assert body["chain"]["chain_intact"] is True
+    assert body["entries"]
+
+
+def test_prometheus_metrics_render(client):
+    text = client.get("/api/v1/metrics").text
+    assert "aegis_" in text
+
+
+def test_chaos_rejects_an_unknown_fault(client):
+    assert client.post("/api/v1/chaos/not_a_fault").status_code == 400
+
+
+def test_chaos_link_drop_takes_the_node_offline(client):
+    client.post("/api/v1/chaos/link_drop", json={"duration_s": 1.0})
+    assert client.get("/api/v1/node/state").json()["mode"] == "LOCAL"
+    assert client.post("/api/v1/search", json={"query": "coolant", "k": 2}).json()["results"]
+
+
+def test_websocket_streams_hello_and_events(client):
+    with client.websocket_connect("/api/v1/stream") as socket:
+        hello = json.loads(socket.receive_text())
+        assert hello["kind"] == "hello"
+        assert "node" in hello and "memory" in hello
+        client.post("/api/v1/memory/ingest", json={"text": "stream probe observation"})
+        kinds = [json.loads(socket.receive_text()).get("kind") for _ in range(12)]
+        assert any(k for k in kinds)

@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.aegis/
+backend/.aegis/
+backend/models/.cache/
+*.wal
+*.onnx
+.venv/
+.DS_Store

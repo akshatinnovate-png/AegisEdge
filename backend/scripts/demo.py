@@ -1,0 +1,145 @@
+"""End-to-end demo: the story the node is built to tell.
+
+    python3 scripts/demo.py
+
+No server, no cloud account — the whole edge-to-cloud lifecycle runs in one
+process so the behaviour can be shown (and re-run) anywhere.
+"""
+from __future__ import annotations
+
+import asyncio
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from aegis.config import Settings           # noqa: E402
+from aegis.node import EdgeNode             # noqa: E402
+from aegis.sync.oracle import LinkState     # noqa: E402
+
+O, B, D, R = "\033[38;5;208m", "\033[1m", "\033[2m", "\033[0m"
+
+
+def head(n: int, title: str) -> None:
+    print(f"\n{O}{B}[{n}] {title}{R}\n{D}{'─' * 64}{R}")
+
+
+def line(label: str, value: object) -> None:
+    print(f"  {label:<34} {B}{value}{R}")
+
+
+async def main() -> None:
+    settings = Settings()
+    settings.data_dir = Path(".aegis/demo")
+    settings.data_dir.mkdir(parents=True, exist_ok=True)
+    for stale in ("memory.wal", "opqueue.jsonl", "migration.checkpoint.json"):
+        (settings.data_dir / stale).unlink(missing_ok=True)
+
+    node = EdgeNode(settings)
+    await node.start()
+
+    head(1, "COLD BOOT")
+    health = node.health()
+    line("node", health["node_id"])
+    line("memory backend", health["memory_backend"])
+    line("execution provider", health["execution_provider"])
+    line("points resident", health["points"])
+    line("subsystems running", sum(1 for s in health["subsystems"].values() if s["state"] == "running"))
+
+    head(2, "HYBRID RETRIEVAL, OFFLINE")
+    node.oracle.forced_offline = True
+    await node.oracle.probe_once()
+    line("link state", node.oracle.state.value)
+    for query in ("coolant pressure hard stop", "how do i recover the drive"):
+        result = await node.pipeline.search(query, k=3)
+        print(f"\n  {D}query{R} {query}")
+        line("latency", f"{result.latency_ms:.2f} ms")
+        line("stages", result.stages)
+        for hit in result.results[:2]:
+            print(f"    {O}{hit['score']:.3f}{R} [{hit['collection']}] {hit['text'][:58]}…"
+                  f"  {D}{'+'.join(hit['matched_by'])}{R}")
+
+    head(3, "POLICY: WHAT MAY NOT LEAVE")
+    restricted = await node.remember("Operator 4471 (jo@plant.io) overrode the interlock")
+    geo = await node.remember("Fault reported at 12.97123,77.59456 on the west mast")
+    line("restricted →", f"{restricted.sensitivity.value} / {restricted.sync_class.value}")
+    line("queued for egress", node.sync.record_local(restricted) is not None)
+    line("sensitive →", f"{geo.sensitivity.value} / {geo.sync_class.value}")
+    line("what the cloud would see", node.sync._egress_body(geo)["text"][:58] + "…")
+
+    head(4, "WORKING THROUGH AN OUTAGE")
+    for i in range(12):
+        await node.remember(f"night-shift observation {i}: belt tension drifting on line 2")
+    line("link", node.oracle.state.value)
+    line("durably queued ops", node.sync.queue.depth)
+    line("answers still served", "yes — local memory is authoritative")
+
+    head(5, "RECONNECTION")
+    queued_before = node.sync.queue.depth
+    t0 = time.perf_counter()
+    node.oracle.forced_offline = False
+    await node.oracle.probe_once()                 # the restore callback fires from here
+    await asyncio.sleep(0.25)
+    line("detected + replayed in", f"{(time.perf_counter() - t0) * 1000:.0f} ms")
+    line("link", node.oracle.state.value)
+    line("ops replayed on reconnect", queued_before - node.sync.queue.depth)
+    result = await node.sync.reconcile(trigger="demo")
+    line("follow-up cycle pushed/pulled", f"{result.get('pushed')} / {result.get('pulled')}")
+    line("divergent merkle buckets", result.get("divergent"))
+    line("bytes not shipped (digest walk)", f"{node.sync.bytes_saved:,}")
+    line("queue depth now", node.sync.queue.depth)
+
+    head(6, "FLEET KNOWLEDGE COMING BACK DOWN")
+    text = "Torque limit on line 2 was raised to 42 Nm after the bearing swap"
+    node.transport.inject("fleet-pt-demo", node.clock.now().pack(), {
+        "collection": "semantic", "text": text, "sensitivity": "internal",
+        "dense": node.embedder.embed_sync([text])[0].tolist(),
+        "confidence": 0.93, "device_id": "edge-99",
+    })
+    pulled = await node.sync.reconcile(trigger="demo-pull")
+    line("pulled from fleet", pulled.get("pulled"))
+    answer = await node.agent.answer("what is the torque limit on line 2")
+    line("agent answer", answer.answer[:58] + "…")
+    line("citations", len(answer.citations))
+
+    head(7, "CONTRADICTION + SUPERSESSION")
+    await node.remember("The 42 Nm torque limit was rescinded pending review", collection="semantic")
+    answer = await node.agent.answer("is the 42 Nm torque limit still valid")
+    line("contradictions found", len(answer.contradictions))
+    for finding in answer.contradictions[:2]:
+        line("  signal", finding["signals"])
+
+    head(8, "DATA RENEWAL — DUAL-SPACE MIGRATION")
+    node.migrator.begin("bge-small-en-v2")
+    line("state", node.migrator.state.value)
+    line("corpus to re-embed", node.migrator.total)
+    while node.migrator.state.value == "DUAL-SPACE":
+        await node.migrator.step()
+    line("final state", node.migrator.state.value)
+    line("shadow eval", node.migrator.shadow_result)
+
+    head(9, "CHAOS")
+    await node.chaos.inject("thermal_spike", duration_s=1.0, temp_c=95.0)
+    line("governor variant", node.governor.snapshot()["variant"])
+    await node.chaos.inject("corrupt_wal", duration_s=1.0)
+    line("WAL torn records after replay", sum(1 for _ in node.store.wal.replay()) and node.store.wal.torn)
+    await node.chaos.inject("partition", duration_s=1.0)
+    interrupted = await node.sync.reconcile(trigger="chaos")
+    line("sync under partition", interrupted.get("error", "—"))
+    line("nothing lost — queue depth", node.sync.queue.depth)
+
+    head(10, "LEDGER")
+    line("audit chain intact", node.audit.snapshot()["chain_intact"])
+    line("audit entries", node.audit.snapshot()["entries"])
+    line("policy denials", node.policy.snapshot()["denied_egress"])
+    line("conflicts by rung", node.sync.arbiter.snapshot()["by_rung"])
+    line("memory tiers", node.store.tier_counts())
+    line("events published", node.bus.published)
+
+    await node.stop()
+    print(f"\n{O}{B}  local memory authoritative · network optional{R}\n")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
