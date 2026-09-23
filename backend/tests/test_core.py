@@ -56,4 +56,4 @@ def test_token_bucket_throttles():
     bucket = TokenBucket(rate=100, capacity=10)
     assert bucket.try_take(10)
     assert not bucket.try_take(5)
-    assert asyncio.run(bucket.take(5)) > a
+    assert asyncio.run(bucket.take(5)) > 0
