@@ -16,7 +16,9 @@ from .config import Settings, get_settings
 from .core.bus import EventBus
 from .core.clock import HybridClock
 from .core.metrics import METRICS
+from .core.scheduler import Lane, QoSScheduler
 from .core.supervisor import Supervisor
+from .core.tracing import TRACER
 from .inference.classifier import SensitivityClassifier
 from .inference.embedder import Embedder
 from .inference.governor import ThermalGovernor
@@ -31,9 +33,16 @@ from .policy.engine import PolicyEngine
 from .policy.redaction import RedactionVault
 from .renewal.migrator import DualSpaceMigrator
 from .renewal.scheduler import RenewalScheduler
+from .learning.adapter import RetrievalAdapter, TrainingExample
+from .learning.federated import FederatedClient, FederatedCoordinator
+from .learning.privacy import PrivacyBudget
 from .retrieval.agent import ReasoningAgent
+from .retrieval.late_interaction import LateInteractionIndex
 from .retrieval.pipeline import RetrievalPipeline
+from .retrieval.query_understanding import QueryUnderstanding
+from .sync.crdt import Operation
 from .sync.engine import SyncEngine
+from .sync.gossip import GossipAgent, MeshLink
 from .sync.oracle import ConnectivityOracle
 from .sync.transport import build_transport
 
@@ -62,6 +71,8 @@ class EdgeNode:
         self.bus = EventBus()
         self.clock = HybridClock(self.settings.node_id)
         self.supervisor = Supervisor(self.bus)
+        self.scheduler = QoSScheduler(concurrency=self.settings.scheduler_concurrency)
+        self.tracer = TRACER
 
         # -- governance
         self.policy = PolicyEngine(self.settings.policy_file)
@@ -83,6 +94,12 @@ class EdgeNode:
             self.settings.inference.battery_floor_pct,
         )
         self.triton = TritonClient(url=None)
+        self.understanding = QueryUnderstanding()
+        self.late_interaction = LateInteractionIndex(self.embedder)
+        self.adapter = RetrievalAdapter(self.settings.memory.dim,
+                                        rank=self.settings.learning.rank,
+                                        alpha=self.settings.learning.alpha)
+        self.adapter.load(Path(self.settings.data_dir) / "adapter.json")
 
         # -- memory
         self.store = MemoryStore(
@@ -100,10 +117,21 @@ class EdgeNode:
             policy=self.policy, vault=self.vault, transport=self.transport, oracle=self.oracle,
         )
 
+        # -- mesh (device-to-device, works with no cloud at all)
+        self.mesh_link = MeshLink()
+        self.mesh = GossipAgent(
+            self.settings.node_id, self.mesh_link, self.bus,
+            op_source=lambda: list(self.sync.oplog.ops),
+            apply_op=self._apply_mesh_op,
+            may_share=self._may_share_op,
+        )
+
         # -- retrieval
         self.pipeline = RetrievalPipeline(
             store=self.store, sparse=self.sparse, reranker=self.reranker, triton=self.triton,
             oracle=self.oracle, bus=self.bus, half_life_days=self.settings.renewal.half_life_days,
+            understanding=self.understanding, late_interaction=self.late_interaction,
+            adapter=self.adapter if self.settings.learning.enabled else None,
         )
         self.agent = ReasoningAgent(self.pipeline, self.store, self.bus)
 
@@ -117,6 +145,16 @@ class EdgeNode:
             interval_s=self.settings.renewal.interval_s,
             half_life_days=self.settings.renewal.half_life_days,
         )
+
+        # -- learning
+        self.federation = FederatedClient(
+            self.settings.node_id, self.adapter,
+            PrivacyBudget(epsilon_total=self.settings.learning.epsilon_total),
+            epsilon_per_round=self.settings.learning.epsilon_per_round,
+            differential_privacy=self.settings.learning.differential_privacy,
+        )
+        self.coordinator = FederatedCoordinator(self.adapter.parameters().size)
+        self.feedback_buffer: list[TrainingExample] = []
 
         # -- chaos
         self.chaos = ChaosController(self, self.bus)
@@ -133,7 +171,10 @@ class EdgeNode:
         for point in self.store.points.values():
             self.sync.tree.set(point.id, point.hlc or self.clock.now().pack())
 
+        self.supervisor.register("scheduler", self.scheduler.run)
         self.supervisor.register("oracle", self.oracle.run)
+        if self.settings.mesh_enabled:
+            self.supervisor.register("mesh", self._mesh_loop)
         if self.settings.sync.enabled:
             self.supervisor.register("sync", self.sync.run)
         if self.settings.renewal.enabled:
@@ -154,19 +195,26 @@ class EdgeNode:
 
     async def stop(self) -> None:
         self.ready = False
+        self.scheduler.stop()
         await self.supervisor.stop_all()
+        for index in getattr(self.store.store, "indexes", {}).values():
+            index.storage.flush()
         self.store.wal.close()
 
     async def seed(self) -> int:
+        """Seed through the same path a real write takes.
+
+        Going straight to the store would skip vocabulary learning, the
+        per-token index and mesh notification — so the node would boot with
+        memories it cannot spell-correct against or gossip.
+        """
         for collection, text in SEED_MEMORIES:
-            point = await self.store.ingest(text, collection=collection, source="seed", origin="seed")
-            self.sync.record_local(point)
+            await self.remember(text, collection=collection, source="seed")
         # one restricted memory, to prove the policy path end to end
-        restricted = await self.store.ingest(
+        await self.remember(
             "Operator 4471 (jo.reyes@plant.io) acknowledged the alarm from console 2.",
-            collection="episodic", source="seed", origin="seed",
+            collection="episodic", source="seed",
         )
-        self.sync.record_local(restricted)
         return len(self.store.points)
 
     # -- background loops --------------------------------------------------
@@ -174,7 +222,36 @@ class EdgeNode:
     async def _compaction_loop(self) -> None:
         while True:
             await asyncio.sleep(self.settings.memory.compaction_interval_s)
-            self.store.compact()
+            try:
+                await self.scheduler.submit("compact", self._compact_once, Lane.MAINTENANCE)
+            except (RuntimeError, TimeoutError):
+                continue          # shed under pressure: a query matters more
+
+    async def _compact_once(self) -> dict[str, float]:
+        return self.store.compact().as_dict()
+
+    async def _mesh_loop(self) -> None:
+        while True:
+            await asyncio.sleep(self.settings.mesh_interval_s)
+            if not self.mesh.peers:
+                continue
+            try:
+                await self.scheduler.submit("mesh_round", lambda: self.mesh.round(2), Lane.SYNC)
+            except (RuntimeError, TimeoutError):
+                continue
+
+    # -- mesh plumbing -----------------------------------------------------
+
+    def _may_share_op(self, op: Operation) -> bool:
+        """A peer is egress too: the same policy decides what may cross."""
+        point = self.store.points.get(op.point_id)
+        if point is None:
+            return bool(op.body) and op.body.get("sensitivity") != "restricted"
+        return self.policy.may_egress(point)
+
+    async def _apply_mesh_op(self, op: Operation) -> None:
+        await self.sync._materialize(op)
+        self.pipeline.cache.invalidate()
 
     async def _consolidation_loop(self) -> None:
         while True:
@@ -198,9 +275,44 @@ class EdgeNode:
     async def remember(self, text: str, collection: str = "episodic",
                        payload: dict[str, Any] | None = None, source: str | None = None) -> Any:
         point = await self.store.ingest(text, collection=collection, payload=payload, source=source)
-        self.sync.record_local(point)
+        op = self.sync.record_local(point)
+        self.understanding.observe(text)                  # vocabulary + co-occurrence
+        self.late_interaction.index(point.id, text)       # per-token vectors
+        if op is not None and self.settings.mesh_enabled:
+            self.mesh.note_local(op)
         self.pipeline.cache.invalidate()
         return point
+
+    # -- learning ----------------------------------------------------------
+
+    async def feedback(self, query: str, chosen_id: str, rejected_id: str | None = None,
+                       weight: float = 1.0) -> dict[str, Any]:
+        """Teach the adapter from a real choice a person made."""
+        chosen = self.store.points.get(chosen_id)
+        if chosen is None or not chosen.dense:
+            return {"accepted": False, "reason": "unknown or unembedded point"}
+        rejected = self.store.points.get(rejected_id) if rejected_id else None
+        query_vector = self.embedder.embed_sync([query])[0]
+        example = TrainingExample(
+            query=query_vector,
+            positive=chosen.dense,
+            negative=rejected.dense if rejected and rejected.dense else None,
+            weight=weight,
+        )
+        self.feedback_buffer.append(example)
+        self.audit.record("feedback", chosen_id, query=query, rejected=rejected_id)
+        loss = 0.0
+        if len(self.feedback_buffer) >= self.settings.learning.batch:
+            loss = self.adapter.learn(self.feedback_buffer)
+            self.feedback_buffer.clear()
+            self.adapter.save(Path(self.settings.data_dir) / "adapter.json")
+            self.pipeline.cache.invalidate()
+            self.bus.publish("learning", "adapter_updated", loss=round(loss, 5),
+                             version=self.adapter.version,
+                             message=(f"adapter updated · v{self.adapter.version} · "
+                                      f"loss {loss:.4f}"))
+        return {"accepted": True, "buffered": len(self.feedback_buffer),
+                "loss": round(loss, 5), "adapter_version": self.adapter.version}
 
     # -- reporting ----------------------------------------------------------
 
@@ -220,6 +332,9 @@ class EdgeNode:
             "escalations": self.triton.escalations,
             "reconnect_ms": self.oracle.reconnect_ms,
             "governor": self.governor.snapshot(),
+            "scheduler": self.scheduler.snapshot(),
+            "mesh_peers": self.mesh.snapshot()["alive_peers"],
+            "adapter_version": self.adapter.version,
             "subsystems": self.supervisor.health(),
         }
 

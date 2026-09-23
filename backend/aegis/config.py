@@ -69,6 +69,17 @@ class RenewalConfig:
 
 
 @dataclass(slots=True)
+class LearningConfig:
+    enabled: bool = field(default_factory=lambda: _env("learning_enabled", True))
+    rank: int = field(default_factory=lambda: _env("adapter_rank", 16))
+    alpha: float = field(default_factory=lambda: _env("adapter_alpha", 0.35))
+    batch: int = field(default_factory=lambda: _env("learning_batch", 4))
+    differential_privacy: bool = field(default_factory=lambda: _env("differential_privacy", True))
+    epsilon_total: float = field(default_factory=lambda: _env("epsilon_total", 8.0))
+    epsilon_per_round: float = field(default_factory=lambda: _env("epsilon_per_round", 2.0))
+
+
+@dataclass(slots=True)
 class Settings:
     node_id: str = field(default_factory=lambda: _env("node_id", "edge-07"))
     data_dir: Path = field(default_factory=lambda: Path(_env("data_dir", ".aegis")))
@@ -78,11 +89,15 @@ class Settings:
     policy_file: str = field(default_factory=lambda: _env("policy_file", "config/policy.yaml"))
     seed_demo: bool = field(default_factory=lambda: _env("seed_demo", True))
     telemetry_interval_s: float = field(default_factory=lambda: _env("telemetry_interval_s", 2.0))
+    scheduler_concurrency: int = field(default_factory=lambda: _env("scheduler_concurrency", 3))
+    mesh_enabled: bool = field(default_factory=lambda: _env("mesh_enabled", True))
+    mesh_interval_s: float = field(default_factory=lambda: _env("mesh_interval_s", 15.0))
 
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     inference: InferenceConfig = field(default_factory=InferenceConfig)
     sync: SyncConfig = field(default_factory=SyncConfig)
     renewal: RenewalConfig = field(default_factory=RenewalConfig)
+    learning: LearningConfig = field(default_factory=LearningConfig)
 
     def as_dict(self) -> dict[str, Any]:
         d = asdict(self)

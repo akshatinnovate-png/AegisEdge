@@ -1,91 +1,31 @@
-"""Tiered vector index: full-precision HOT, int8 WARM, binary COLD.
+"""CollectionIndex — one collection's complete retrieval surface.
 
-Search fans out across all three tiers, over-fetching from the lossy tiers and
-rescoring the survivors against full precision, then merges. A sparse inverted
-index runs alongside so rare-token lexical matches survive offline, where
-there is no cloud reranker to rescue recall.
+Composes, rather than reimplements: full-precision vectors live once in
+`VectorStorage` (resident, or memmapped for the cold tail), the ANN strategy
+is chosen by the calibrated cost model, the cold tier is scanned as 1-bit
+codes and rescored by paging in only the shortlist, sparse postings run
+alongside for rare-token recall, and payload statistics feed the planner.
+
+Tiers here are *encodings*, not copies:
+
+    HOT   full precision, resident, in the ANN index
+    WARM  int8 scalar codes, resident, rescored from the same vectors
+    COLD  1-bit codes resident, vectors on disk, rescored by page-in
 """
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Iterable
+from pathlib import Path
+from typing import Any, Iterable
 
 import numpy as np
 
+from .ann import AdaptiveVectorIndex, CostModel, Strategy
+from .filters import Filter, PayloadIndex
+from .planner import PlanKind, QueryPlan, QueryPlanner
 from .quantize import BinaryQuantizer, ScalarQuantizer
 from .schema import Tier
-
-
-class _TierBlock:
-    """Column store for one tier: ids + whatever encoding that tier uses."""
-
-    def __init__(self, dim: int, tier: Tier) -> None:
-        self.dim = dim
-        self.tier = tier
-        self.ids: list[str] = []
-        self.pos: dict[str, int] = {}
-        self.full = np.zeros((0, dim), dtype=np.float32)   # kept for rescoring
-        self.codes: np.ndarray | None = None
-        self.scales: np.ndarray | None = None
-
-    def __len__(self) -> int:
-        return len(self.ids)
-
-    def add(self, point_id: str, vector: np.ndarray) -> None:
-        if point_id in self.pos:
-            self.update(point_id, vector)
-            return
-        self.pos[point_id] = len(self.ids)
-        self.ids.append(point_id)
-        self.full = np.vstack([self.full, vector.reshape(1, -1)]) if len(self.full) else vector.reshape(1, -1).copy()
-        self._reencode()
-
-    def update(self, point_id: str, vector: np.ndarray) -> None:
-        idx = self.pos.get(point_id)
-        if idx is None:
-            return
-        self.full[idx] = vector
-        self._reencode()
-
-    def remove(self, point_id: str) -> None:
-        idx = self.pos.pop(point_id, None)
-        if idx is None:
-            return
-        self.ids.pop(idx)
-        self.full = np.delete(self.full, idx, axis=0)
-        for pid, p in self.pos.items():
-            if p > idx:
-                self.pos[pid] = p - 1
-        self._reencode()
-
-    def _reencode(self) -> None:
-        if self.tier is Tier.WARM and len(self.full):
-            self.codes, self.scales = ScalarQuantizer.encode(self.full)
-        elif self.tier is Tier.COLD and len(self.full):
-            self.codes = BinaryQuantizer.encode(self.full)
-        else:
-            self.codes = self.scales = None
-
-    def search(self, query: np.ndarray, k: int, oversample: int) -> list[tuple[str, float, bool]]:
-        """Returns (id, score, rescored). Lossy tiers over-fetch then rescore."""
-        if not len(self.ids):
-            return []
-        if self.tier is Tier.HOT or self.codes is None:
-            scores = self.full @ query
-            order = np.argsort(-scores)[:k]
-            return [(self.ids[i], float(scores[i]), False) for i in order]
-
-        fetch = min(len(self.ids), k * oversample)
-        if self.tier is Tier.WARM:
-            approx = ScalarQuantizer.decode(self.codes, self.scales) @ query
-        else:
-            approx = BinaryQuantizer.similarity(
-                np.packbits(query > 0).reshape(1, -1), self.codes, self.dim
-            )
-        cand = np.argsort(-approx)[:fetch]
-        exact = self.full[cand] @ query                      # rescore survivors
-        order = np.argsort(-exact)[:k]
-        return [(self.ids[cand[i]], float(exact[i]), True) for i in order]
+from .vectors import VectorStorage
 
 
 class SparseIndex:
@@ -94,6 +34,7 @@ class SparseIndex:
     def __init__(self) -> None:
         self.postings: dict[int, dict[str, float]] = defaultdict(dict)
         self.norms: dict[str, float] = {}
+        self.terms_of: dict[str, list[int]] = {}
 
     def add(self, point_id: str, sparse: dict[int, float]) -> None:
         self.remove(point_id)
@@ -101,84 +42,197 @@ class SparseIndex:
         for term, weight in sparse.items():
             self.postings[term][point_id] = weight
             norm += weight * weight
+        self.terms_of[point_id] = list(sparse)
         self.norms[point_id] = norm ** 0.5 or 1.0
 
     def remove(self, point_id: str) -> None:
-        if point_id not in self.norms:
-            return
-        for term in list(self.postings):
-            self.postings[term].pop(point_id, None)
-            if not self.postings[term]:
-                del self.postings[term]
+        for term in self.terms_of.pop(point_id, ()):        # O(terms), not O(vocabulary)
+            bucket = self.postings.get(term)
+            if bucket is not None:
+                bucket.pop(point_id, None)
+                if not bucket:
+                    del self.postings[term]
         self.norms.pop(point_id, None)
 
-    def search(self, sparse: dict[int, float], k: int) -> list[tuple[str, float]]:
+    def search(self, sparse: dict[int, float], k: int, allow: set[str] | None = None) -> list[tuple[str, float]]:
         if not sparse:
             return []
-        acc: dict[str, float] = defaultdict(float)
-        qnorm = (sum(w * w for w in sparse.values()) ** 0.5) or 1.0
-        for term, qw in sparse.items():
-            for pid, w in self.postings.get(term, {}).items():
-                acc[pid] += qw * w
-        scored = [(pid, s / (qnorm * self.norms.get(pid, 1.0))) for pid, s in acc.items()]
+        accumulator: dict[str, float] = defaultdict(float)
+        query_norm = (sum(w * w for w in sparse.values()) ** 0.5) or 1.0
+        for term, query_weight in sparse.items():
+            for point_id, weight in self.postings.get(term, {}).items():
+                if allow is not None and point_id not in allow:
+                    continue
+                accumulator[point_id] += query_weight * weight
+        scored = [(pid, s / (query_norm * self.norms.get(pid, 1.0))) for pid, s in accumulator.items()]
         scored.sort(key=lambda x: -x[1])
         return scored[:k]
 
+    def snapshot(self) -> dict[str, int]:
+        return {"terms": len(self.postings), "documents": len(self.norms),
+                "postings": sum(len(b) for b in self.postings.values())}
 
-class TieredIndex:
-    """The dense side of one collection, spread across three tiers."""
 
-    def __init__(self, dim: int) -> None:
+INDEXED_FIELDS = ("collection", "sensitivity", "sync_class", "model_version",
+                  "device_id", "ts", "confidence", "stale", "pinned", "source")
+
+
+class CollectionIndex:
+    def __init__(self, dim: int, cost: CostModel, name: str = "default",
+                 data_dir: Path | None = None) -> None:
         self.dim = dim
-        self.blocks = {t: _TierBlock(dim, t) for t in (Tier.HOT, Tier.WARM, Tier.COLD)}
+        self.name = name
+        cold_path = (Path(data_dir) / f"{name}.cold.f32") if data_dir else None
+        self.storage = VectorStorage(dim, cold_path)
+        self.ann = AdaptiveVectorIndex(dim, cost, name)
         self.sparse = SparseIndex()
-        self.tier_of: dict[str, Tier] = {}
-        self.rescored = 0
+        self.payload = PayloadIndex(INDEXED_FIELDS)
+        self.planner = QueryPlanner(self.payload)
 
-    def upsert(self, point_id: str, dense: np.ndarray, sparse: dict[int, float], tier: Tier) -> None:
-        current = self.tier_of.get(point_id)
-        if current is not None and current is not tier:
-            self.blocks[current].remove(point_id)
-        self.blocks[tier].add(point_id, dense)
-        self.tier_of[point_id] = tier
+        self.tier_of: dict[str, Tier] = {}
+        self.warm_codes: dict[str, tuple[np.ndarray, float]] = {}
+        self.cold_codes: dict[str, np.ndarray] = {}
+        self.rescored = 0
+        self.cold_scans = 0
+        self.last_plan: QueryPlan | None = None
+
+    # -- writes -----------------------------------------------------------
+
+    def upsert(self, point_id: str, dense: np.ndarray, sparse: dict[int, float],
+               tier: Tier, payload: dict[str, Any] | None = None) -> None:
+        vector = np.asarray(dense, dtype=np.float32).reshape(-1)
+        norm = float(np.linalg.norm(vector)) or 1.0
+        vector = vector / norm
+
+        self.storage.put(point_id, vector)
         self.sparse.add(point_id, sparse)
+        if payload is not None:
+            self.payload.index(point_id, payload)
+        self.tier_of[point_id] = tier
+        self._encode_for(point_id, vector, tier)
+        if tier is Tier.COLD:
+            self.ann.remove(point_id)
+            self.storage.evict(point_id)
+        else:
+            self.ann.add(point_id, vector)
+
+    def _encode_for(self, point_id: str, vector: np.ndarray, tier: Tier) -> None:
+        self.warm_codes.pop(point_id, None)
+        self.cold_codes.pop(point_id, None)
+        if tier is Tier.WARM:
+            codes, scales = ScalarQuantizer.encode(vector.reshape(1, -1))
+            self.warm_codes[point_id] = (codes[0], float(scales[0][0]))
+        elif tier is Tier.COLD:
+            self.cold_codes[point_id] = BinaryQuantizer.encode(vector.reshape(1, -1))[0]
 
     def move(self, point_id: str, tier: Tier) -> bool:
         current = self.tier_of.get(point_id)
         if current is None or current is tier:
             return False
-        block = self.blocks[current]
-        idx = block.pos.get(point_id)
-        if idx is None:
+        if current is Tier.COLD:
+            self.storage.promote(point_id)
+        vector = self.storage.get(point_id)
+        if vector is None:
             return False
-        vector = block.full[idx].copy()
-        block.remove(point_id)
-        self.blocks[tier].add(point_id, vector)
+        vector = np.asarray(vector, dtype=np.float32)
         self.tier_of[point_id] = tier
+        self._encode_for(point_id, vector, tier)
+        if tier is Tier.COLD:
+            self.ann.remove(point_id)
+            self.storage.evict(point_id)
+        else:
+            self.ann.add(point_id, vector)
         return True
 
     def remove(self, point_id: str) -> None:
-        tier = self.tier_of.pop(point_id, None)
-        if tier is not None:
-            self.blocks[tier].remove(point_id)
+        self.tier_of.pop(point_id, None)
+        self.warm_codes.pop(point_id, None)
+        self.cold_codes.pop(point_id, None)
+        self.ann.remove(point_id)
         self.sparse.remove(point_id)
+        self.payload.drop(point_id)
+        self.storage.drop(point_id)
 
-    def search_dense(self, query: np.ndarray, k: int, oversample: int = 4) -> list[tuple[str, float]]:
-        merged: list[tuple[str, float, bool]] = []
-        for block in self.blocks.values():
-            merged.extend(block.search(query, k, oversample))
-        self.rescored += sum(1 for _, _, r in merged if r)
+    # -- reads ------------------------------------------------------------
+
+    def plan(self, spec: Filter, k: int) -> QueryPlan:
+        plan = self.planner.plan(spec, len(self), k,
+                                 ann_available=self.ann.strategy is not Strategy.FLAT)
+        self.last_plan = plan
+        return plan
+
+    def search_dense(self, query: np.ndarray, k: int, allow: set[str] | None = None,
+                     exact: bool = False) -> list[tuple[str, float]]:
+        query = np.asarray(query, dtype=np.float32).reshape(-1)
+        norm = float(np.linalg.norm(query)) or 1.0
+        query = query / norm
+
+        results = self.ann.search(query, k, allow=allow, exact=exact)
+        cold = self._search_cold(query, k, allow)
+        if not cold:
+            return results[:k]
+        merged = results + cold
         merged.sort(key=lambda x: -x[1])
-        return [(pid, score) for pid, score, _ in merged[:k]]
+        seen: set[str] = set()
+        out: list[tuple[str, float]] = []
+        for point_id, score in merged:
+            if point_id in seen:
+                continue
+            seen.add(point_id)
+            out.append((point_id, score))
+            if len(out) >= k:
+                break
+        return out
 
-    def search_sparse(self, sparse: dict[int, float], k: int) -> list[tuple[str, float]]:
-        return self.sparse.search(sparse, k)
+    def _search_cold(self, query: np.ndarray, k: int, allow: set[str] | None,
+                     oversample: int = 6) -> list[tuple[str, float]]:
+        """Scan 1-bit codes in RAM, then page in only the shortlist to rescore."""
+        ids = [p for p in self.cold_codes if allow is None or p in allow]
+        if not ids:
+            return []
+        self.cold_scans += 1
+        codes = np.vstack([self.cold_codes[p] for p in ids])
+        approximate = BinaryQuantizer.similarity(
+            np.packbits(query > 0).reshape(1, -1), codes, self.dim)
+        shortlist = np.argsort(-approximate)[: min(len(ids), max(k * oversample, k))]
+        wanted = [ids[i] for i in shortlist]
+        vectors = self.storage.gather(wanted)               # the only disk touch
+        exact = vectors @ query
+        self.rescored += len(wanted)
+        order = np.argsort(-exact)[:k]
+        return [(wanted[i], float(exact[i])) for i in order]
+
+    def search_sparse(self, sparse: dict[int, float], k: int,
+                      allow: set[str] | None = None) -> list[tuple[str, float]]:
+        return self.sparse.search(sparse, k, allow)
+
+    # -- reporting --------------------------------------------------------
 
     def counts(self) -> dict[str, int]:
-        return {t.value: len(b) for t, b in self.blocks.items()}
-
-    def __len__(self) -> int:
-        return sum(len(b) for b in self.blocks.values())
+        out = {t.value: 0 for t in (Tier.HOT, Tier.WARM, Tier.COLD)}
+        for tier in self.tier_of.values():
+            if tier.value in out:
+                out[tier.value] += 1
+        return out
 
     def ids(self) -> Iterable[str]:
         return self.tier_of.keys()
+
+    def __len__(self) -> int:
+        return len(self.tier_of)
+
+    def snapshot(self) -> dict[str, Any]:
+        counts = self.counts()
+        code_bytes = (len(self.warm_codes) * (self.dim + 4)) + (len(self.cold_codes) * self.dim // 8)
+        return {
+            "collection": self.name, "points": len(self), "tiers": counts,
+            "ann": self.ann.snapshot(), "sparse": self.sparse.snapshot(),
+            "storage": self.storage.snapshot(), "payload": self.payload.snapshot(),
+            "planner": {"plans": self.planner.plans, "by_kind": dict(self.planner.by_kind)},
+            "code_bytes": code_bytes, "rescored": self.rescored, "cold_scans": self.cold_scans,
+            "last_plan": self.last_plan.as_dict() if self.last_plan else None,
+        }
+
+
+# Backwards-compatible alias: the tiered index is now a full collection index.
+TieredIndex = CollectionIndex

@@ -16,6 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from aegis.config import Settings           # noqa: E402
 from aegis.node import EdgeNode             # noqa: E402
+from aegis.sync.gossip import GossipAgent    # noqa: E402
 from aegis.sync.oracle import LinkState     # noqa: E402
 
 O, B, D, R = "\033[38;5;208m", "\033[1m", "\033[2m", "\033[0m"
@@ -129,12 +130,75 @@ async def main() -> None:
     line("sync under partition", interrupted.get("error", "—"))
     line("nothing lost — queue depth", node.sync.queue.depth)
 
-    head(10, "LEDGER")
+    head(10, "QUERY UNDERSTANDING")
+    analysis = node.understanding.analyse("colent presure in bay3 over the last 2 hours")
+    line("typed", "colent presure in bay3 over the last 2 hours")
+    line("corrected", analysis.corrections)
+    line("expanded from local corpus", analysis.expansions)
+    line("filter extracted", list(analysis.filters))
+    line("cost", f"{analysis.ms:.2f} ms (no network, no LLM)")
+
+    head(11, "QUERY PLANNING")
+    for filters, label in (({"collection": "procedural"}, "selective filter"),
+                           ({"collection": "episodic"}, "loose filter"),
+                           ({"collection": "nonexistent"}, "impossible filter")):
+        result = await node.pipeline.search("pressure", k=3, filters=filters, understand=False)
+        line(label, f"{result.plan['plan']:<11} {result.plan['reason'][:52]}")
+    report = node.store.store.index_report()
+    line("ann strategy per collection", {k: v["ann"]["strategy"] for k, v in report["collections"].items()})
+    line("cost-model crossover", f"hnsw≥{report['cost_model']['hnsw_crossover']:,} points")
+
+    head(12, "PEER MESH — NO CLOUD INVOLVED")
+    from aegis.sync.crdt import OpKind, Operation
+    peer_store: dict[str, Operation] = {}
+
+    async def peer_apply(op: Operation) -> None:
+        peer_store[op.op_id] = op
+
+    peer = GossipAgent("edge-99", node.mesh_link, node.bus,
+                       op_source=lambda: list(peer_store.values()),
+                       apply_op=peer_apply, may_share=lambda _op: True)
+    node.mesh.add_peer("edge-99")
+    peer.add_peer(node.settings.node_id)
+    for op in node.sync.oplog.ops:
+        node.mesh.note_local(op)
+    node.oracle.forced_offline = True
+    await node.oracle.probe_once()
+    line("uplink", node.oracle.state.value)
+    outcome = await node.mesh.anti_entropy("edge-99")
+    line("anti-entropy round", outcome)
+    line("peer learned", f"{len(peer_store)} operations")
+    restricted_ops = [op for op in node.sync.oplog.ops
+                      if not node._may_share_op(op)]
+    line("withheld from peer by policy", len(restricted_ops))
+    line("leaked", sum(1 for op in restricted_ops if op.op_id in peer_store))
+    node.oracle.forced_offline = False
+    await node.oracle.probe_once()
+
+    head(13, "LEARNING FROM FEEDBACK")
+    found = await node.pipeline.search("coolant pressure", k=3)
+    chosen, rejected = found.results[0]["id"], found.results[-1]["id"]
+    version = node.adapter.version
+    for _ in range(node.settings.learning.batch):
+        await node.feedback("coolant pressure", chosen, rejected)
+    line("adapter version", f"{version} → {node.adapter.version}")
+    line("adapter size", f"{node.adapter.snapshot()['bytes'] / 1024:.1f} KB "
+                         f"({node.adapter.snapshot()['parameters']} parameters)")
+    cohort = [node.settings.node_id] + [f"peer-{i}" for i in range(7)]
+    contribution = node.federation.contribute(cohort, 1)
+    line("masked contribution", "indistinguishable from noise on its own")
+    line("privacy budget", node.federation.budget.as_dict()["remaining"])
+
+    head(14, "LEDGER")
     line("audit chain intact", node.audit.snapshot()["chain_intact"])
     line("audit entries", node.audit.snapshot()["entries"])
     line("policy denials", node.policy.snapshot()["denied_egress"])
     line("conflicts by rung", node.sync.arbiter.snapshot()["by_rung"])
     line("memory tiers", node.store.tier_counts())
+    line("mesh", f"{node.mesh.snapshot()['known_ops']} ops known · "
+                 f"{node.mesh.snapshot()['withheld_by_policy']} withheld")
+    line("slowest span", node.tracer.slowest(1))
+    line("scheduler lanes", {k: v["completed"] for k, v in node.scheduler.snapshot()["lanes"].items()})
     line("events published", node.bus.published)
 
     await node.stop()

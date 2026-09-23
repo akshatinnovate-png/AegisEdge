@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/v1", tags=["retrieval"])
 async def search(body: SearchRequest, node: EdgeNode = Depends(get_node)) -> dict:
     result = await node.pipeline.search(
         body.query, k=body.k, collection=body.collection, mode=body.mode,
-        explain=body.explain, allow_escalation=body.allow_escalation,
+        explain=body.explain, allow_escalation=body.allow_escalation, filters=body.filters,
     )
     return result.as_dict()
 

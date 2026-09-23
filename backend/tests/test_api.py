@@ -115,3 +115,84 @@ def test_websocket_streams_hello_and_events(client):
         client.post("/api/v1/memory/ingest", json={"text": "stream probe observation"})
         kinds = [json.loads(socket.receive_text()).get("kind") for _ in range(12)]
         assert any(k for k in kinds)
+
+
+def test_search_returns_a_plan_and_a_trace(client):
+    body = client.post("/api/v1/search", json={"query": "coolant pressure", "k": 3}).json()
+    assert body["plan"]["plan"] in {"pre_filter", "post_filter", "full_scan"}
+    assert body["trace"]["name"] == "search"
+    assert body["trace"]["children"]
+
+
+def test_search_repairs_a_misspelled_query(client):
+    body = client.post("/api/v1/search", json={"query": "colent presure", "k": 3}).json()
+    assert body["understanding"]["corrections"]
+    assert body["results"]
+
+
+def test_filtered_search_uses_a_prefilter_plan(client):
+    body = client.post("/api/v1/search",
+                       json={"query": "pressure", "k": 3, "filters": {"collection": "sensor"}}).json()
+    assert body["plan"]["plan"] == "pre_filter"
+    assert {hit["collection"] for hit in body["results"]} == {"sensor"}
+
+
+def test_impossible_filter_does_no_vector_work(client):
+    body = client.post("/api/v1/search",
+                       json={"query": "pressure", "k": 3, "filters": {"collection": "nope"}}).json()
+    assert body["plan"]["plan"] == "empty"
+    assert body["results"] == []
+    assert "dense_ms" not in body["stages"]
+
+
+def test_index_report_exposes_the_calibrated_cost_model(client):
+    body = client.get("/api/v1/index").json()
+    assert body["cost_model"]["calibrated"] is True
+    assert body["collections"]
+    assert all("strategy" in c["ann"] for c in body["collections"].values())
+
+
+def test_scheduler_reports_lanes(client):
+    body = client.get("/api/v1/scheduler").json()
+    assert set(body["depth"]) == {"interactive", "sync", "maintenance", "renewal"}
+
+
+def test_traces_endpoint_names_the_hotspot(client):
+    client.post("/api/v1/search", json={"query": "gantry", "k": 3})
+    body = client.get("/api/v1/traces").json()
+    assert body["summary"]["slowest"]
+    assert "hotspot" in body["summary"]["slowest"][0]
+
+
+def test_feedback_trains_the_adapter(client):
+    found = client.post("/api/v1/search", json={"query": "coolant", "k": 2}).json()
+    chosen = found["results"][0]["id"]
+    body = client.post("/api/v1/learning/feedback",
+                       json={"query": "coolant", "chosen_id": chosen}).json()
+    assert body["accepted"] is True
+    assert client.get("/api/v1/learning/status").json()["adapter"]["rank"] > 0
+
+
+def test_feedback_on_an_unknown_point_is_rejected(client):
+    assert client.post("/api/v1/learning/feedback",
+                       json={"query": "x", "chosen_id": "pt-nope"}).status_code == 404
+
+
+def test_federated_round_states_the_cohort_it_would_need(client):
+    body = client.post("/api/v1/learning/round", json={"simulate_peers": 5}).json()
+    assert body["status"] == "aggregated"
+    assert body["participants"] == 6
+    assert body["cohort_for_usable_snr"] >= 1
+
+
+def test_mesh_peer_lifecycle(client):
+    assert client.post("/api/v1/mesh/peers", json={"node_id": "edge-42"}).json()["peers"] >= 1
+    assert client.get("/api/v1/mesh/status").json()["node_id"]
+    assert client.delete("/api/v1/mesh/peers/edge-42").status_code == 200
+    assert client.delete("/api/v1/mesh/peers/edge-42").status_code == 404
+
+
+def test_mesh_round_without_peers_is_a_conflict_not_a_crash(client):
+    for peer in list(client.get("/api/v1/mesh/status").json()["peers"]):
+        client.delete(f"/api/v1/mesh/peers/{peer['node_id']}")
+    assert client.post("/api/v1/mesh/round").status_code == 409

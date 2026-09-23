@@ -12,7 +12,11 @@ from collections import Counter
 
 from .onnx_runtime import tokenize
 
-_STOP = frozenset("the a an of to and or in on at is was for with by from that this it as be".split())
+_STOP = frozenset(
+    "the a an of to and or in on at is was were are am be been being for with by from "
+    "that this these those it its as if then than so such have has had do does did will "
+    "would shall should can could may might must not no but into over under about".split()
+)
 
 
 class SparseEncoder:

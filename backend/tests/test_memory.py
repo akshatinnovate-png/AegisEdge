@@ -4,7 +4,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from aegis.memory.index import TieredIndex
+from aegis.memory.ann import CostModel, Strategy
+from aegis.memory.index import CollectionIndex
 from aegis.memory.schema import MemoryPoint, Tier
 from aegis.memory.tiering import TieringPolicy
 from aegis.memory.wal import WriteAheadLog
@@ -15,24 +16,56 @@ def _unit(seed: int, dim: int = 64) -> np.ndarray:
     return v / np.linalg.norm(v)
 
 
-def test_quantized_tiers_still_return_the_right_neighbour():
-    index = TieredIndex(64)
+def _index(tmp_path, dim: int = 64) -> CollectionIndex:
+    return CollectionIndex(dim, CostModel().calibrate(dim=dim, sample=512), "episodic", tmp_path)
+
+
+def test_quantized_tiers_still_return_the_right_neighbour(tmp_path):
+    index = _index(tmp_path)
     vectors = {}
     for i in range(90):
         v = _unit(i)
         vectors[f"p{i}"] = v
-        index.upsert(f"p{i}", v, {i % 7: 1.0}, [Tier.HOT, Tier.WARM, Tier.COLD][i % 3])
+        index.upsert(f"p{i}", v, {i % 7: 1.0}, [Tier.HOT, Tier.WARM, Tier.COLD][i % 3],
+                     {"collection": "episodic", "ts": float(i)})
     for probe in ("p11", "p44", "p77"):          # one point in each tier
         assert index.search_dense(vectors[probe], 3)[0][0] == probe
 
 
-def test_moving_a_point_between_tiers_preserves_recall():
-    index = TieredIndex(64)
+def test_cold_tier_vectors_leave_ram(tmp_path):
+    index = _index(tmp_path)
+    for i in range(40):
+        index.upsert(f"p{i}", _unit(i), {}, Tier.HOT, {"collection": "episodic"})
+    resident_before = index.storage.snapshot()["resident_bytes"]
     for i in range(30):
-        index.upsert(f"p{i}", _unit(i), {}, Tier.HOT)
+        index.move(f"p{i}", Tier.COLD)
+    after = index.storage.snapshot()
+    assert after["resident_bytes"] < resident_before        # actually evicted, not "compressed"
+    assert after["cold_on_disk"] == 30
+    assert index.search_dense(_unit(3), 1)[0][0] == "p3"    # still retrievable, paged in
+    assert index.storage.page_ins > 0
+
+
+def test_moving_a_point_between_tiers_preserves_recall(tmp_path):
+    index = _index(tmp_path)
+    for i in range(30):
+        index.upsert(f"p{i}", _unit(i), {}, Tier.HOT, {"collection": "episodic"})
     assert index.move("p7", Tier.COLD)
     assert index.search_dense(_unit(7), 1)[0][0] == "p7"
     assert index.counts()["cold"] == 1
+    assert index.move("p7", Tier.HOT)                       # promotion brings it back
+    assert index.storage.row_of.get("p7") is not None
+
+
+def test_removing_a_point_clears_every_structure(tmp_path):
+    index = _index(tmp_path)
+    for i in range(20):
+        index.upsert(f"p{i}", _unit(i), {i: 1.0}, Tier.HOT, {"collection": "episodic"})
+    index.remove("p5")
+    assert len(index) == 19
+    assert index.search_sparse({5: 1.0}, 3) == []
+    assert "p5" not in index.storage.row_of
+    assert all(pid != "p5" for pid, _ in index.search_dense(_unit(5), 5))
 
 
 def test_wal_replays_and_truncates_a_torn_tail(tmp_path):

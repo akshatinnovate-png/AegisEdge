@@ -7,7 +7,8 @@ engine on the inside.
 pip install -r requirements.txt
 uvicorn aegis.main:app --reload --port 8000     # API + WebSocket
 python3 scripts/demo.py                          # full lifecycle, no server
-python3 -m pytest tests -q                       # 52 tests
+python3 scripts/bench.py                         # index recall + latency on this machine
+python3 -m pytest tests -q                       # 132 tests
 ```
 
 Open `http://localhost:8000/docs` for the live OpenAPI surface, or point the
@@ -19,11 +20,12 @@ frontend at it (it defaults to `http://localhost:8000`).
 |---|---|
 | `aegis/node.py` | Composition root — every subsystem is built and supervised here |
 | `aegis/config.py` | All configuration, env-overridable (`AEGIS_*`) |
-| `aegis/core/` | HLC clock, event bus, supervisor, metrics, breaker, backoff, token bucket |
-| `aegis/memory/` | Schema, WAL, quantizers, tiered index, Qdrant Edge adapter, compactor, consolidation |
+| `aegis/core/` | HLC clock, event bus, supervisor, metrics, breaker, backoff, token bucket, **QoS scheduler**, **span tracing** |
+| `aegis/memory/` | Schema, WAL, quantizers, **HNSW**, **OPQ / IVF-PQ**, **adaptive index + cost model**, **filters & payload index**, **query planner**, **memmap cold tier**, Qdrant Edge adapter, compactor, consolidation |
 | `aegis/inference/` | ONNX session + EP ladder, micro-batcher, embedder, sparse encoder, reranker, classifier, thermal governor, model registry, Triton client |
-| `aegis/retrieval/` | RRF fusion, scoring, semantic cache, contradiction detection, pipeline, agent |
-| `aegis/sync/` | CRDT op log, Merkle digests, durable queue, connectivity oracle, transports, conflict arbiter, engine |
+| `aegis/retrieval/` | RRF fusion, scoring, semantic cache, contradiction detection, **query understanding (BK-tree, expansion, intent)**, **late interaction (MaxSim)**, pipeline, agent |
+| `aegis/sync/` | CRDT op log, Merkle digests, **IBLT set reconciliation**, **vector clocks + causal delivery**, **P2P gossip mesh**, **wire codec**, durable queue, connectivity oracle, transports, conflict arbiter, engine |
+| `aegis/learning/` | **On-device retrieval adapter**, **differential privacy**, **federated secure aggregation** |
 | `aegis/renewal/` | Freshness sweeps, dual-space migrator, scheduler |
 | `aegis/policy/` | Policy engine, redaction vault, hash-chained audit log |
 | `aegis/chaos/` | Fault injection |
@@ -44,6 +46,32 @@ The node runs with none of these and reports exactly which path it is on
 Drop graphs into `models/<name>.<variant>.onnx` and they are picked up on the
 next boot — the registry verifies each digest before loading it.
 
+## Index selection
+
+There is no single best index, so the node measures rather than assumes. At
+boot it microbenchmarks this machine, derives the crossover points, and places
+each collection on the strategy its size justifies:
+
+| Strategy | Chosen when | Measured (n=3000, d=96, k=10) |
+|---|---|---|
+| Flat BLAS | below the HNSW crossover (~7-13k points here) | recall 1.000 · 0.08 ms · 384 B/point |
+| HNSW | above it, while vectors fit in RAM | recall 0.993 · 0.53 ms · 384 B/point |
+| IVF-PQ (OPQ) | very large, or under memory pressure | recall 0.993 · 1.66 ms · **6 B/point** |
+
+Run `scripts/bench.py` to reproduce those numbers, or disagree with them.
+
+Two things the calibration decides for itself, because they are properties of
+the *data*, not of the algorithm:
+
+- **nprobe** — a true neighbour sitting in an unprobed IVF cell cannot be
+  recovered at any rescore depth. Clustered corpora need ~24% of cells probed;
+  uniformly distributed ones need ~90%, because IVF has no structure to
+  exploit there.
+- **rescore depth** — quantization error routinely exceeds the gaps between
+  near neighbours, so the right answers sit deep in the approximate ordering
+  even at 0.995 rank correlation. The index measures the depth its corpus
+  needs for the target recall instead of guessing `4k`.
+
 ## Things worth knowing
 
 - **`divergent ranges` rarely reaches zero, and that is correct.** Points the
@@ -55,3 +83,17 @@ next boot — the registry verifies each digest before loading it.
   HTTP coordinator to use `HttpCloud` instead.
 - **The WAL is the system of record.** Nothing becomes searchable before it is
   recoverable.
+- **The cold tier really leaves RAM.** Cold vectors are evicted to a memmapped
+  file; only 1-bit codes stay resident, and rescoring pages back just the
+  shortlist. Keeping a full-precision copy "for rescoring" would make the
+  compression ratio a slide rather than a fact.
+- **Federated learning states what it needs.** Gaussian DP noise is
+  per-coordinate, so one device's update is mostly noise by construction. Each
+  round reports its SNR and the cohort size that epsilon would actually
+  require (hundreds of thousands, at eps=2 over 12k parameters). DP can be
+  switched off for a small fleet — that is an audited choice, and secure
+  aggregation still hides the individual update either way.
+- **Causal ordering applies to the rumour path, not to bulk transfer.** CRDT
+  operations are commutative, so anti-entropy applies a set directly; vector
+  clocks guard the streaming path, where a supersede can outrun what it
+  supersedes.

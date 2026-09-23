@@ -87,7 +87,9 @@ class SyncEngine:
         self.pulled = 0
         self.bytes_saved = 0
         self.resumptions = 0
+        self.coalesced = 0
         self._lock = asyncio.Lock()
+        self._inflight: asyncio.Future | None = None
 
         oracle.on_restore(self.on_link_restored)
 
@@ -137,10 +139,34 @@ class SyncEngine:
         await self.reconcile(trigger="link_restored")
 
     async def reconcile(self, trigger: str = "scheduled") -> dict[str, Any]:
-        if self._lock.locked():
-            return {"skipped": "already_running", "state": self.state.value}
-        async with self._lock:
-            return await self._reconcile(trigger)
+        """Run a cycle, coalescing with one already in flight.
+
+        A manual trigger that lands mid-cycle used to return a bare
+        "already_running", which tells the caller nothing and looks like a
+        failure. Instead the caller joins the running cycle and receives its
+        result — the same answer it would have got, without a second pass over
+        the same operations.
+        """
+        if self._inflight is not None and not self._inflight.done():
+            self.coalesced += 1
+            METRICS.incr("sync.coalesced")
+            result = await asyncio.shield(self._inflight)
+            return {**result, "coalesced_with": "in-flight cycle"}
+
+        loop = asyncio.get_running_loop()
+        self._inflight = loop.create_future()
+        try:
+            async with self._lock:
+                result = await self._reconcile(trigger)
+            if not self._inflight.done():
+                self._inflight.set_result(result)
+            return result
+        except Exception as exc:
+            if self._inflight is not None and not self._inflight.done():
+                self._inflight.set_exception(exc)
+            raise
+        finally:
+            self._inflight = None
 
     async def _reconcile(self, trigger: str) -> dict[str, Any]:
         t0 = time.perf_counter()
@@ -328,6 +354,7 @@ class SyncEngine:
             "session": self.session,
             "zero_rtt_resumed": self.zero_rtt,
             "resumptions": self.resumptions,
+            "coalesced": self.coalesced,
             "cycles": self.cycles,
             "pushed": self.pushed,
             "pulled": self.pulled,

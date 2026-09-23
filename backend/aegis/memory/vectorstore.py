@@ -8,11 +8,15 @@ silently swapped.
 """
 from __future__ import annotations
 
-from typing import Protocol
+from pathlib import Path
+from typing import Any, Protocol
 
 import numpy as np
 
-from .index import TieredIndex
+from .ann import CostModel
+from .filters import Filter
+from .index import CollectionIndex
+from .planner import PlanKind, QueryPlan
 from .schema import MemoryPoint, Tier
 
 
@@ -22,30 +26,48 @@ class VectorStore(Protocol):
     def upsert(self, point: MemoryPoint) -> None: ...
     def delete(self, point_id: str) -> None: ...
     def move(self, point_id: str, tier: Tier) -> bool: ...
-    def search_dense(self, collection: str, query: np.ndarray, k: int) -> list[tuple[str, float]]: ...
-    def search_sparse(self, collection: str, sparse: dict[int, float], k: int) -> list[tuple[str, float]]: ...
+    def search_dense(self, collection: str, query: np.ndarray, k: int,
+                     allow: set[str] | None = None) -> list[tuple[str, float]]: ...
+    def search_sparse(self, collection: str, sparse: dict[int, float], k: int,
+                      allow: set[str] | None = None) -> list[tuple[str, float]]: ...
     def counts(self) -> dict[str, dict[str, int]]: ...
 
 
 class NativeStore:
-    """Tiered NumPy store — no external service, no network hop."""
+    """Tiered store — adaptive ANN, on-disk cold tier, no external service."""
 
     backend = "native-tiered"
 
-    def __init__(self, dim: int, collections: tuple[str, ...]) -> None:
+    def __init__(self, dim: int, collections: tuple[str, ...], data_dir: str | None = None) -> None:
         self.dim = dim
-        self.indexes: dict[str, TieredIndex] = {c: TieredIndex(dim) for c in collections}
+        self.data_dir = Path(data_dir) if data_dir else None
+        self.cost = CostModel().calibrate(dim=dim)
+        self.indexes: dict[str, CollectionIndex] = {
+            c: CollectionIndex(dim, self.cost, c, self.data_dir) for c in collections
+        }
 
-    def _index(self, collection: str) -> TieredIndex:
+    def _index(self, collection: str) -> CollectionIndex:
         if collection not in self.indexes:
-            self.indexes[collection] = TieredIndex(self.dim)
+            self.indexes[collection] = CollectionIndex(self.dim, self.cost, collection, self.data_dir)
         return self.indexes[collection]
+
+    @staticmethod
+    def _payload_of(point: MemoryPoint) -> dict[str, Any]:
+        """Flatten the fields the planner is allowed to reason about."""
+        return {
+            "collection": point.collection, "sensitivity": point.sensitivity.value,
+            "sync_class": point.sync_class.value, "model_version": point.model_version,
+            "device_id": point.device_id, "ts": point.created_at,
+            "confidence": point.confidence, "stale": point.stale, "pinned": point.pinned,
+            "source": point.source or "", **point.payload,
+        }
 
     def upsert(self, point: MemoryPoint) -> None:
         vector = np.asarray(point.dense, dtype=np.float32)
         if vector.shape[0] != self.dim:
             raise ValueError(f"dim mismatch: {vector.shape[0]} != {self.dim}")
-        self._index(point.collection).upsert(point.id, vector, point.sparse, point.tier)
+        self._index(point.collection).upsert(point.id, vector, point.sparse, point.tier,
+                                             self._payload_of(point))
 
     def delete(self, point_id: str) -> None:
         for index in self.indexes.values():
@@ -54,23 +76,73 @@ class NativeStore:
     def move(self, point_id: str, tier: Tier) -> bool:
         return any(index.move(point_id, tier) for index in self.indexes.values())
 
-    def search_dense(self, collection: str, query: np.ndarray, k: int) -> list[tuple[str, float]]:
-        if collection == "*":
-            merged: list[tuple[str, float]] = []
-            for index in self.indexes.values():
-                merged.extend(index.search_dense(query, k))
-            merged.sort(key=lambda x: -x[1])
-            return merged[:k]
-        return self._index(collection).search_dense(query, k)
+    # -- planning ---------------------------------------------------------
 
-    def search_sparse(self, collection: str, sparse: dict[int, float], k: int) -> list[tuple[str, float]]:
+    def plan(self, collection: str, spec: Filter, k: int) -> tuple[QueryPlan, set[str] | None]:
+        """Plan once per query; the same allow-set then drives both spaces.
+
+        Across a `*` search each collection plans separately, and the results
+        have to be *aggregated*, not competed. A collection holding none of
+        the matching points produces a correct EMPTY plan for itself — letting
+        that plan win would answer the whole query with nothing.
+        """
+        targets = list(self.indexes.values()) if collection == "*" else [self._index(collection)]
+        plans = [(index, index.plan(spec, k)) for index in targets]
+        if not plans:
+            return QueryPlan(PlanKind.EMPTY, 0.0, 0, 0, 0.0, "no such collection", allow=set()), set()
+
+        resolvable = [(ix, p) for ix, p in plans if p.allow is not None]
+        matched = [(ix, p) for ix, p in plans if p.kind is not PlanKind.EMPTY]
+
+        if not matched:
+            merged = QueryPlan(PlanKind.EMPTY, 0.0, 0, 0,
+                               sum(p.cost_estimate for _, p in plans),
+                               "filter matches nothing in any collection", allow=set())
+            return merged, set()
+
+        # every collection could resolve its own ids → one union pre-filter
+        if len(resolvable) == len(plans):
+            allow: set[str] = set()
+            for _, plan in resolvable:
+                allow |= (plan.allow or set())
+            corpus = sum(len(ix) for ix in targets)
+            merged = QueryPlan(
+                PlanKind.PRE_FILTER,
+                selectivity=(len(allow) / corpus) if corpus else 0.0,
+                estimated_matches=len(allow), fetch_k=k,
+                cost_estimate=sum(p.cost_estimate for _, p in resolvable),
+                reason=(f"filter resolves to {len(allow)} ids across "
+                        f"{len(matched)} collection(s) — exact scan of that subset"),
+                allow=allow,
+            )
+            return merged, allow
+
+        best = max(matched, key=lambda row: row[1].estimated_matches)[1]
+        return best, None
+
+    def search_dense(self, collection: str, query: np.ndarray, k: int,
+                     allow: set[str] | None = None) -> list[tuple[str, float]]:
         if collection == "*":
             merged: list[tuple[str, float]] = []
             for index in self.indexes.values():
-                merged.extend(index.search_sparse(sparse, k))
+                merged.extend(index.search_dense(query, k, allow=allow))
             merged.sort(key=lambda x: -x[1])
             return merged[:k]
-        return self._index(collection).search_sparse(sparse, k)
+        return self._index(collection).search_dense(query, k, allow=allow)
+
+    def search_sparse(self, collection: str, sparse: dict[int, float], k: int,
+                      allow: set[str] | None = None) -> list[tuple[str, float]]:
+        if collection == "*":
+            merged: list[tuple[str, float]] = []
+            for index in self.indexes.values():
+                merged.extend(index.search_sparse(sparse, k, allow=allow))
+            merged.sort(key=lambda x: -x[1])
+            return merged[:k]
+        return self._index(collection).search_sparse(sparse, k, allow=allow)
+
+    def index_report(self) -> dict[str, Any]:
+        return {"cost_model": self.cost.as_dict(),
+                "collections": {name: ix.snapshot() for name, ix in self.indexes.items()}}
 
     def counts(self) -> dict[str, dict[str, int]]:
         return {name: index.counts() for name, index in self.indexes.items()}
@@ -78,6 +150,10 @@ class NativeStore:
     @property
     def rescored(self) -> int:
         return sum(i.rescored for i in self.indexes.values())
+
+    @property
+    def resident_bytes(self) -> int:
+        return sum(i.storage.snapshot()["resident_bytes"] for i in self.indexes.values())
 
 
 class QdrantEdgeStore(NativeStore):
@@ -92,7 +168,7 @@ class QdrantEdgeStore(NativeStore):
     backend = "qdrant-edge"
 
     def __init__(self, dim: int, collections: tuple[str, ...], path: str) -> None:
-        super().__init__(dim, collections)
+        super().__init__(dim, collections, path)
         from qdrant_client import QdrantClient  # type: ignore
         from qdrant_client.models import Distance, VectorParams  # type: ignore
 
@@ -136,4 +212,4 @@ def build_store(dim: int, collections: tuple[str, ...], path: str) -> VectorStor
     try:
         return QdrantEdgeStore(dim, collections, path)
     except Exception:
-        return NativeStore(dim, collections)
+        return NativeStore(dim, collections, path)

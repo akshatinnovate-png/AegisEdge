@@ -15,8 +15,9 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from .api import (routes_chaos, routes_health, routes_memory, routes_renewal,
-                  routes_search, routes_sync, ws)
+from .api import (routes_chaos, routes_health, routes_index, routes_learning,
+                  routes_memory, routes_mesh, routes_renewal, routes_search,
+                  routes_sync, ws)
 from .config import get_settings
 from .core.errors import AegisError
 from .core.metrics import METRICS
@@ -67,7 +68,8 @@ def create_app() -> FastAPI:
         return JSONResponse(status_code=503, content={"error": exc.code, "detail": str(exc)})
 
     for module in (routes_health, routes_memory, routes_search, routes_sync,
-                   routes_renewal, routes_chaos):
+                   routes_renewal, routes_chaos, routes_index, routes_learning,
+                   routes_mesh):
         app.include_router(module.router)
     app.include_router(ws.router)
 

@@ -94,16 +94,47 @@ connectivity as the exception.
 | Escalation policy | Local ONNX answers first and always. Triton is consulted only when local confidence < τ, the query is flagged complex, and RTT/jitter budget is met. Every escalation is logged with the reason, visible in the UI. |
 | Model parity guard | Triton and ONNX embedders are version-locked. A mismatch triggers **renewal** (§2.6), never a silent mixed-embedding-space corruption. |
 
-### 2.4 Retrieval & reasoning
+### 2.4 Approximate nearest neighbour — measured, not assumed
+
+| Feature | Detail |
+|---|---|
+| HNSW | Full hierarchical graph with **heuristic neighbour selection** (naive top-M builds hubs and collapses recall on clustered data), bidirectional pruning, soft deletes with graph repair, entry-point demotion. **0.993 recall@10** measured. |
+| OPQ + IVF-PQ | Product quantization on IVF residuals with a learned **OPQ rotation** — plain PQ slices by position, which assumes variance is already evenly spread; embeddings are nothing like that. **48-64x compression** at 0.993 recall. |
+| Self-calibration | `nprobe` and rescore depth are *measured per corpus*, not guessed: clustered data needs ~24% of cells probed, uniform data ~90%. The index reports both. |
+| Cost model | The node microbenchmarks its own silicon at boot and derives the flat→HNSW→IVF-PQ crossovers from it. A collection migrates strategy as it grows; migrations are logged. |
+| Cold tier on disk | Cold vectors are evicted to a **memmap**; only 1-bit codes stay resident and rescoring pages in the shortlist alone. |
+
+### 2.5 Query planning
+
+| Feature | Detail |
+|---|---|
+| Payload index | Keyword postings plus sorted numeric arrays, carrying cardinality statistics so selectivity is *estimated* before anything executes. |
+| Cost-based planner | Chooses pre-filter (resolve ids, scan that subset exactly), post-filter (ANN first, over-fetching by inverse selectivity) or full scan — and explains the choice in the response. |
+| Provable emptiness | A filter that matches nothing does **zero** vector work. |
+| Cross-collection | A `*` search aggregates per-collection plans instead of letting an empty one veto the query. |
+
+### 2.6 Query understanding — local, in under 3 ms
+
+| Feature | Detail |
+|---|---|
+| BK-tree spelling repair | Metric tree over the *corpus* vocabulary, so "colent presure" becomes "coolant pressure" — domain terms a generic dictionary would never hold. Common English words are protected from over-eager correction. |
+| Co-occurrence expansion | PMI-style expansion learned from ingested text; no embedding round trip. |
+| Unit & temporal normalisation | `4.2mm/s` is normalised; "from the last 2 hours" becomes a payload filter the planner can use. |
+| Intent routing | Procedural / sensor / episodic / semantic routing from the query shape. |
+
+### 2.7 Retrieval & reasoning
 
 - **Hybrid fusion** — dense + sparse candidates merged with **Reciprocal Rank Fusion**, then cross-encoder reranked on-device.
+- **Late interaction** — ColBERT-style **MaxSim** over per-token vectors (int8-quantized) on the shortlist only, with query-term → document-term alignments returned as evidence.
+- **On-device adapter** — a rank-16 low-rank adapter (~48 KB) trained from real feedback by contrastive updates, so the node learns *this* site's vocabulary without a fine-tune.
+- **Span tracing** — every query emits a nested span tree and names its own hotspot.
 - **Temporal decay + salience** — final score = `α·similarity + β·recency_decay + γ·access_frequency + δ·pinned` so stale memories sink without being deleted.
 - **Contradiction detection** — an NLI head flags memories that contradict newer ones; the loser is *superseded*, not erased, and the chain stays inspectable.
 - **Memory consolidation** — a nightly (or idle-triggered) job clusters near-duplicate episodic points and distills them into a single semantic point, with provenance links to the originals. Local memory stops growing linearly with uptime.
 - **Agentic loop** — plan → retrieve → (optionally escalate to Triton) → verify → answer, with every step emitted on the telemetry bus so the frontend can render the node's actual reasoning trace.
 - **Query cache** — semantic cache keyed on embedding proximity; a near-identical question answers from cache in <1 ms.
 
-### 2.5 Sync engine — edge ⇄ cloud
+### 2.8 Sync engine — edge ⇄ cloud
 
 | Feature | Detail |
 |---|---|
@@ -116,7 +147,38 @@ connectivity as the exception.
 | Resumable transfer | Chunked, checksummed, offset-resumable. A link that dies at 93% resumes at 93%. |
 | Tombstones + GC | Deletes propagate as tombstones with a grace window, then are garbage collected fleet-wide. |
 
-### 2.6 Data renewal
+### 2.9 Peer-to-peer mesh — no cloud involved
+
+Two robots in a tunnel are ten metres apart and both blind under a
+cloud-centric design. AegisEdge lets them reconcile directly.
+
+| Feature | Detail |
+|---|---|
+| IBLT set reconciliation | Invertible Bloom Lookup Tables sized by the *difference*, not the corpus: two 5000-op devices reconcile a 15-op difference in **6 KB**, in one exchange. Cells XOR the key itself, so neither side needs a dictionary of the other's keys. |
+| Honest failure | If the difference outruns the table, decoding reports incomplete and the round retries wider rather than acting on a partial answer. |
+| Vector clocks + causal delivery | The rumour path holds an operation until its declared predecessors arrive, so a supersede never lands before what it supersedes. Bulk anti-entropy applies directly — CRDT ops are commutative. |
+| Rumour mongering | New facts push to a few random peers immediately and stop when they come back as duplicates: log-round propagation, no broadcast storm. |
+| Policy at the peer boundary | A peer is egress. Restricted memories are withheld from peers *and from relays*, and withheld ops never enter the causal sequence, so they cannot stall it. |
+| Wire codec | Delta encoding + int8 vectors + zlib: **17.7x** smaller frames at 0.99998 vector fidelity. |
+
+### 2.10 On-device learning
+
+| Feature | Detail |
+|---|---|
+| Retrieval adapter | Rank-16 projections over the embedding space, trained by contrastive hinge from click feedback. ~48 KB, microseconds per example. |
+| Differential privacy | Clipped updates plus calibrated Gaussian noise, with a tracked (ε, δ) budget the node refuses to overspend. |
+| Secure aggregation | Pairwise masks cancel exactly in the sum, so the coordinator sees the average and never an individual update. Rounds with too many dropouts are abandoned rather than corrupted. |
+| Honest utility reporting | Each round reports its SNR and the cohort size that epsilon would actually need. DP is switchable for small fleets — an audited choice, not a silent one. |
+
+### 2.11 QoS scheduling
+
+Background work is not optional, but a waiting person outranks a re-embedding
+batch. Work is admitted into priority lanes (interactive / sync / maintenance /
+renewal) with deadlines; stale background jobs are **shed** rather than run
+late, and admission control rejects work the node cannot finish instead of
+missing every deadline at once.
+
+### 2.12 Data renewal
 
 Memory rots. Renewal is a first-class subsystem, not a cron job.
 
@@ -127,7 +189,7 @@ Memory rots. Renewal is a first-class subsystem, not a cron job.
 - **Compaction & decay** — expired points drop to cold, then to tombstone. Pinned and high-salience points are exempt.
 - **Shadow evaluation** — before a renewed model is promoted, a golden query set is replayed against both spaces; promotion is blocked on recall regression.
 
-### 2.7 Policy & privacy engine
+### 2.13 Policy & privacy engine
 
 - On-device **PII / sensitivity classifier** (ONNX) tags every chunk `public | internal | sensitive | restricted` before it is ever written.
 - Declarative policy (`YAML`, hot-reloadable): *restricted never leaves the device; sensitive syncs only redacted; public syncs freely.*
@@ -135,7 +197,7 @@ Memory rots. Renewal is a first-class subsystem, not a cron job.
 - Encryption at rest (AES-256-GCM, key in TPM/Secure Enclave/keyring), mTLS in flight, per-device identity certificates.
 - **Tamper-evident audit log** — hash-chained, append-only record of every read, sync and escalation.
 
-### 2.8 Instantaneous reconnection
+### 2.14 Instantaneous reconnection
 
 The part most projects hand-wave. Reconnection is sub-second and stateful.
 
@@ -148,14 +210,14 @@ The part most projects hand-wave. Reconnection is sub-second and stateful.
 - **Circuit breaker** — per-endpoint breakers trip fast and half-open probe, so a sick cloud endpoint never stalls the local path.
 - **Optimistic UI contract** — the WebSocket pushes `link_state` transitions so the frontend flips between LOCAL and FUSED modes the moment the link moves.
 
-### 2.9 Realtime & transport layer
+### 2.15 Realtime & transport layer
 
 - **WebSocket multiplex** — one socket, logical channels (`telemetry`, `sync`, `search`, `reasoning_trace`, `alerts`), heartbeats with server-side liveness detection.
 - **Event bus** — internal pub/sub; every subsystem emits structured events which the gateway fans out to subscribed UIs.
 - **Server-Sent Events fallback** for locked-down networks; **gRPC** for device↔cloud; **REST** for control plane.
 - **Backpressure-aware streaming** — slow consumers get sampled, not buffered to death.
 
-### 2.10 Reliability & operations
+### 2.16 Reliability & operations
 
 - **Supervisor** with per-subsystem health, restart budgets and crash-loop detection.
 - **WAL + crash recovery** — an unclean shutdown replays the write-ahead log; a half-written batch is never half-visible.
@@ -169,7 +231,7 @@ The part most projects hand-wave. Reconnection is sub-second and stateful.
 
 | Layer | Choice |
 |---|---|
-| Edge runtime | Python 3.11 · FastAPI · Uvicorn · asyncio |
+| Edge runtime | Python 3.11 · FastAPI · Uvicorn · asyncio · NumPy |
 | Vector memory | **Qdrant Edge** (embedded) |
 | Local inference | **ONNX Runtime** (+ TensorRT/OpenVINO/CoreML/NNAPI EPs) |
 | Cloud inference | **NVIDIA Triton Inference Server** (gRPC, ensembles, dynamic batching) |
@@ -197,6 +259,12 @@ local simulation when the backend is absent.
 | `POST` | `/api/v1/memory/ingest` | Push a memory through the ingest pipeline |
 | `GET` | `/api/v1/renewal/status` | Re-embedding progress, dual-space migration state |
 | `POST` | `/api/v1/chaos/{fault}` | Inject a fault (demo/testing only) |
+| `GET` | `/api/v1/index` | Index strategies, calibration, planner statistics |
+| `GET` | `/api/v1/traces` | Recent query span trees and their hotspots |
+| `GET` | `/api/v1/scheduler` | QoS lane depths, deadline misses, pressure |
+| `POST` | `/api/v1/learning/feedback` | Teach the on-device adapter from a real choice |
+| `POST` | `/api/v1/learning/round` | One secure-aggregation round |
+| `GET` | `/api/v1/mesh/status` · `POST /mesh/round` | Peer mesh membership and anti-entropy |
 | `POST` | `/api/v1/ask` | Agentic answer: plan → retrieve → verify → cited answer |
 | `GET` | `/api/v1/audit` | Hash-chained audit entries + chain verification |
 | `GET` | `/api/v1/metrics` | Prometheus exposition (`/metrics/json` for the raw snapshot) |
@@ -215,7 +283,8 @@ cd backend
 pip install -r requirements.txt
 uvicorn aegis.main:app --port 8000      # REST + WebSocket on :8000
 python3 scripts/demo.py                 # whole lifecycle in one process, no server
-python3 -m pytest tests -q              # 52 tests
+python3 scripts/bench.py                # index recall + latency, measured here
+python3 -m pytest tests -q              # 132 tests
 
 # frontend — the console
 cd frontend && python3 -m http.server 5173
@@ -228,8 +297,10 @@ What the demo script actually exercises, end to end: cold boot and WAL replay,
 hybrid retrieval with the link down, policy blocking a restricted memory from
 egress, twelve observations queued through an outage, reconnection replaying
 them, fleet knowledge pulled back down, a contradiction detected and
-superseded, a dual-space re-embedding migration with shadow evaluation, and
-four injected faults.
+superseded, a dual-space re-embedding migration with shadow evaluation, four
+injected faults, local query repair and expansion, three planner decisions,
+**a peer-to-peer mesh round with the uplink down**, and an adapter trained
+from feedback with a privacy-budgeted federated contribution.
 
 ## 6. Frontend
 
@@ -269,10 +340,18 @@ Point it at a live backend:
 - [x] Sync engine — CRDT + Merkle deltas, durable queue, conflict arbiter, resumption
 - [x] Policy, redaction vault, hash-chained audit
 - [x] Renewal orchestrator — freshness, dual-space migration, shadow eval
-- [x] Chaos harness · 52 tests
+- [x] Chaos harness · 132 tests
+- [x] Real ANN — HNSW, OPQ/IVF-PQ, device-calibrated strategy selection
+- [x] Cost-based query planner with payload statistics
+- [x] Query understanding — BK-tree repair, expansion, intent, unit/time extraction
+- [x] Late interaction (MaxSim) reranking
+- [x] Peer-to-peer mesh — IBLT reconciliation, causal delivery, gossip
+- [x] On-device learning — adapter, differential privacy, secure aggregation
+- [x] QoS scheduler and span tracing
+- [x] Benchmark harness (`scripts/bench.py`) — numbers in this README come from it
 - [x] Triton escalation tier (client + policy; needs a live endpoint to light up)
 - [ ] Qdrant Edge wheel pinned in CI (adapter is in, falls back to the native store)
-- [ ] Benchmarks: recall@k and sync-convergence numbers checked in
+- [ ] Multi-modal named vector spaces (schema supports them; encoders pending)
 
 ---
 
