@@ -21,7 +21,9 @@ from ..inference.sparse import SparseEncoder
 from ..policy.audit import AuditLog
 from ..policy.engine import PolicyEngine
 from ..policy.redaction import RedactionVault
+from .graph import KnowledgeGraph
 from .schema import MemoryPoint, Sensitivity, SyncClass, Tier
+from .segments import SegmentStore
 from .tiering import CompactionReport, TieringPolicy
 from .vectorstore import VectorStore, build_store
 from .wal import WriteAheadLog
@@ -40,6 +42,8 @@ class MemoryStore:
         policy: PolicyEngine,
         audit: AuditLog,
         vault: RedactionVault,
+        graph: KnowledgeGraph | None = None,
+        tenants=None,
     ) -> None:
         self.settings = settings
         self.bus = bus
@@ -50,9 +54,13 @@ class MemoryStore:
         self.policy = policy
         self.audit = audit
         self.vault = vault
+        self.graph = graph if graph is not None else KnowledgeGraph()
+        self.tenants = tenants
 
         data_dir = Path(settings.data_dir)
         self.wal = WriteAheadLog(data_dir / "memory.wal")
+        self.segments = SegmentStore(data_dir / "segments", settings.node_id)
+        self.archived_lsn = self.segments.manifest.checkpoint_lsn
         self.store: VectorStore = build_store(
             settings.memory.dim, settings.memory.collections, str(data_dir / "qdrant")
         )
@@ -69,6 +77,11 @@ class MemoryStore:
         """Replay the WAL. An unclean shutdown costs a few milliseconds, not data."""
         t0 = time.perf_counter()
         applied = 0
+        # A watermark ahead of the log means the WAL was truncated or replaced
+        # under us. Trusting it would skip records that are not archived
+        # anywhere, so the archive is rebuilt from what the log actually holds.
+        if self.archived_lsn > self.wal.lsn:
+            self.archived_lsn = 0
         for record in self.wal.replay():
             body = record.get("body", {})
             op = record.get("op")
@@ -111,11 +124,17 @@ class MemoryStore:
         source: str | None = None,
         confidence: float = 1.0,
         origin: str = "local",
+        tenant_id: str = "default",
     ) -> MemoryPoint:
+        # Quota is checked before any work is done. Admitting the write and
+        # then discovering the tenant is over quota wastes an embed and leaves
+        # partial state behind.
+        if self.tenants is not None:
+            self.tenants.check_write(tenant_id, points=1, bytes_=len(text.encode("utf-8")))
         with METRICS.timer("memory.ingest_ms"):
             point = MemoryPoint(
                 collection=collection, text=text, payload=payload or {},
-                source=source, confidence=confidence,
+                source=source, confidence=confidence, tenant_id=tenant_id,
                 device_id=self.settings.node_id, model_version=self.embedder.version,
             )
 
@@ -134,6 +153,7 @@ class MemoryStore:
             point.hlc = self.clock.now().pack()
 
             self._apply_point(point)                                 # 4. log + index
+            self.graph.extract(point.id, text, point.created_at, collection)   # 5. structure
         self.ingested += 1
         METRICS.incr("memory.ingested")
         self.audit.record("ingest", point.id, collection=collection, rule=decision.rule,
@@ -167,8 +187,12 @@ class MemoryStore:
     # -- mutation ---------------------------------------------------------
 
     def delete(self, point_id: str) -> bool:
+        point = self.points.get(point_id)
         removed = self._forget(point_id)
         if removed:
+            self.graph.forget_point(point_id)
+            if self.tenants is not None and point is not None:
+                self.tenants.release(point.tenant_id, 1, len(point.text.encode("utf-8")))
             self.audit.record("delete", point_id)
             self.bus.publish("memory", "deleted", point_id=point_id,
                              message=f"tombstoned <b>{point_id}</b>")
@@ -194,11 +218,22 @@ class MemoryStore:
 
     # -- access -----------------------------------------------------------
 
-    def get(self, point_id: str) -> MemoryPoint | None:
+    def get(self, point_id: str, tenant_id: str | None = None) -> MemoryPoint | None:
         point = self.points.get(point_id)
-        if point:
-            point.touch()
+        if point is None:
+            return None
+        # Cross-tenant reads are refused here, not at the call site. One
+        # forgotten filter upstream is a data breach; one refusal here is not.
+        if tenant_id is not None and point.tenant_id != tenant_id:
+            return None
+        point.touch()
         return point
+
+    def visible(self, tenant_id: str | None) -> set[str] | None:
+        """The id set a tenant may see, or None when tenancy is not in play."""
+        if tenant_id is None:
+            return None
+        return {p.id for p in self.points.values() if p.tenant_id == tenant_id}
 
     def live_points(self) -> list[MemoryPoint]:
         return [p for p in self.points.values() if p.superseded_by is None]
@@ -207,6 +242,43 @@ class MemoryStore:
         return (p for p in self.points.values() if p.collection == collection)
 
     # -- maintenance ------------------------------------------------------
+
+    # -- durability -------------------------------------------------------
+
+    def archive(self) -> dict[str, Any] | None:
+        """Seal everything since the last checkpoint into an immutable segment.
+
+        The WAL is a recovery device, not an archive: it grows without bound
+        and replaying it is O(history). Sealing into content-addressed
+        segments bounds recovery time, makes corruption detectable, and gives
+        point-in-time restore something to restore *to*.
+        """
+        records = [
+            {"lsn": record["lsn"], "op": record["op"], "body": record["body"], "ts": record["ts"]}
+            for record in self.wal.replay()
+            if record.get("lsn", 0) > self.archived_lsn
+        ]
+        if not records:
+            return None
+        info = self.segments.write_segment(records, checkpoint_lsn=records[-1]["lsn"])
+        self.archived_lsn = records[-1]["lsn"]
+        self.bus.publish("memory", "archived", segment=info.segment_id[:12],
+                         records=info.records, bytes=info.bytes,
+                         message=(f"sealed segment <b>{info.segment_id[:12]}</b> · "
+                                  f"{info.records} records"))
+        return info.as_dict()
+
+    def rewind_archive(self, to_lsn: int) -> int:
+        """Mark an LSN range as no longer durable so it is re-sealed.
+
+        When a segment is quarantined, the records it held stop being durable —
+        but the archive watermark still claims they are, so the next archive
+        pass would skip them and the data would live only in RAM. Rewinding the
+        watermark makes the next pass re-seal that range from the WAL.
+        """
+        previous = self.archived_lsn
+        self.archived_lsn = min(self.archived_lsn, max(0, to_lsn - 1))
+        return previous - self.archived_lsn
 
     def compact(self) -> CompactionReport:
         t0 = time.perf_counter()
@@ -270,5 +342,14 @@ class MemoryStore:
             "backend": self.store.backend,
             "resident_bytes": resident_bytes,
             "wal": self.wal.stats(),
+            "segments": self.segments.snapshot(),
+            "graph": self.graph.snapshot(),
+            "by_tenant": self._by_tenant(),
             "last_compaction": self.last_compaction.as_dict(),
         }
+
+    def _by_tenant(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for point in self.points.values():
+            counts[point.tenant_id] = counts.get(point.tenant_id, 0) + 1
+        return counts

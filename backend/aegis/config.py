@@ -92,6 +92,13 @@ class Settings:
     scheduler_concurrency: int = field(default_factory=lambda: _env("scheduler_concurrency", 3))
     mesh_enabled: bool = field(default_factory=lambda: _env("mesh_enabled", True))
     mesh_interval_s: float = field(default_factory=lambda: _env("mesh_interval_s", 15.0))
+    archive_interval_s: float = field(default_factory=lambda: _env("archive_interval_s", 45.0))
+    scrub_interval_s: float = field(default_factory=lambda: _env("scrub_interval_s", 120.0))
+    slo_interval_s: float = field(default_factory=lambda: _env("slo_interval_s", 5.0))
+    slo_latency_ms: float = field(default_factory=lambda: _env("slo_latency_ms", 150.0))
+    slo_success: float = field(default_factory=lambda: _env("slo_success", 0.995))
+    conformal_alpha: float = field(default_factory=lambda: _env("conformal_alpha", 0.1))
+    require_auth: bool = field(default_factory=lambda: _env("require_auth", False))
 
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     inference: InferenceConfig = field(default_factory=InferenceConfig)

@@ -196,3 +196,97 @@ def test_mesh_round_without_peers_is_a_conflict_not_a_crash(client):
     for peer in list(client.get("/api/v1/mesh/status").json()["peers"]):
         client.delete(f"/api/v1/mesh/peers/{peer['node_id']}")
     assert client.post("/api/v1/mesh/round").status_code == 409
+
+
+def test_graph_endpoints_expose_structure(client):
+    stats = client.get("/api/v1/graph/stats").json()
+    assert stats["entities"] > 0 and stats["facts"] > 0
+    entities = client.get("/api/v1/graph/entities?limit=5").json()
+    assert entities["entities"]
+    detail = client.get(f"/api/v1/graph/entities/{entities['entities'][0]['id']}").json()
+    assert "facts" in detail and "memories" in detail
+
+
+def test_graph_time_travel(client):
+    import time as _time
+    before = _time.time()
+    client.post("/api/v1/memory/ingest",
+                json={"text": "Spindle SP-3312 exceeded 51 nm on line 4", "collection": "sensor"})
+    now = _time.time()
+    assert client.get(f"/api/v1/graph/as-of?when={before}").json()["facts"] <= \
+        client.get(f"/api/v1/graph/as-of?when={now}").json()["facts"]
+    diff = client.get(f"/api/v1/graph/diff?earlier={before}&later={now}").json()
+    assert diff["learned_count"] >= 1
+
+
+def test_integrity_archive_fsck_and_generations(client):
+    client.post("/api/v1/memory/ingest", json={"text": "a memory to seal into a segment"})
+    sealed = client.post("/api/v1/integrity/archive").json()
+    assert sealed["sealed"] is None or sealed["sealed"]["records"] > 0
+    assert client.post("/api/v1/integrity/fsck").json()["clean"] is True
+    assert "generations" in client.get("/api/v1/integrity/generations").json()
+
+
+def test_integrity_restore_rejects_an_unknown_generation(client):
+    assert client.post("/api/v1/integrity/restore", json={"generation": 9999}).status_code == 404
+
+
+def test_slo_status_and_override(client):
+    body = client.get("/api/v1/slo").json()
+    assert body["level"] in {"FULL", "ECONOMISE", "TRIM", "ESSENTIAL", "SURVIVAL"}
+    assert "ladder" in body and "features" in body
+    pinned = client.post("/api/v1/slo/override", json={"level": "trim"}).json()
+    assert pinned["override"] == "TRIM"
+    assert "late_interaction" in pinned["disabled"]
+    degraded = client.post("/api/v1/search", json={"query": "coolant", "k": 3}).json()
+    assert degraded["degradation"]["level"] == "TRIM"
+    client.post("/api/v1/slo/override", json={"level": None})
+
+
+def test_slo_override_rejects_nonsense(client):
+    assert client.post("/api/v1/slo/override", json={"level": "ludicrous"}).status_code == 400
+
+
+def test_search_reports_confidence_and_diversity(client):
+    body = client.post("/api/v1/search", json={"query": "coolant pressure", "k": 3}).json()
+    assert "guarantee" in body["confidence"]
+    assert "graph_context" in body
+
+
+def test_tenancy_lifecycle_and_isolation(client):
+    created = client.post("/api/v1/tenants",
+                          json={"tenant_id": "acme-api", "name": "Acme", "max_points": 50}).json()
+    assert created["tenant_id"] == "acme-api"
+    issued = client.post("/api/v1/tenants/acme-api/keys",
+                         json={"scopes": ["read", "write"], "label": "gateway"}).json()
+    secret = issued["secret"]
+    assert secret.startswith("aeg_")
+
+    headers = {"x-aegis-key": secret}
+    client.post("/api/v1/memory/ingest", json={"text": "Acme-only compressor note"}, headers=headers)
+    tenant_view = client.post("/api/v1/search", json={"query": "compressor note", "k": 5},
+                              headers=headers).json()
+    assert any("Acme-only" in hit["text"] for hit in tenant_view["results"])
+
+    anonymous = client.post("/api/v1/search", json={"query": "compressor note", "k": 5}).json()
+    assert anonymous["results"]                      # admin/anonymous sees everything
+    assert client.get("/api/v1/tenants/whoami", headers=headers).json()["tenant_id"] == "acme-api"
+
+    revoked = client.delete(f"/api/v1/tenants/keys/{issued['key']['key_id']}")
+    assert revoked.status_code == 200
+
+
+def test_unknown_credential_is_ignored_in_open_mode(client):
+    body = client.post("/api/v1/search", json={"query": "coolant", "k": 2},
+                       headers={"x-aegis-key": "aeg_not-a-real-key"})
+    assert body.status_code == 200                   # open mode degrades to anonymous
+
+
+def test_quota_returns_429_not_500(client):
+    client.post("/api/v1/tenants", json={"tenant_id": "tiny-api", "max_points": 1,
+                                         "max_ingest_per_minute": 1})
+    issued = client.post("/api/v1/tenants/tiny-api/keys", json={"scopes": ["write"]}).json()
+    headers = {"x-aegis-key": issued["secret"]}
+    client.post("/api/v1/memory/ingest", json={"text": "first"}, headers=headers)
+    second = client.post("/api/v1/memory/ingest", json={"text": "second"}, headers=headers)
+    assert second.status_code == 429

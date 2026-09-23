@@ -31,6 +31,12 @@ async def feedback(body: FeedbackRequest, node: EdgeNode = Depends(get_node)) ->
     return result
 
 
+@router.get("/confidence")
+async def confidence(node: EdgeNode = Depends(get_node)) -> dict:
+    """Conformal calibration state and whether realised coverage still holds."""
+    return node.conformal.snapshot()
+
+
 @router.post("/round")
 async def federated_round(body: FederatedRoundRequest | None = None,
                           node: EdgeNode = Depends(get_node)) -> dict:

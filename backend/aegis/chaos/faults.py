@@ -30,7 +30,8 @@ class FaultRecord:
 
 class ChaosController:
     FAULTS = ("link_drop", "packet_loss", "latency_spike", "clock_skew",
-              "disk_full", "thermal_spike", "corrupt_wal", "partition")
+              "disk_full", "thermal_spike", "corrupt_wal", "partition",
+              "corrupt_segment", "memory_pressure", "query_storm", "peer_churn")
 
     def __init__(self, node, bus: EventBus) -> None:
         self.node = node
@@ -109,6 +110,52 @@ class ChaosController:
         """Append garbage to the WAL tail; recovery must truncate, not crash."""
         with open(self.node.store.wal.path, "a", encoding="utf-8") as fh:
             fh.write("deadbeef " + "".join(random.choice("0123456789abcdef") for _ in range(bytes_)) + "\n")
+
+    async def _corrupt_segment(self, duration_s: float, **_: Any) -> None:
+        """Flip a bit inside a sealed segment: the scrubber must find and heal it."""
+        segments = self.node.segments.manifest.segments
+        if not segments:
+            self.node.store.archive()
+            segments = self.node.segments.manifest.segments
+        if not segments:
+            return
+        victim = random.choice(segments)
+        try:
+            with open(victim.path, "r+b") as handle:
+                handle.seek(max(0, victim.bytes // 2))
+                byte = handle.read(1)
+                handle.seek(max(0, victim.bytes // 2))
+                handle.write(bytes([byte[0] ^ 0xFF]) if byte else b"\x00")
+        except OSError:
+            return
+        self.bus.publish("alerts", "segment_corrupted", level="error",
+                         segment=victim.segment_id[:12],
+                         message=f"chaos: flipped a bit in segment <b>{victim.segment_id[:12]}</b>")
+
+    async def _memory_pressure(self, duration_s: float, **_: Any) -> None:
+        """Force the index onto its compressed strategy, as a low-RAM device would."""
+        store = self.node.store.store
+        for index in getattr(store, "indexes", {}).values():
+            index.ann._maybe_migrate(memory_pressure=0.95)
+
+    async def _query_storm(self, duration_s: float, queries: int = 40, **_: Any) -> None:
+        """Burst load: the SLO ladder should shed work rather than time out."""
+        for i in range(queries):
+            try:
+                await self.node.pipeline.search(f"storm probe {i % 7}", k=3)
+            except Exception:
+                break
+        self.node.slo.evaluate(pressure=self.node.scheduler.pressure)
+
+    async def _peer_churn(self, duration_s: float, **_: Any) -> None:
+        """Peers appear and vanish mid-round."""
+        for peer_id in list(self.node.mesh.peers):
+            self.node.mesh_link.partition(self.node.settings.node_id, peer_id,
+                                          random.random() < 0.5)
+
+    async def _clear_peer_churn(self) -> None:
+        for peer_id in list(self.node.mesh.peers):
+            self.node.mesh_link.partition(self.node.settings.node_id, peer_id, False)
 
     def snapshot(self) -> dict[str, Any]:
         return {"available": list(self.FAULTS),

@@ -8,6 +8,7 @@ process so the behaviour can be shown (and re-run) anywhere.
 from __future__ import annotations
 
 import asyncio
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -15,6 +16,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from aegis.config import Settings           # noqa: E402
+from aegis.core.slo import Level            # noqa: E402
+from aegis.core.tenancy import Scope        # noqa: E402
 from aegis.node import EdgeNode             # noqa: E402
 from aegis.sync.gossip import GossipAgent    # noqa: E402
 from aegis.sync.oracle import LinkState     # noqa: E402
@@ -34,8 +37,9 @@ async def main() -> None:
     settings = Settings()
     settings.data_dir = Path(".aegis/demo")
     settings.data_dir.mkdir(parents=True, exist_ok=True)
-    for stale in ("memory.wal", "opqueue.jsonl", "migration.checkpoint.json"):
+    for stale in ("memory.wal", "opqueue.jsonl", "migration.checkpoint.json", "audit.log"):
         (settings.data_dir / stale).unlink(missing_ok=True)
+    shutil.rmtree(settings.data_dir / "segments", ignore_errors=True)   # start from nothing
 
     node = EdgeNode(settings)
     await node.start()
@@ -189,7 +193,68 @@ async def main() -> None:
     line("masked contribution", "indistinguishable from noise on its own")
     line("privacy budget", node.federation.budget.as_dict()["remaining"])
 
-    head(14, "LEDGER")
+    head(14, "KNOWLEDGE GRAPH — STRUCTURE EMBEDDINGS CANNOT REACH")
+    graph_stats = node.graph.snapshot()
+    line("entities / facts", f"{graph_stats['entities']} / {graph_stats['facts']}")
+    line("entity types", graph_stats["by_type"])
+    parts = [e for e in node.graph.entities if e.startswith("part:")]
+    if parts:
+        found = node.graph.paths(parts[0], "location:line 2", max_hops=3)
+        if found:
+            line("multi-hop path", " → ".join(found[0].nodes))
+            line("path confidence", found[0].confidence)
+    believed_then = time.time()
+    await asyncio.sleep(0.02)
+    live = [f for f in node.graph.facts.values() if f.live()]
+    if live:
+        node.graph.retract(live[0].fact_id)
+        diff = node.graph.diff_beliefs(believed_then, time.time())
+        line("belief change (bitemporal)",
+             f"{diff['learned_count']} learned · {diff['retracted_count']} retracted · "
+             f"{diff['stable_count']} stable")
+        line("retracted fact still auditable", live[0].as_dict()["retracted_at"] is not None)
+
+    head(15, "CALIBRATED CONFIDENCE")
+    result = await node.pipeline.search("coolant pressure hard stop", k=4)
+    line("prediction set", result.confidence.get("set_size"))
+    line("guarantee", result.confidence.get("guarantee", "")[:60])
+    line("abstained", result.confidence.get("abstained"))
+    line("diversity", result.diversity.get("improvement", 0.0))
+    line("graph-boosted points", result.graph_context.get("boosted_points", 0))
+
+    head(16, "MULTI-TENANCY")
+    node.tenants.create("acme", "Acme Robotics")
+    node.tenants.create("globex", "Globex")
+    await node.remember("Acme confidential compressor fault", tenant_id="acme")
+    await node.remember("Globex confidential compressor fault", tenant_id="globex")
+    for tenant in ("acme", "globex"):
+        view = await node.pipeline.search("confidential compressor", k=5, tenant_id=tenant)
+        line(f"{tenant} sees", [h["text"][:34] for h in view.results])
+    secret, key = node.tenants.issue_key("acme", {Scope.READ, Scope.WRITE}, "line-2 gateway")
+    line("issued credential", f"{secret[:12]}… (stored hashed only)")
+    line("cross-tenant cache blocks", node.pipeline.cache.snapshot()["cross_namespace_blocks"])
+
+    head(17, "DURABILITY UNDER CORRUPTION")
+    sealed = node.store.archive()
+    line("sealed segment", f"{sealed['segment_id'][:12]} · {sealed['records']} records"
+         if sealed else "nothing new to seal")
+    line("fsck", node.segments.fsck().as_dict()["clean"])
+    await node.chaos.inject("corrupt_segment", duration_s=0.5)
+    scrub = await node.repair.scrub(repair=True)
+    line("scrub found", f"{len(scrub.get('fsck', {}).get('corrupt', []))} damaged segment(s)")
+    line("quarantined for forensics", scrub.get("fsck", {}).get("quarantined", 0))
+    line("repair outcome", scrub.get("repair", {}).get("by_source") or "no redundancy available")
+    line("generations retained", len(node.segments.generations()))
+
+    head(18, "DEGRADATION LADDER")
+    for level in (Level.FULL, Level.TRIM, Level.SURVIVAL):
+        node.slo.override(level)
+        degraded = await node.pipeline.search("coolant pressure", k=3)
+        line(level.name, f"{len(degraded.results)} hits · shed: "
+                         f"{', '.join(degraded.degradation.get('disabled', [])) or 'nothing'}"[:78])
+    node.slo.override(None)
+
+    head(19, "LEDGER")
     line("audit chain intact", node.audit.snapshot()["chain_intact"])
     line("audit entries", node.audit.snapshot()["entries"])
     line("policy denials", node.policy.snapshot()["denied_egress"])
@@ -199,6 +264,12 @@ async def main() -> None:
                  f"{node.mesh.snapshot()['withheld_by_policy']} withheld")
     line("slowest span", node.tracer.slowest(1))
     line("scheduler lanes", {k: v["completed"] for k, v in node.scheduler.snapshot()["lanes"].items()})
+    line("slo", f"{node.slo.snapshot()['level']} · p95 {node.slo.snapshot()['p95_ms']} ms")
+    line("segments", f"{node.segments.snapshot()['segments']} sealed · "
+                     f"{node.segments.snapshot()['records']} records")
+    line("graph", f"{node.graph.snapshot()['entities']} entities · "
+                  f"{node.graph.snapshot()['live_facts']} live facts")
+    line("tenants", len(node.tenants.tenants))
     line("events published", node.bus.published)
 
     await node.stop()

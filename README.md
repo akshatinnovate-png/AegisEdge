@@ -30,30 +30,82 @@ connectivity as the exception.
 ## 1. System shape
 
 ```
-┌──────────────────────────── EDGE NODE (offline-capable) ────────────────────────────┐
-│                                                                                     │
-│  Ingest ─▶ Normalizer ─▶ Sensitivity Classifier ─▶ Chunker ─▶ ONNX Embedder         │
-│                                    │                              │                 │
-│                                    ▼                              ▼                 │
-│                            Policy Engine (local/cloud)     Qdrant Edge (embedded)   │
-│                                    │                       dense + sparse + payload │
-│                                    ▼                              │                 │
-│                          Write-Ahead Log (crash-safe)             ▼                 │
-│                                    │                    Hybrid Retrieval Engine     │
-│                                    ▼                     RRF ─▶ ONNX Reranker       │
-│                            Sync Engine (CRDT deltas)              │                 │
-│                                    │                              ▼                 │
-│                                    │                      Agentic Reasoner          │
-│                                    │                              │                 │
-│  Supervisor · Telemetry Bus · WebSocket Gateway ◀──────────────────┘                │
-└────────────────────────────────────┼────────────────────────────────────────────────┘
-                                     │  intermittent, hostile, lossy link
-                                     ▼
-┌──────────────────────────── CLOUD TIER ─────────────────────────────────────────────┐
-│  Sync Coordinator ─ Qdrant Server (canonical) ─ Triton Inference Server              │
-│  Renewal Orchestrator ─ Fleet Registry ─ Conflict Arbiter ─ Object Store             │
-└─────────────────────────────────────────────────────────────────────────────────────┘
+                          ┌───────────────────────────────────────────┐
+  CONTROL PLANE           │  Tenants · API keys + scopes · Quotas     │
+                          │  Policy (hot-reload) · Hash-chained audit │
+                          │  SLO objectives · Degradation ladder      │
+                          └────────────────────┬──────────────────────┘
+                                               │ governs every plane below
+╔══════════════════════════════════════════════▼══════════════════════════════════════════════╗
+║  EDGE NODE — offline-capable, multi-tenant, self-healing                                     ║
+║                                                                                              ║
+║  INGEST PLANE                                                                                ║
+║   ingest ─▶ quota gate ─▶ sensitivity classifier ─▶ policy engine ─▶ redaction vault          ║
+║                 │                    │                    │                                  ║
+║                 ▼                    ▼                    ▼                                  ║
+║        ONNX embedder          entity + relation     sync class decision                      ║
+║        (EP ladder,            extraction            (local / redacted /                      ║
+║         µ-batch, int8)              │                metadata / full)                        ║
+║                 │                   ▼                      │                                 ║
+║                 │        ╔══════════════════════╗          │                                 ║
+║                 │        ║ BITEMPORAL KNOWLEDGE ║          │                                 ║
+║                 │        ║ GRAPH                ║          │                                 ║
+║                 │        ║ valid-time ⊥ tx-time ║          │                                 ║
+║                 │        ║ retract ≠ delete     ║          │                                 ║
+║                 │        ╚═══════════╤══════════╝          │                                 ║
+║                 ▼                    │                     ▼                                 ║
+║  STORAGE PLANE  │                    │        write-ahead log (CRC, torn-tail safe)          ║
+║   ┌─────────────▼────────────────────┼───────────────────────────┐        │                  ║
+║   │ ADAPTIVE INDEX  (cost model calibrated on this silicon)      │        ▼                  ║
+║   │   FLAT BLAS  ⟷  HNSW graph  ⟷  IVF-PQ + OPQ (64× smaller)    │  immutable segments       ║
+║   │   sparse postings (BM25/SPLADE) · payload index + stats      │  content-addressed        ║
+║   │   HOT full ▸ WARM int8 ▸ COLD 1-bit + vectors on memmap      │  manifest (atomic swap)   ║
+║   └─────────────┬────────────────────────────────────────────────┘  fsck · scrub · PITR      ║
+║                 │                                                        │                   ║
+║  RETRIEVAL PLANE▼                                                        ▼                   ║
+║   understand (BK-tree repair · expansion · intent · units/time)    self-healing repair        ║
+║        ▼                                                          (peer ▸ cloud ▸ report)    ║
+║   cost-based planner ─ pre-filter │ post-filter │ scan │ provably empty                       ║
+║        ▼                                                                                     ║
+║   dense ⊕ sparse ─▶ RRF ─▶ cross-encoder ─▶ MaxSim late interaction ─▶ on-device adapter      ║
+║        ▼                                                                                     ║
+║   graph boost (spreading activation) ─▶ MMR diversity ─▶ CONFORMAL prediction set             ║
+║        ▼                                                          (coverage guarantee /       ║
+║   agentic reasoner: plan ▸ retrieve ▸ verify ▸ cite                honest abstention)          ║
+║                                                                                              ║
+║  RUNTIME PLANE                                                                               ║
+║   QoS scheduler (interactive ▸ sync ▸ maintenance ▸ renewal, deadlines, shedding)             ║
+║   supervisor · span tracing · metrics · thermal/power governor · chaos injection              ║
+║   event bus ─▶ multiplexed WebSocket gateway                                                 ║
+╚═══════════════╤══════════════════════════════════╤═══════════════════════════════════════════╝
+                │                                  │
+     ┌──────────▼───────────┐         ┌────────────▼─────────────────────────────┐
+     │  PEER MESH           │         │  intermittent, hostile, lossy uplink      │
+     │  IBLT reconciliation │         │  QUIC 0-RTT · circuit breaker · hedging   │
+     │  vector clocks +     │         │  token-bucket budget · resumable cursor   │
+     │  causal delivery     │         └────────────┬─────────────────────────────┘
+     │  gossip + rumour     │                      ▼
+     │  policy at the edge  │      ╔═══════════════════════════════════════════════╗
+     └──────────┬───────────┘      ║  CLOUD TIER                                   ║
+                │                  ║  Sync coordinator · Qdrant Server (canonical) ║
+                └──────────────────║  Triton (ensembles, dynamic batching)         ║
+       device ⇄ device, no cloud   ║  Renewal orchestrator · Fleet registry        ║
+                                   ║  Conflict arbiter · Federated aggregator      ║
+                                   ║  (secure aggregation — never sees an update)  ║
+                                   ╚═══════════════════════════════════════════════╝
 ```
+
+Four properties the diagram is making claims about, each checked by a test:
+
+1. **Nothing crosses a boundary it was not allowed to** — not to the cloud, not
+   to a peer, not to another tenant, not through the cache, at any degradation
+   level.
+2. **Every accepted write is either resident, durable, or reported lost** — by
+   identifier, never silently.
+3. **A query is always answered or fails loudly** — the ladder sheds stages
+   rather than letting latency run away.
+4. **Every claim about confidence is calibrated** — coverage is measured
+   against realised outcomes, not asserted.
 
 ---
 
@@ -189,7 +241,95 @@ Memory rots. Renewal is a first-class subsystem, not a cron job.
 - **Compaction & decay** — expired points drop to cold, then to tombstone. Pinned and high-salience points are exempt.
 - **Shadow evaluation** — before a renewed model is promoted, a golden query set is replayed against both spaces; promotion is blocked on recall regression.
 
-### 2.13 Policy & privacy engine
+### 2.13 Bitemporal knowledge graph
+
+Vector search answers "what looks like this query". It cannot answer "which
+bearings on line 2 were replaced after the torque fault" — that is structural —
+and it cannot answer "what did we believe on Tuesday", because embeddings have
+no notion of belief over time.
+
+| Feature | Detail |
+|---|---|
+| Two time axes | **Valid time** (when the fact was true) and **transaction time** (when this node believed it) are kept separately. "What did we know on Tuesday about Monday's state" becomes a query rather than an archaeology project. |
+| Retract ≠ delete | Withdrawing a belief writes to the transaction axis. The fact stays inspectable, so an incident review can see what the node used to think and when it stopped. |
+| On-device extraction | Rule-based entity and relation extraction in microseconds — part codes, bays, assets, metrics, operators, thresholds. Not an LLM, and it does not pretend to be. |
+| Corroboration, not duplication | The same relation seen twice merges provenance and raises confidence toward — never past — certainty. |
+| Multi-hop reasoning | Bounded BFS over the graph *as it was believed* at any instant, with per-path confidence. |
+| Graph-boosted retrieval | Spreading activation from the query's entities surfaces memories that are structurally related but textually dissimilar — the half of recall embeddings cannot reach. |
+
+### 2.14 Calibrated confidence and abstention
+
+A similarity score is not a probability; it depends on the encoder, the corpus
+and whichever quantized variant the thermal governor swapped in ten minutes
+ago. On an edge device a confident wrong answer is worse than no answer,
+because nobody is watching to catch it.
+
+Split conformal prediction gives a **distribution-free coverage guarantee**:
+the returned set contains the correct answer at least (1−α) of the time,
+whatever the score distribution looks like. Measured empirical coverage in the
+test suite: **0.93 against a 0.90 target**. Consequences:
+
+- the node can **abstain** with a stated error rate instead of a hunch;
+- set size becomes a measured signal of ambiguity;
+- realised coverage is audited continuously, so a drifting encoder shows up as
+  **drifting coverage** rather than silent degradation.
+
+Calibration samples come from the feedback the node already collects, and
+nonconformity is scored on the *gap* to the best candidate, so recalibration
+is not needed every time the encoder's absolute scale moves.
+
+### 2.15 Durability engineering
+
+A WAL recovers the last state. It does not protect against a half-written
+snapshot, a manifest pointing at an unfsynced segment, or silent bit rot in a
+file nobody has read for six months.
+
+| Feature | Detail |
+|---|---|
+| Immutable, content-addressed segments | A segment is named by the hash of its bytes, so a corrupted segment cannot masquerade as a good one. Per-record CRC, per-segment digest footer. |
+| Crash-safe manifest | Temp file → fsync → atomic rename → fsync(dir), with a retained previous manifest. A crash yields the old manifest or the new one, never a blend. |
+| fsck + background scrub | Bit rot is found by reading data nobody asked for. Damaged segments are **quarantined for forensics**, never silently deleted. |
+| Self-healing | Lost memories are recovered from **peers first** (reachable when the uplink is not, and free), then cloud. What neither can supply is reported by identifier — the loss is auditable, not invisible. |
+| Lost data vs lost copy | A corrupt segment whose memories are still resident is not lost data: the archive watermark rewinds and a fresh durable copy is written. Counting those as "recovered from a peer" would be a flattering lie. |
+| Point-in-time restore | Generations are retained; restore drops everything after a chosen one. |
+| Format versioning | An on-disk format newer than the build refuses to open rather than corrupting it. |
+
+### 2.16 Multi-tenancy
+
+One device often serves an OEM, the line operator and a maintenance
+contractor. Tenancy as a payload field is not isolation — one forgotten filter
+and the contractor reads the operator's incidents.
+
+- Isolation is **structural**: the store refuses cross-tenant reads rather than
+  trusting each call site to remember.
+- The semantic cache is **namespaced**, because two tenants asking the same
+  question produce the same embedding. (This was a real bug, found and fixed;
+  there is now a regression test named after it.)
+- Quotas are enforced **before** work is done — points, bytes, ingest rate and
+  QPS — so one tenant cannot deny service to the others.
+- API keys are stored hashed, compared in constant time, scoped
+  (read/write/admin/sync/learn), and revocable.
+
+### 2.17 Survival: the degradation ladder
+
+Most systems degrade by getting slower until something times out, which fails
+every request instead of protecting most of them. AegisEdge runs an explicit
+ladder driven by error-budget burn rate, shedding the most expensive stage
+still enabled:
+
+| Rung | What stops |
+|---|---|
+| `FULL` | nothing |
+| `ECONOMISE` | cloud escalation, wide fetches, graph boost |
+| `TRIM` | late interaction, adapter rescoring, query rewriting |
+| `ESSENTIAL` | cross-encoder rerank, diversity — fusion only |
+| `SURVIVAL` | dense retrieval only; background work suspended |
+
+Rungs are entered on sustained burn and left with hysteresis, and every
+transition names what was disabled and why — a silently degraded system is
+indistinguishable from a broken one.
+
+### 2.18 Policy & privacy engine
 
 - On-device **PII / sensitivity classifier** (ONNX) tags every chunk `public | internal | sensitive | restricted` before it is ever written.
 - Declarative policy (`YAML`, hot-reloadable): *restricted never leaves the device; sensitive syncs only redacted; public syncs freely.*
@@ -197,7 +337,7 @@ Memory rots. Renewal is a first-class subsystem, not a cron job.
 - Encryption at rest (AES-256-GCM, key in TPM/Secure Enclave/keyring), mTLS in flight, per-device identity certificates.
 - **Tamper-evident audit log** — hash-chained, append-only record of every read, sync and escalation.
 
-### 2.14 Instantaneous reconnection
+### 2.19 Instantaneous reconnection
 
 The part most projects hand-wave. Reconnection is sub-second and stateful.
 
@@ -210,14 +350,14 @@ The part most projects hand-wave. Reconnection is sub-second and stateful.
 - **Circuit breaker** — per-endpoint breakers trip fast and half-open probe, so a sick cloud endpoint never stalls the local path.
 - **Optimistic UI contract** — the WebSocket pushes `link_state` transitions so the frontend flips between LOCAL and FUSED modes the moment the link moves.
 
-### 2.15 Realtime & transport layer
+### 2.20 Realtime & transport layer
 
 - **WebSocket multiplex** — one socket, logical channels (`telemetry`, `sync`, `search`, `reasoning_trace`, `alerts`), heartbeats with server-side liveness detection.
 - **Event bus** — internal pub/sub; every subsystem emits structured events which the gateway fans out to subscribed UIs.
 - **Server-Sent Events fallback** for locked-down networks; **gRPC** for device↔cloud; **REST** for control plane.
 - **Backpressure-aware streaming** — slow consumers get sampled, not buffered to death.
 
-### 2.16 Reliability & operations
+### 2.21 Reliability & operations
 
 - **Supervisor** with per-subsystem health, restart budgets and crash-loop detection.
 - **WAL + crash recovery** — an unclean shutdown replays the write-ahead log; a half-written batch is never half-visible.
@@ -265,6 +405,12 @@ local simulation when the backend is absent.
 | `POST` | `/api/v1/learning/feedback` | Teach the on-device adapter from a real choice |
 | `POST` | `/api/v1/learning/round` | One secure-aggregation round |
 | `GET` | `/api/v1/mesh/status` · `POST /mesh/round` | Peer mesh membership and anti-entropy |
+| `GET` | `/api/v1/graph/stats` · `/entities` · `POST /paths` | Knowledge graph structure and multi-hop reasoning |
+| `GET` | `/api/v1/graph/as-of` · `/diff` | Time travel: what was believed, and what changed |
+| `GET/POST` | `/api/v1/integrity/*` | fsck, scrub, archive, generations, point-in-time restore |
+| `GET/POST` | `/api/v1/slo` · `/slo/override` | Error budget, degradation level, manual pin |
+| `GET/POST` | `/api/v1/tenants/*` | Tenants, scoped API keys, quotas |
+| `GET` | `/api/v1/learning/confidence` | Conformal calibration and realised coverage |
 | `POST` | `/api/v1/ask` | Agentic answer: plan → retrieve → verify → cited answer |
 | `GET` | `/api/v1/audit` | Hash-chained audit entries + chain verification |
 | `GET` | `/api/v1/metrics` | Prometheus exposition (`/metrics/json` for the raw snapshot) |
@@ -284,7 +430,7 @@ pip install -r requirements.txt
 uvicorn aegis.main:app --port 8000      # REST + WebSocket on :8000
 python3 scripts/demo.py                 # whole lifecycle in one process, no server
 python3 scripts/bench.py                # index recall + latency, measured here
-python3 -m pytest tests -q              # 132 tests
+python3 -m pytest tests -q              # 211 tests
 
 # frontend — the console
 cd frontend && python3 -m http.server 5173
@@ -349,6 +495,13 @@ Point it at a live backend:
 - [x] On-device learning — adapter, differential privacy, secure aggregation
 - [x] QoS scheduler and span tracing
 - [x] Benchmark harness (`scripts/bench.py`) — numbers in this README come from it
+- [x] Bitemporal knowledge graph — extraction, time travel, multi-hop, graph-boosted retrieval
+- [x] Conformal prediction — calibrated coverage, abstention, drift detection
+- [x] Durability engine — content-addressed segments, crash-safe manifest, fsck, scrub, PITR
+- [x] Self-healing repair — peer-first recovery, honest loss reporting
+- [x] Multi-tenancy — structural isolation, namespaced cache, scoped keys, quotas
+- [x] SLO degradation ladder — sheds stages to protect p99 under load
+- [x] Survival suite — invariants asserted under simultaneous fault storms · 211 tests
 - [x] Triton escalation tier (client + policy; needs a live endpoint to light up)
 - [ ] Qdrant Edge wheel pinned in CI (adapter is in, falls back to the native store)
 - [ ] Multi-modal named vector spaces (schema supports them; encoders pending)

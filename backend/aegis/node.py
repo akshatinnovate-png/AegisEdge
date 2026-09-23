@@ -17,7 +17,9 @@ from .core.bus import EventBus
 from .core.clock import HybridClock
 from .core.metrics import METRICS
 from .core.scheduler import Lane, QoSScheduler
+from .core.slo import Level, SLOManager
 from .core.supervisor import Supervisor
+from .core.tenancy import TenantRegistry
 from .core.tracing import TRACER
 from .inference.classifier import SensitivityClassifier
 from .inference.embedder import Embedder
@@ -27,6 +29,8 @@ from .inference.reranker import Reranker
 from .inference.sparse import SparseEncoder
 from .inference.triton import TritonClient
 from .memory.consolidation import Consolidator
+from .memory.graph import KnowledgeGraph
+from .memory.repair import RepairCoordinator
 from .memory.store import MemoryStore
 from .policy.audit import AuditLog
 from .policy.engine import PolicyEngine
@@ -37,6 +41,8 @@ from .learning.adapter import RetrievalAdapter, TrainingExample
 from .learning.federated import FederatedClient, FederatedCoordinator
 from .learning.privacy import PrivacyBudget
 from .retrieval.agent import ReasoningAgent
+from .retrieval.conformal import ConformalPredictor
+from .retrieval.diversity import MaximalMarginalRelevance
 from .retrieval.late_interaction import LateInteractionIndex
 from .retrieval.pipeline import RetrievalPipeline
 from .retrieval.query_understanding import QueryUnderstanding
@@ -73,11 +79,14 @@ class EdgeNode:
         self.supervisor = Supervisor(self.bus)
         self.scheduler = QoSScheduler(concurrency=self.settings.scheduler_concurrency)
         self.tracer = TRACER
+        self.slo = SLOManager(self.bus, self.settings.slo_latency_ms, self.settings.slo_success)
 
         # -- governance
         self.policy = PolicyEngine(self.settings.policy_file)
         self.audit = AuditLog(Path(self.settings.data_dir) / "audit.log")
         self.vault = RedactionVault()
+        self.tenants = TenantRegistry(self.audit)
+        self.graph = KnowledgeGraph()
 
         # -- inference
         self.registry = ModelRegistry(Path(self.settings.inference.model_dir))
@@ -95,6 +104,8 @@ class EdgeNode:
         )
         self.triton = TritonClient(url=None)
         self.understanding = QueryUnderstanding()
+        self.conformal = ConformalPredictor(alpha=self.settings.conformal_alpha)
+        self.diversity = MaximalMarginalRelevance()
         self.late_interaction = LateInteractionIndex(self.embedder)
         self.adapter = RetrievalAdapter(self.settings.memory.dim,
                                         rank=self.settings.learning.rank,
@@ -105,8 +116,10 @@ class EdgeNode:
         self.store = MemoryStore(
             settings=self.settings, bus=self.bus, clock=self.clock, embedder=self.embedder,
             sparse=self.sparse, classifier=self.classifier, policy=self.policy,
-            audit=self.audit, vault=self.vault,
+            audit=self.audit, vault=self.vault, graph=self.graph, tenants=self.tenants,
         )
+        self.segments = self.store.segments
+        self.repair = RepairCoordinator(self)
         self.consolidator = Consolidator(self.store, self.settings.memory.consolidation_threshold)
 
         # -- sync
@@ -132,6 +145,7 @@ class EdgeNode:
             oracle=self.oracle, bus=self.bus, half_life_days=self.settings.renewal.half_life_days,
             understanding=self.understanding, late_interaction=self.late_interaction,
             adapter=self.adapter if self.settings.learning.enabled else None,
+            graph=self.graph, conformal=self.conformal, diversity=self.diversity, slo=self.slo,
         )
         self.agent = ReasoningAgent(self.pipeline, self.store, self.bus)
 
@@ -183,6 +197,9 @@ class EdgeNode:
         self.supervisor.register("consolidator", self._consolidation_loop)
         self.supervisor.register("governor", self._governor_loop)
         self.supervisor.register("telemetry", self._telemetry_loop)
+        self.supervisor.register("archiver", self._archive_loop)
+        self.supervisor.register("scrubber", self._scrub_loop)
+        self.supervisor.register("slo", self._slo_loop)
         self.supervisor.start_all()
 
         self.ready = True
@@ -264,6 +281,36 @@ class EdgeNode:
             self.governor.sample()
             self.governor.enforce()
 
+    async def _archive_loop(self) -> None:
+        while True:
+            await asyncio.sleep(self.settings.archive_interval_s)
+            if not self.slo.allows("background_maintenance"):
+                continue
+            try:
+                await self.scheduler.submit("archive", self._archive_once, Lane.MAINTENANCE)
+            except (RuntimeError, TimeoutError):
+                continue
+
+    async def _archive_once(self) -> dict[str, Any] | None:
+        return self.store.archive()
+
+    async def _scrub_loop(self) -> None:
+        """Bit rot is silent; the only way to find it is to read data nobody asked for."""
+        while True:
+            await asyncio.sleep(self.settings.scrub_interval_s)
+            if not self.slo.allows("background_maintenance"):
+                continue
+            try:
+                await self.scheduler.submit("scrub", lambda: self.repair.scrub(True),
+                                            Lane.MAINTENANCE, budget_ms=30_000)
+            except (RuntimeError, TimeoutError):
+                continue
+
+    async def _slo_loop(self) -> None:
+        while True:
+            await asyncio.sleep(self.settings.slo_interval_s)
+            self.slo.evaluate(pressure=self.scheduler.pressure)
+
     async def _telemetry_loop(self) -> None:
         while True:
             await asyncio.sleep(self.settings.telemetry_interval_s)
@@ -273,8 +320,10 @@ class EdgeNode:
     # -- ingest convenience -------------------------------------------------
 
     async def remember(self, text: str, collection: str = "episodic",
-                       payload: dict[str, Any] | None = None, source: str | None = None) -> Any:
-        point = await self.store.ingest(text, collection=collection, payload=payload, source=source)
+                       payload: dict[str, Any] | None = None, source: str | None = None,
+                       tenant_id: str = "default") -> Any:
+        point = await self.store.ingest(text, collection=collection, payload=payload,
+                                        source=source, tenant_id=tenant_id)
         op = self.sync.record_local(point)
         self.understanding.observe(text)                  # vocabulary + co-occurrence
         self.late_interaction.index(point.id, text)       # per-token vectors
@@ -301,6 +350,19 @@ class EdgeNode:
         )
         self.feedback_buffer.append(example)
         self.audit.record("feedback", chosen_id, query=query, rejected=rejected_id)
+
+        # A labelled choice is exactly the sample conformal calibration needs:
+        # what the correct answer scored, against the best score on offer.
+        try:
+            probe = await self.pipeline.search(query, k=8, explain=False, understand=False)
+            scores = {row["id"]: row["score"] for row in probe.results}
+            if scores:
+                top = max(scores.values())
+                self.conformal.observe(scores.get(chosen_id, min(scores.values())), top)
+                self.conformal.record_outcome(chosen_id in set(probe.confidence.get(
+                    "prediction_set", list(scores))))
+        except Exception:
+            pass                      # calibration is best-effort; never fail a write on it
         loss = 0.0
         if len(self.feedback_buffer) >= self.settings.learning.batch:
             loss = self.adapter.learn(self.feedback_buffer)
@@ -333,6 +395,7 @@ class EdgeNode:
             "reconnect_ms": self.oracle.reconnect_ms,
             "governor": self.governor.snapshot(),
             "scheduler": self.scheduler.snapshot(),
+            "slo": self.slo.snapshot(),
             "mesh_peers": self.mesh.snapshot()["alive_peers"],
             "adapter_version": self.adapter.version,
             "subsystems": self.supervisor.health(),
@@ -347,6 +410,9 @@ class EdgeNode:
             "memory_backend": self.store.store.backend,
             "link": self.oracle.state.value,
             "points": len(self.store.points),
+            "degradation": self.slo.level.name,
+            "tenants": len(self.tenants.tenants),
+            "graph_facts": len(self.graph.facts),
             "subsystems": self.supervisor.health(),
             "fallback_encoder": self.embedder.session.fallback,
         }

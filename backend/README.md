@@ -8,7 +8,7 @@ pip install -r requirements.txt
 uvicorn aegis.main:app --reload --port 8000     # API + WebSocket
 python3 scripts/demo.py                          # full lifecycle, no server
 python3 scripts/bench.py                         # index recall + latency on this machine
-python3 -m pytest tests -q                       # 132 tests
+python3 -m pytest tests -q                       # 211 tests
 ```
 
 Open `http://localhost:8000/docs` for the live OpenAPI surface, or point the
@@ -20,10 +20,10 @@ frontend at it (it defaults to `http://localhost:8000`).
 |---|---|
 | `aegis/node.py` | Composition root — every subsystem is built and supervised here |
 | `aegis/config.py` | All configuration, env-overridable (`AEGIS_*`) |
-| `aegis/core/` | HLC clock, event bus, supervisor, metrics, breaker, backoff, token bucket, **QoS scheduler**, **span tracing** |
-| `aegis/memory/` | Schema, WAL, quantizers, **HNSW**, **OPQ / IVF-PQ**, **adaptive index + cost model**, **filters & payload index**, **query planner**, **memmap cold tier**, Qdrant Edge adapter, compactor, consolidation |
+| `aegis/core/` | HLC clock, event bus, supervisor, metrics, breaker, backoff, token bucket, QoS scheduler, span tracing, **tenancy**, **SLO ladder** |
+| `aegis/memory/` | Schema, WAL, quantizers, HNSW, OPQ / IVF-PQ, adaptive index + cost model, filters & payload index, query planner, memmap cold tier, **immutable segments + manifest**, **fsck/scrub/PITR**, **self-healing repair**, **bitemporal knowledge graph**, Qdrant Edge adapter, compactor, consolidation |
 | `aegis/inference/` | ONNX session + EP ladder, micro-batcher, embedder, sparse encoder, reranker, classifier, thermal governor, model registry, Triton client |
-| `aegis/retrieval/` | RRF fusion, scoring, semantic cache, contradiction detection, **query understanding (BK-tree, expansion, intent)**, **late interaction (MaxSim)**, pipeline, agent |
+| `aegis/retrieval/` | RRF fusion, scoring, namespaced semantic cache, contradiction detection, query understanding (BK-tree, expansion, intent), late interaction (MaxSim), **conformal prediction**, **MMR diversity**, pipeline, agent |
 | `aegis/sync/` | CRDT op log, Merkle digests, **IBLT set reconciliation**, **vector clocks + causal delivery**, **P2P gossip mesh**, **wire codec**, durable queue, connectivity oracle, transports, conflict arbiter, engine |
 | `aegis/learning/` | **On-device retrieval adapter**, **differential privacy**, **federated secure aggregation** |
 | `aegis/renewal/` | Freshness sweeps, dual-space migrator, scheduler |
@@ -72,6 +72,17 @@ the *data*, not of the algorithm:
   even at 0.995 rank correlation. The index measures the depth its corpus
   needs for the target recall instead of guessing `4k`.
 
+## Survival properties
+
+The `tests/test_survival.py` suite asserts invariants under simultaneous fault
+storms rather than happy paths:
+
+- a query is always answered or fails loudly — never hangs;
+- every accepted write is resident, durable, or reported lost by identifier;
+- tenant isolation holds at **every** degradation level;
+- restricted memories never leave under packet loss, clock skew or partition;
+- repeated restarts converge to one state.
+
 ## Things worth knowing
 
 - **`divergent ranges` rarely reaches zero, and that is correct.** Points the
@@ -93,6 +104,13 @@ the *data*, not of the algorithm:
   require (hundreds of thousands, at eps=2 over 12k parameters). DP can be
   switched off for a small fleet — that is an audited choice, and secure
   aggregation still hides the individual update either way.
+- **A corrupt segment is not automatically lost data.** Most of those memories
+  are still in RAM; the durable copy is gone, not the memory. The archive
+  watermark rewinds and a fresh segment is sealed. Reporting those as
+  "recovered from a peer" would overstate what the repair did.
+- **The semantic cache is namespaced per tenant.** Two tenants asking the same
+  question produce the same embedding — a cache keyed on the vector alone is a
+  cross-tenant leak, and was one until a test caught it.
 - **Causal ordering applies to the rumour path, not to bulk transfer.** CRDT
   operations are commutative, so anti-entropy applies a set directly; vector
   clocks guard the streaming path, where a supersede can outrun what it

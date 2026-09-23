@@ -14,6 +14,7 @@ import numpy as np
 
 from ..core.bus import EventBus
 from ..core.metrics import METRICS
+from ..core.slo import SLOManager
 from ..core.tracing import TRACER
 from ..memory.filters import Filter
 from ..memory.schema import MemoryPoint, Sensitivity
@@ -32,6 +33,10 @@ class RetrievalResult:
     stages: dict[str, float] = field(default_factory=dict)
     escalated: bool = False
     escalation: dict[str, Any] = field(default_factory=dict)
+    confidence: dict[str, Any] = field(default_factory=dict)
+    diversity: dict[str, Any] = field(default_factory=dict)
+    graph_context: dict[str, Any] = field(default_factory=dict)
+    degradation: dict[str, Any] = field(default_factory=dict)
     cached: bool = False
     latency_ms: float = 0.0
     mode: str = "hybrid"
@@ -43,13 +48,16 @@ class RetrievalResult:
         return {"query": self.query, "results": self.results, "stages": self.stages,
                 "escalated": self.escalated, "escalation": self.escalation,
                 "cached": self.cached, "latency_ms": round(self.latency_ms, 2), "mode": self.mode,
-                "plan": self.plan, "understanding": self.understanding, "trace": self.trace}
+                "plan": self.plan, "understanding": self.understanding, "trace": self.trace,
+                "confidence": self.confidence, "diversity": self.diversity,
+                "graph_context": self.graph_context, "degradation": self.degradation}
 
 
 class RetrievalPipeline:
     def __init__(self, *, store: MemoryStore, sparse, reranker, triton, oracle,
                  bus: EventBus, half_life_days: float = 21.0,
-                 understanding=None, late_interaction=None, adapter=None) -> None:
+                 understanding=None, late_interaction=None, adapter=None,
+                 graph=None, conformal=None, diversity=None, slo=None) -> None:
         self.store = store
         self.sparse = sparse
         self.reranker = reranker
@@ -61,24 +69,38 @@ class RetrievalPipeline:
         self.understanding = understanding
         self.late_interaction = late_interaction
         self.adapter = adapter
+        self.graph = graph
+        self.conformal = conformal
+        self.diversity = diversity
+        self.slo: SLOManager | None = slo
         self.queries = 0
         self.rewritten = 0
+        self.degraded_queries = 0
 
     async def search(self, query: str, k: int = 5, collection: str = "*",
                      mode: str = "hybrid", explain: bool = True,
                      allow_escalation: bool = True,
                      filters: dict[str, Any] | None = None,
-                     understand: bool = True) -> RetrievalResult:
+                     understand: bool = True,
+                     tenant_id: str | None = None) -> RetrievalResult:
         t_start = time.perf_counter()
         self.queries += 1
         result = RetrievalResult(query=query, mode=mode)
         span_root = TRACER.span("search", query=query, k=k, collection=collection, mode=mode)
         root = span_root.__enter__()
 
+        # Which optional stages may run at all right now. Asking once keeps the
+        # answer consistent across the query rather than shifting mid-flight.
+        allowed = (lambda feature: self.slo.allows(feature)) if self.slo else (lambda _f: True)
+        if self.slo is not None and int(self.slo.level) > 0:
+            self.degraded_queries += 1
+            result.degradation = {"level": self.slo.level.name,
+                                  "disabled": self.slo.disabled()}
+
         # 0. understand: repair spelling against the local vocabulary, expand
         #    from corpus co-occurrence, and lift any filter the query implies
         search_text = query
-        if understand and self.understanding is not None:
+        if understand and self.understanding is not None and allowed("query_understanding"):
             with TRACER.span("understand") as span:
                 analysis = self.understanding.analyse(query)
                 result.understanding = analysis.as_dict()
@@ -114,7 +136,8 @@ class RetrievalPipeline:
                 span_root.__exit__(None, None, None)
                 return result
 
-        cached = self.cache.get(vector) if not filters else None
+        namespace = tenant_id or "default"
+        cached = self.cache.get(vector, namespace) if not filters else None
         if cached is not None:
             span_root.__exit__(None, None, None)
             fields = {"results", "escalated", "escalation", "mode", "plan"}
@@ -126,6 +149,7 @@ class RetrievalPipeline:
             # explanation of how this query got there is not, so this query's
             # own understanding and trace are carried, never the stored one's.
             out.understanding = result.understanding
+            out.degradation = result.degradation      # this query's level, not the cached one's
             out.trace = root.as_dict()
             out.stages = {**cached.get("stages", {}), **result.stages,
                           "cache_similarity": cached.get("cache_similarity", 1.0)}
@@ -133,8 +157,19 @@ class RetrievalPipeline:
             return out
 
         # 2. recall from both spaces
+        # tenancy: the visible id set is intersected with the plan's allow-set,
+        # so a tenant cannot see another tenant's memories through any path
+        if tenant_id is not None:
+            visible = self.store.visible(tenant_id)
+            allow = visible if allow is None else (allow & visible)
+            if not allow:
+                result.latency_ms = (time.perf_counter() - t_start) * 1000
+                result.trace = root.as_dict()
+                span_root.__exit__(None, None, None)
+                return result
+
         t0 = time.perf_counter()
-        fetch = max(k * 6, 24)
+        fetch = max(k * 6, 24) if allowed("wide_fetch") else max(k * 2, 10)
         fetch = max(fetch, result.plan.get("fetch_k", fetch)) if result.plan else fetch
         with TRACER.span("recall") as recall_span:
             with TRACER.span("dense") as span:
@@ -173,12 +208,18 @@ class RetrievalPipeline:
         # 4. cross-encoder rerank on-device
         t0 = time.perf_counter()
         with TRACER.span("rerank") as span:
-            reranked = self.reranker.rerank(query, candidates, top_k=max(k * 2, 8))
-            span.set(candidates=len(candidates))
+            if allowed("cross_encoder"):
+                reranked = self.reranker.rerank(query, candidates, top_k=max(k * 2, 8))
+            else:
+                # Shed the cross-encoder but keep the fusion ordering rather
+                # than returning an arbitrary one.
+                reranked = sorted(((pid, score) for pid, _, score in candidates),
+                                  key=lambda row: -row[1])[: max(k * 2, 8)]
+            span.set(candidates=len(candidates), cross_encoder=allowed("cross_encoder"))
         result.stages["rerank_ms"] = round((time.perf_counter() - t0) * 1000, 3)
 
         # 4b. late interaction: per-token MaxSim over the shortlist only
-        if self.late_interaction is not None and len(reranked) > 1:
+        if self.late_interaction is not None and len(reranked) > 1 and allowed("late_interaction"):
             t0 = time.perf_counter()
             with TRACER.span("late_interaction") as span:
                 maxsim = self.late_interaction.score(query, [pid for pid, _ in reranked],
@@ -207,9 +248,37 @@ class RetrievalPipeline:
             scored.append((point, final, breakdown, rerank_score))
         scored.sort(key=lambda x: -x[1])
 
+        # 5a. graph boost: memories connected to the query's entities, even
+        #     when their text does not look like the query. This is the half
+        #     of recall embeddings structurally cannot reach.
+        if self.graph is not None and allowed("graph_boost") and scored:
+            with TRACER.span("graph_boost") as span:
+                seeds = self.graph.entities_in(search_text)
+                if seeds:
+                    activation = self.graph.spreading_activation(seeds, hops=2)
+                    boosts = self.graph.points_for_entities(activation)
+                    if boosts:
+                        peak = max(boosts.values()) or 1.0
+                        scored = [
+                            (point, final + 0.12 * (boosts.get(point.id, 0.0) / peak),
+                             {**breakdown, "graph_boost": round(boosts.get(point.id, 0.0) / peak, 4)},
+                             rerank)
+                            for point, final, breakdown, rerank in scored
+                        ]
+                        scored.sort(key=lambda row: -row[1])
+                    result.graph_context = {
+                        "seed_entities": seeds[:6],
+                        "activated": sorted(
+                            ({"entity": e, "activation": round(v, 3)}
+                             for e, v in activation.items() if e not in seeds),
+                            key=lambda row: -row["activation"])[:6],
+                        "boosted_points": len(boosts),
+                    }
+                span.set(seeds=len(seeds))
+
         # 5b. the on-device adapter, trained from this node's own feedback
         adapter_deltas: dict[str, float] = {}
-        if self.adapter is not None and len(scored) > 1:
+        if self.adapter is not None and len(scored) > 1 and allowed("adapter"):
             with TRACER.span("adapter") as span:
                 candidates_for_adapter = [
                     (point.id, final, np.asarray(point.dense, dtype=np.float32))
@@ -221,7 +290,32 @@ class RetrievalPipeline:
                 scored.sort(key=lambda row: order.get(row[0].id, 1 << 20))
                 span.set(reordered=len(adapted))
 
+        # 5c. diversity: five phrasings of one incident is one answer, not five
+        if self.diversity is not None and allowed("diversity") and len(scored) > k:
+            with TRACER.span("diversity") as span:
+                candidates_for_mmr = [
+                    (point.id, final, np.asarray(point.dense, dtype=np.float32))
+                    for point, final, _, _ in scored if point.dense
+                ]
+                chosen, report = self.diversity.select(vector, candidates_for_mmr, k)
+                if chosen:
+                    order = {pid: rank for rank, (pid, _) in enumerate(chosen)}
+                    scored = (sorted([row for row in scored if row[0].id in order],
+                                     key=lambda row: order[row[0].id])
+                              + [row for row in scored if row[0].id not in order])
+                    result.diversity = report.as_dict()
+                span.set(**report.as_dict())
+
         top = scored[:k]
+
+        # 5d. calibrated confidence: a prediction set with a coverage
+        #     guarantee, or an honest abstention
+        if self.conformal is not None:
+            with TRACER.span("conformal") as span:
+                prediction = self.conformal.predict(
+                    [(point.id, final) for point, final, _, _ in scored], max_set=max(k, 10))
+                result.confidence = prediction.as_dict()
+                span.set(set_size=len(prediction.prediction_set), abstained=prediction.abstained)
 
         # 6. decide whether the cloud tier has anything to add
         top_score = top[0][1] if top else 0.0
@@ -271,7 +365,8 @@ class RetrievalPipeline:
         METRICS.observe("retrieval.query_ms", result.latency_ms)
         METRICS.incr("retrieval.queries")
         if not filters:
-            self.cache.put(vector, result.as_dict())      # filtered results are not cacheable by vector alone
+            # filtered results are not cacheable by vector alone
+            self.cache.put(vector, result.as_dict(), namespace)
         self.bus.publish(
             "search", "query", query=query, hits=len(result.results),
             latency_ms=round(result.latency_ms, 2), escalated=result.escalated,

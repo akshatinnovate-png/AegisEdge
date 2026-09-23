@@ -63,6 +63,9 @@ class MemoryPoint:
     sync_class: SyncClass = SyncClass.FULL
     model_version: str = "bge-small-en-v1.5"
 
+    # tenancy — isolation is structural, not a convention
+    tenant_id: str = "default"
+
     # lineage
     device_id: str = ""
     hlc: str = ""

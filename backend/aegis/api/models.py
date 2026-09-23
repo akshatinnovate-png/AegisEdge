@@ -33,6 +33,7 @@ class SearchRequest(BaseModel):
         default=None,
         description='Payload filter, e.g. {"collection": "sensor", "ts": {"gte": 1700000000}}',
     )
+    understand: bool = True
 
 
 class AskRequest(BaseModel):
@@ -67,6 +68,36 @@ class FederatedRoundRequest(BaseModel):
 class PeerRequest(BaseModel):
     node_id: str = Field(min_length=1, max_length=64)
     endpoint: str = ""
+
+
+class TenantRequest(BaseModel):
+    tenant_id: str = Field(min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_.-]+$")
+    name: str = ""
+    max_points: int = Field(default=100_000, ge=1)
+    max_bytes: int = Field(default=512 * 1024 * 1024, ge=1024)
+    max_qps: float = Field(default=50.0, gt=0)
+    max_ingest_per_minute: int = Field(default=600, ge=1)
+
+
+class KeyRequest(BaseModel):
+    scopes: list[Literal["read", "write", "admin", "sync", "learn"]] = ["read"]
+    label: str = ""
+
+
+class PathRequest(BaseModel):
+    source: str
+    target: str
+    max_hops: int = Field(default=3, ge=1, le=4)
+    valid_time: float | None = None
+    as_of: float | None = None
+
+
+class RestoreRequest(BaseModel):
+    generation: int = Field(ge=0)
+
+
+class DegradationRequest(BaseModel):
+    level: str | None = None
 
 
 class ChaosRequest(BaseModel):
