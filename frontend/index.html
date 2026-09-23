@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>AegisEdge</title>
-<meta name="description" content="Offline-first edge memory and intelligence node console." />
+<meta name="description" content="Offline-first edge memory and intelligence node console. Every figure is read from the node." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Archivo:wght@400;600;800;900&display=swap" rel="stylesheet" />
@@ -27,12 +27,12 @@
         <i></i><i></i><i></i>
       </div>
     </div>
-    <div class="boot__caption" id="bootCaption">mounting local vector memory…</div>
+    <div class="boot__caption" id="bootCaption">contacting node…</div>
   </div>
 
   <div class="boot__foot">
-    <span>QDRANT EDGE · EMBEDDED</span>
-    <span id="bootProvider">ONNX RUNTIME · PROBING EP</span>
+    <span>QDRANT · EMBEDDED</span>
+    <span id="bootProvider">CONTACTING NODE…</span>
     <span>CODE CUBICLE 6.0 · PS03</span>
   </div>
   <div class="boot__flash" id="bootFlash"></div>
@@ -81,14 +81,14 @@
     </p>
 
     <div class="hero__stamp">
-      <span>QDRANT EDGE</span><span>ONNX RUNTIME</span><span>TRITON</span><span>CRDT SYNC</span>
+      <span>QDRANT</span><span>ONNX RUNTIME</span><span>CRDT SYNC</span><span>CONFORMAL CONFIDENCE</span>
     </div>
 
     <aside class="hero__note hero__note--a">
       <em>01</em> offline is not a failure mode — it is the default state
     </aside>
     <aside class="hero__note hero__note--b">
-      <em>02</em> the link comes back in <b id="reconnMs">380</b> ms, cursor intact
+      <em>02</em> the link comes back in <b id="reconnMs">—</b> ms, cursor intact
     </aside>
   </section>
 
@@ -96,7 +96,7 @@
   <section class="console" id="console">
     <div class="console__head">
       <h2>NODE CONSOLE</h2>
-      <span class="console__src" id="dataSrc">SOURCE · SIMULATED</span>
+      <span class="console__src" id="dataSrc">CONTACTING NODE…</span>
     </div>
 
     <div class="console__grid">
@@ -104,12 +104,12 @@
       <!-- memory -->
       <article class="card card--mem">
         <h3>LOCAL MEMORY</h3>
-        <div class="big" id="memTotal">0</div>
-        <div class="sub">points resident · <span id="memCollections">4</span> collections</div>
+        <div class="big" id="memTotal">—</div>
+        <div class="sub">points resident · <span id="memCollections">—</span> collections</div>
         <div class="tiers" id="tiers">
-          <div class="tier" data-tier="hot"><span>HOT</span><b id="tHot">0</b><i></i></div>
-          <div class="tier" data-tier="warm"><span>WARM</span><b id="tWarm">0</b><i></i></div>
-          <div class="tier" data-tier="cold"><span>COLD</span><b id="tCold">0</b><i></i></div>
+          <div class="tier" data-tier="hot"><span>HOT</span><b id="tHot">—</b><i></i></div>
+          <div class="tier" data-tier="warm"><span>WARM</span><b id="tWarm">—</b><i></i></div>
+          <div class="tier" data-tier="cold"><span>COLD</span><b id="tCold">—</b><i></i></div>
         </div>
       </article>
 
@@ -117,19 +117,19 @@
       <article class="card card--inf">
         <h3>LOCAL INFERENCE</h3>
         <div class="kv"><span>execution provider</span><b id="epName">—</b></div>
-        <div class="kv"><span>embedder</span><b id="embName">bge-small-en-v1.5</b></div>
-        <div class="kv"><span>precision</span><b id="precName">int8-dynamic</b></div>
+        <div class="kv"><span>embedder</span><b id="embName">—</b></div>
+        <div class="kv"><span>token budget</span><b id="precName">—</b></div>
         <div class="kv"><span>embed p95</span><b id="embP95">—</b></div>
-        <div class="kv"><span>escalations → triton</span><b id="escCount">0</b></div>
+        <div class="kv"><span>escalations → triton</span><b id="escCount">—</b></div>
       </article>
 
       <!-- sync -->
       <article class="card card--sync">
         <h3>SYNC</h3>
-        <div class="kv"><span>state</span><b id="syncState">HOLDING</b></div>
-        <div class="kv"><span>queued ops</span><b id="syncQueued">0</b></div>
-        <div class="kv"><span>divergent ranges</span><b id="syncDiv">0</b></div>
-        <div class="kv"><span>conflicts</span><b id="syncConf">0</b></div>
+        <div class="kv"><span>state</span><b id="syncState">—</b></div>
+        <div class="kv"><span>queued ops</span><b id="syncQueued">—</b></div>
+        <div class="kv"><span>divergent ranges</span><b id="syncDiv">—</b></div>
+        <div class="kv"><span>conflicts</span><b id="syncConf">—</b></div>
         <div class="bar"><i id="syncBar" style="width:0%"></i></div>
         <button class="btn" id="syncBtn" type="button">FORCE RECONCILE</button>
       </article>
@@ -137,9 +137,9 @@
       <!-- renewal -->
       <article class="card card--ren">
         <h3>DATA RENEWAL</h3>
-        <div class="kv"><span>dual-space migration</span><b id="renState">IDLE</b></div>
-        <div class="kv"><span>re-embedded</span><b id="renDone">0 / 0</b></div>
-        <div class="kv"><span>stale points</span><b id="renStale">0</b></div>
+        <div class="kv"><span>dual-space migration</span><b id="renState">—</b></div>
+        <div class="kv"><span>re-embedded</span><b id="renDone">—</b></div>
+        <div class="kv"><span>stale points</span><b id="renStale">—</b></div>
         <div class="bar"><i id="renBar" style="width:0%"></i></div>
       </article>
 
@@ -151,7 +151,7 @@
                  placeholder="ask the node what it remembers…" />
           <button class="btn btn--go" type="submit">RETRIEVE</button>
         </form>
-        <div class="search__meta" id="searchMeta">dense + sparse · RRF · cross-encoder rerank</div>
+        <div class="search__meta" id="searchMeta">dense + sparse · RRF · late-interaction rerank</div>
         <ol class="results" id="results"></ol>
       </article>
 

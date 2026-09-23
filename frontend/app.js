@@ -1,8 +1,9 @@
 /* ============================================================
    AegisEdge — console frontend
-   Talks REST + WebSocket to the edge node. If no node answers,
-   it runs a local simulation instead of showing a dead page,
-   which is the whole premise of an offline-first product.
+   Every number on this page comes from the node. When the node is
+   unreachable the console says so and shows nothing: a dashboard
+   that invents plausible values is worse than a blank one, because
+   you cannot tell the difference until it matters.
    ============================================================ */
 
 const API = (window.AEGIS_API || "http://localhost:8000").replace(/\/$/, "");
@@ -23,37 +24,54 @@ const state = {
 
 /* ── boot sequence ─────────────────────────────────────── */
 
+// The boot screen reads the node's own /health while it plays, so each
+// line is filled in from the real answer rather than asserted.
 const POST_LINES = [
-  ["AegisEdge Node Firmware  v0.1.4-edge", "hi"],
-  ["Copyright (C) Code Cubicle 6.0 — PS03", ""],
+  ["AegisEdge Node Console", "hi"],
+  ["Code Cubicle 6.0 — PS03", ""],
   ["", ""],
-  ["Detecting compute...................... ", "ok", "OK"],
-  ["Probing execution providers............ ", "ok", "CPU/XNNPACK"],
-  ["Loading onnx://embedder/bge-small-int8. ", "ok", "OK"],
-  ["Loading onnx://reranker/cross-enc-int8. ", "ok", "OK"],
-  ["Loading onnx://classifier/sensitivity.. ", "ok", "OK"],
-  ["Mounting qdrant-edge (embedded)........ ", "ok", "OK"],
-  ["  collections: episodic semantic procedural sensor", ""],
-  ["Replaying write-ahead log.............. ", "ok", "0 TORN"],
-  ["Restoring sync cursor.................. ", "ok", "RESUMED"],
-  ["Opening telemetry bus.................. ", "ok", "OK"],
-  ["Probing uplink......................... ", "ok", "DEFERRED"],
+  ["Contacting node........................ ", "probe", "node_id"],
+  ["Execution provider..................... ", "probe", "execution_provider"],
+  ["Embedding model........................ ", "probe", "model"],
+  ["Vector store........................... ", "probe", "memory_backend"],
+  ["Resident memories...................... ", "probe", "points"],
+  ["Uplink................................. ", "probe", "link"],
+  ["Degradation level...................... ", "probe", "degradation"],
   ["", ""],
   ["Local memory is authoritative. Network optional.", "hi"],
 ];
 
+// Filled by the first /health call; the boot screen renders whatever is here.
+let BOOT_FACTS = null;
+
+function bootValue(key) {
+  if (!BOOT_FACTS) return "…";
+  if (key === "model") {
+    const m = BOOT_FACTS.model || {};
+    return m.source ? `${m.source} · ${m.dim}d` : "unknown";
+  }
+  const value = BOOT_FACTS[key];
+  return value === undefined || value === null ? "—" : String(value);
+}
+
 const CAPTIONS = [
-  "mounting local vector memory…",
-  "warming onnx sessions…",
-  "replaying write-ahead log…",
-  "restoring sync cursor…",
+  "contacting node…",
+  "reading model provenance…",
+  "reading vector store…",
+  "reading uplink state…",
   "haze clearing…",
 ];
 
-function runBoot() {
+async function runBoot() {
   const post = $("post");
   const caption = $("bootCaption");
   let i = 0;
+  try {
+    BOOT_FACTS = await get("/api/v1/health", 4000);
+  } catch {
+    BOOT_FACTS = null;                      // the boot screen will say so
+  }
+  paintBootFooter();
 
   const tick = () => {
     if (i < POST_LINES.length) {
@@ -63,8 +81,9 @@ function runBoot() {
       if (cls === "hi") row.className = "hi";
       if (tail) {
         const s = document.createElement("span");
-        s.className = "ok";
-        s.textContent = "[ " + tail + " ]";
+        const value = cls === "probe" ? bootValue(tail) : tail;
+        s.className = BOOT_FACTS || cls !== "probe" ? "ok" : "warn";
+        s.textContent = "[ " + (BOOT_FACTS || cls !== "probe" ? value : "NO NODE") + " ]";
         row.appendChild(s);
       }
       post.appendChild(row);
@@ -76,6 +95,14 @@ function runBoot() {
     }
   };
   setTimeout(tick, 320);
+}
+
+function paintBootFooter() {
+  const provider = $("bootProvider");
+  if (!provider) return;
+  provider.textContent = BOOT_FACTS
+    ? `ONNX RUNTIME · ${BOOT_FACTS.execution_provider || "unknown"}`
+    : "NODE UNREACHABLE";
 }
 
 function finishBoot() {
@@ -135,11 +162,34 @@ async function probe() {
     await pullAll();
     openSocket();
   } catch {
-    if (state.live) log("node", "node unreachable — falling back to <b>simulation</b>", "warn");
+    if (state.live) log("node", "node unreachable — console is showing nothing", "warn");
     state.live = false;
     setLink("offline", null);
-    $("dataSrc").textContent = "SOURCE · SIMULATED";
+    $("dataSrc").textContent = "NO NODE · " + API;
+    blankOut();
     state.retries++;
+  }
+}
+
+function blankOut() {
+  // Clear every figure rather than leave the last known value on screen
+  // looking current. A stale number is indistinguishable from a live one.
+  for (const id of ["memTotal", "tHot", "tWarm", "tCold", "syncQueued", "syncDiv",
+                    "syncConf", "renStale", "escCount"]) {
+    const el = $(id);
+    if (el) el.textContent = "—";
+  }
+  for (const id of ["epName", "embName", "precName", "embP95", "syncState", "renState", "renDone"]) {
+    const el = $(id);
+    if (el) el.textContent = "—";
+  }
+  for (const id of ["syncBar", "renBar"]) {
+    const el = $(id);
+    if (el) el.style.width = "0%";
+  }
+  for (const id of ["tHot", "tWarm", "tCold"]) {
+    const bar = $(id) && $(id).parentElement.querySelector("i");
+    if (bar) bar.style.width = "0%";
   }
 }
 
@@ -229,8 +279,8 @@ function applyNode(n) {
   if (n.link && n.link.state) setLink(n.link.state, n.link.rtt_ms);
   if (n.execution_provider) $("epName").textContent = n.execution_provider;
   if (n.embedder) $("embName").textContent = n.embedder;
-  if (n.precision) $("precName").textContent = n.precision;
-  if (n.governor && n.governor.variant) $("precName").textContent = n.governor.variant;
+  if (n.governor && n.governor.token_budget)
+    $("precName").textContent = `${n.governor.token_budget} tok · ${n.governor.rung}`;
   if (n.embed_p95_ms != null) $("embP95").textContent = n.embed_p95_ms + " ms";
   if (n.escalations != null) $("escCount").textContent = n.escalations;
   if (n.node_id) $("nodeId").textContent = n.node_id;
@@ -295,14 +345,13 @@ $("searchForm").addEventListener("submit", async (e) => {
   const t0 = performance.now();
 
   let payload = null;
-  if (state.live) {
-    try {
-      payload = await post("/api/v1/search", { query: q, k: 5, mode: "hybrid" });
-    } catch {
-      log("search", "node did not answer — falling back to simulation", "warn");
-    }
+  try {
+    payload = await post("/api/v1/search", { query: q, k: 5, mode: "hybrid" });
+  } catch (err) {
+    $("searchMeta").textContent = "node did not answer — no results to show";
+    log("search", `query failed: ${err}`, "warn");
+    return;
   }
-  if (!payload) payload = simulateSearch(q);
 
   const ms = payload.latency_ms != null ? payload.latency_ms : Math.round(performance.now() - t0);
   $("searchMeta").textContent =
@@ -329,131 +378,19 @@ $("syncBtn").addEventListener("click", async () => {
   const btn = $("syncBtn");
   btn.disabled = true;
   log("sync", "reconcile requested — exchanging merkle digests");
-  if (state.live) {
-    try {
-      applySync(await post("/api/v1/sync/trigger", {}));
-    } catch {
-      log("sync", "node unreachable — ops stay queued locally", "warn");
-    }
-  } else {
-    simulateReconcile();
+  try {
+    applySync(await post("/api/v1/sync/trigger", {}));
+  } catch {
+    log("sync", "node unreachable — ops stay queued locally", "warn");
   }
   setTimeout(() => (btn.disabled = false), 2600);
 });
 
-/* ── simulation (no backend present) ───────────────────── */
-
-const SIM_CORPUS = [
-  ["sensor", "Bay 3 conveyor vibration crossed 4.2 mm/s at 02:14; bearing signature matches the pre-failure cluster from March."],
-  ["episodic", "Operator acknowledged the torque alarm and switched line 2 to manual feed for eleven minutes."],
-  ["semantic", "Coolant pressure below 1.8 bar for over 90 seconds is treated as a hard stop condition on this cell."],
-  ["procedural", "Recovery: isolate the drive, purge the line, re-home the gantry, then release the interlock in that order."],
-  ["episodic", "Uplink dropped for 47 minutes during the night shift; 1,284 operations queued locally and replayed on reconnect."],
-  ["semantic", "Restricted-class memories — anything tagged with operator identity — never leave this device under any policy."],
-  ["sensor", "Ambient temperature climbed to 61°C; the governor swapped the embedder to its int8 variant to shed thermal load."],
-  ["procedural", "Weekly consolidation distils near-duplicate episodic points into one semantic point and keeps provenance links."],
-];
-
-function simulateSearch(q) {
-  const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
-  const scored = SIM_CORPUS.map(([collection, text], i) => {
-    const hay = text.toLowerCase();
-    const lexical = terms.reduce((a, t) => a + (hay.includes(t) ? 1 : 0), 0) / (terms.length || 1);
-    const drift = ((Math.sin(i * 12.9898 + q.length) + 1) / 2) * 0.35;
-    return { id: "pt-" + (4100 + i * 7), collection, text, score: 0.42 + lexical * 0.45 + drift * 0.3 };
-  });
-  scored.sort((a, b) => b.score - a.score);
-  return {
-    results: scored.slice(0, 5),
-    latency_ms: 6 + Math.round(Math.random() * 5),
-    escalated: false,
-  };
-}
-
-function simulateReconcile() {
-  state.sync.state = "RECONCILING";
-  applySync({ state: "RECONCILING" });
-  let p = 0;
-  const step = () => {
-    p += 0.07 + Math.random() * 0.13;
-    if (p >= 1) {
-      applySync({
-        state: "CONVERGED",
-        progress: 1,
-        queued: 0,
-        divergent: 0,
-        cursor: 84213 + Math.floor(Math.random() * 400),
-      });
-      log("sync", "converged — <b>0</b> divergent ranges, cursor advanced", "ok");
-      state.sync.queued = 0;
-      return;
-    }
-    applySync({ progress: p, divergent: Math.max(0, Math.round((1 - p) * 9)) });
-    setTimeout(step, 220);
-  };
-  step();
-}
-
-const SIM_EVENTS = [
-  ["ingest", "chunked 3 new observations · sensitivity <b>internal</b>"],
-  ["onnx", "embed batch(8) coalesced in 8 ms window · p95 <b>4.1 ms</b>"],
-  ["policy", "1 point marked <b>restricted</b> — pinned local-only", "warn"],
-  ["memory", "compactor moved 128 points HOT → WARM (int8)"],
-  ["renewal", "freshness sweep · 3 points marked stale"],
-  ["link", "connectivity oracle: probe timeout, holding <b>OFFLINE</b>"],
-  ["sync", "op queued durably · idempotency key issued"],
-  ["retrieval", "hybrid query served <b>locally</b> in 7 ms"],
-  ["wal", "checkpoint written · 0 torn records", "ok"],
-  ["thermal", "package 58°C · fp16 variant retained"],
-];
-
-function simulateLoop() {
-  if (state.live) return;
-  const [c, m, lvl] = SIM_EVENTS[Math.floor(Math.random() * SIM_EVENTS.length)];
-  log(c, m, lvl);
-
-  state.mem.hot += Math.floor(Math.random() * 9);
-  state.mem.warm += Math.floor(Math.random() * 4);
-  applyMemory({ ...state.mem, collections: 4 });
-
-  state.sync.queued += Math.floor(Math.random() * 3);
-  applySync({ queued: state.sync.queued, divergent: 4 + Math.floor(Math.random() * 5) });
-
-  state.renewal.done = Math.min(state.renewal.total, state.renewal.done + Math.floor(Math.random() * 120));
-  applyRenewal({
-    done: state.renewal.done,
-    total: state.renewal.total,
-    progress: state.renewal.done / state.renewal.total,
-    state: state.renewal.done >= state.renewal.total ? "COMPLETE" : "DUAL-SPACE",
-  });
-}
-
-function seedSimulation() {
-  state.mem = { hot: 18420, warm: 46110, cold: 122730 };
-  applyMemory({ ...state.mem, collections: 4 });
-  state.renewal = { state: "DUAL-SPACE", done: 41200, total: 187260, stale: 812, progress: 0.22 };
-  applyRenewal({ ...state.renewal, progress: state.renewal.done / state.renewal.total });
-  applySync({ state: "HOLDING", queued: 1284, divergent: 7, conflicts: 2, progress: 0, cursor: 84213 });
-  applyNode({
-    execution_provider: "XNNPACK (CPU)",
-    embedder: "bge-small-en-v1.5",
-    precision: "int8-dynamic",
-    embed_p95_ms: 4.1,
-    escalations: 0,
-    node_id: "edge-07",
-    reconnect_ms: 380,
-  });
-  log("boot", "node online · <b>local memory authoritative</b>", "ok");
-  log("link", "no uplink — operating <b>offline-first</b>", "warn");
-}
-
 /* ── start ─────────────────────────────────────────────── */
 
 function start() {
-  seedSimulation();
   probe();
   setInterval(probe, 5000);
-  setInterval(simulateLoop, 2600);
 }
 
 runBoot();

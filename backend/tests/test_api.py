@@ -10,6 +10,19 @@ from fastapi.testclient import TestClient
 import aegis.config
 from aegis.main import create_app
 
+CORPUS = [
+    ("sensor", "Bay 3 conveyor vibration crossed 4.2 mm/s at 02:14"),
+    ("sensor", "Coolant pressure read 1.74 bar for 96 seconds before the interlock fired"),
+    ("sensor", "Ambient temperature in the cell climbed to 61 C during the night shift"),
+    ("semantic", "Coolant pressure below 1.8 bar for over 90 seconds is a hard stop condition"),
+    ("semantic", "Bearing vibration above 4.0 mm/s is an early indicator of raceway spalling"),
+    ("procedural", "Recovery: isolate the drive, purge the line, re-home the gantry"),
+    ("procedural", "To clear a torque fault: cut servo power, rotate the spindle by hand"),
+    ("episodic", "Operator acknowledged the torque alarm and switched line 2 to manual feed"),
+    ("episodic", "Uplink dropped for 47 minutes; operations queued locally and replayed"),
+    ("episodic", "Maintenance replaced the bay 3 bearing housing and logged the part number"),
+]
+
 
 @pytest.fixture(scope="module")
 def client(tmp_path_factory):
@@ -23,6 +36,11 @@ def client(tmp_path_factory):
     aegis.config._settings = None
     try:
         with TestClient(create_app()) as c:
+            # The node ships with no memories: a real deployment ingests its
+            # own. These are the operating facts the API tests exercise.
+            for collection, text in CORPUS:
+                c.post("/api/v1/memory/ingest",
+                       json={"text": text, "collection": collection})
             yield c
     finally:
         os.environ.pop("AEGIS_DATA_DIR", None)
@@ -32,9 +50,11 @@ def client(tmp_path_factory):
 def test_health_reports_the_real_backend_and_provider(client):
     body = client.get("/api/v1/health").json()
     assert body["status"] in {"ok", "degraded"}
-    assert body["memory_backend"] in {"qdrant-edge", "native-tiered"}
-    assert "execution_provider" in body
-    assert body["points"] > 0                       # seeded
+    assert body["memory_backend"].startswith("qdrant")     # real Qdrant, not a stand-in
+    assert body["execution_provider"].endswith("ExecutionProvider")
+    assert body["model"]["vocab"] == 32_000                 # real pretrained tokenizer
+    assert body["model"]["dim"] == body["model"]["dim"]
+    assert body["points"] == len(CORPUS)
 
 
 def test_memory_stats_shape_matches_the_console(client):

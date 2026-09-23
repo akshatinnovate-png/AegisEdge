@@ -15,6 +15,8 @@ from __future__ import annotations
 import asyncio
 import random
 import time
+import uuid
+from pathlib import Path
 from typing import Any, Protocol
 
 from ..core.backoff import DecorrelatedJitter
@@ -216,7 +218,234 @@ class HttpCloud:
                 "bandwidth_tokens": round(self.bucket.level)}
 
 
-def build_transport(url: str, bandwidth_bps: int) -> CloudTransport:
+def build_transport(url: str, bandwidth_bps: int, dim: int = 256,
+                    data_dir: str = ".aegis") -> CloudTransport:
+    """Open the cloud tier.
+
+    `http(s)://` and `qdrant://` reach a real Qdrant deployment; the default
+    runs a real embedded Qdrant instance in its own directory as the canonical
+    store. Either way the coordinator is Qdrant, not a stand-in — the same code
+    path, the same collections, the same wire semantics.
+    """
+    if url.startswith(("qdrant://", "qdrants://")):
+        scheme, _, rest = url.partition("://")
+        return QdrantCloudTransport(dim, url=f"http{'s' if scheme == 'qdrants' else ''}://{rest}")
     if url.startswith(("http://", "https://")):
-        return HttpCloud(url, bandwidth_bps)
-    return LoopbackCloud()
+        return QdrantCloudTransport(dim, url=url)
+    if url.startswith("aegis-http://"):
+        return HttpCloud(url.replace("aegis-http://", "http://"), bandwidth_bps)
+    return QdrantCloudTransport(dim, path=str(Path(data_dir) / "cloud"))
+
+
+class QdrantCloudTransport:
+    """The canonical cloud tier, backed by a real Qdrant deployment.
+
+    Two collections do the work: `aegis_points` is the canonical corpus, and
+    `aegis_oplog` is the ordered operation log a returning device replays from.
+    Both are ordinary Qdrant collections — the same code runs against an
+    embedded instance and against a Qdrant Server by changing one URL, which is
+    the point.
+
+    The operation log is stored as points carrying a monotonic sequence in the
+    payload, so `pull(cursor)` is a filtered scroll rather than a full scan.
+    """
+
+    name = "qdrant"
+    metered = False
+
+    POINTS = "aegis_points"
+    OPLOG = "aegis_oplog"
+
+    def __init__(self, dim: int, path: str | None = None, url: str | None = None,
+                 api_key: str | None = None) -> None:
+        from qdrant_client import QdrantClient
+        from qdrant_client.models import Distance, VectorParams
+
+        self.dim = dim
+        self.url = url
+        self.client = (QdrantClient(url=url, api_key=api_key, timeout=10) if url
+                       else QdrantClient(path=str(Path(path or ".aegis/cloud"))))
+        self.name = url or f"qdrant-local://{path}"
+        for name in (self.POINTS, self.OPLOG):
+            if not self.client.collection_exists(name):
+                self.client.create_collection(
+                    collection_name=name,
+                    vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
+                )
+        self.tree = MerkleTree(16)
+        self.sessions: dict[str, dict[str, Any]] = {}
+        self.received = 0
+        self.served = 0
+        self.partitioned = False
+        self.loss = 0.0
+        self.latency_ms = 0.0
+        self._seq = self._max_seq()
+        self._rebuild_tree()
+
+    # -- fault surface (chaos) --------------------------------------------
+
+    def partition(self, on: bool = True) -> None:
+        self.partitioned = on
+
+    async def _hop(self) -> None:
+        if self.partitioned:
+            raise LinkUnavailable("network partition")
+        if self.latency_ms:
+            await asyncio.sleep(self.latency_ms / 1000.0)
+        if self.loss and random.random() < self.loss:
+            raise LinkUnavailable("packet loss")
+
+    # -- state ------------------------------------------------------------
+
+    @staticmethod
+    def _uuid(key: str) -> str:
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, key))
+
+    def _max_seq(self) -> int:
+        try:
+            rows, _ = self.client.scroll(collection_name=self.OPLOG, limit=10_000,
+                                         with_payload=True, with_vectors=False)
+            return max((int(r.payload.get("seq", 0)) for r in rows), default=0)
+        except Exception:
+            return 0
+
+    def _rebuild_tree(self) -> None:
+        try:
+            rows, _ = self.client.scroll(collection_name=self.POINTS, limit=10_000,
+                                         with_payload=True, with_vectors=False)
+        except Exception:
+            return
+        self.tree.rebuild((r.payload.get("aegis_id", ""), r.payload.get("hlc", ""))
+                          for r in rows if r.payload.get("aegis_id"))
+
+    # -- protocol ---------------------------------------------------------
+
+    async def ping(self) -> bool:
+        await self._hop()
+        self.client.get_collections()
+        return True
+
+    async def handshake(self, node_id: str, resume_token: str | None) -> dict[str, Any]:
+        await self._hop()
+        if resume_token and resume_token in self.sessions:
+            session = self.sessions[resume_token]
+            session["resumed"] += 1
+            return {"session": resume_token, "resumed": True, "zero_rtt": True,
+                    "server_cursor": self._seq, "their_cursor": session["their_cursor"]}
+        token = ulid()
+        self.sessions[token] = {"node_id": node_id, "their_cursor": 0, "resumed": 0,
+                                "opened_at": time.time()}
+        return {"session": token, "resumed": False, "zero_rtt": False,
+                "server_cursor": self._seq, "their_cursor": 0}
+
+    async def digest(self) -> MerkleDigest:
+        await self._hop()
+        return self.tree.digest()
+
+    async def push(self, ops: list[Operation]) -> dict[str, Any]:
+        await self._hop()
+        from qdrant_client.models import PointStruct
+
+        accepted, rejected = [], []
+        point_batch, op_batch = [], []
+        for op in ops:
+            existing = self._current_hlc(op.point_id)
+            if existing and existing > op.hlc:
+                rejected.append(op.op_id)          # the cloud already holds newer
+                continue
+            self._seq += 1
+            body = op.body or {}
+            vector = body.get("dense") or [0.0] * self.dim
+            op_batch.append(PointStruct(
+                id=self._uuid(op.op_id), vector=list(vector),
+                payload={"seq": self._seq, **op.as_dict()}))
+            if op.kind is OpKind.DELETE:
+                self._forget(op.point_id)
+            elif not body.get("metadata_only"):
+                point_batch.append(PointStruct(
+                    id=self._uuid(op.point_id), vector=list(vector),
+                    payload={"aegis_id": op.point_id, "hlc": op.hlc, **body}))
+                self.tree.set(op.point_id, op.hlc)
+            accepted.append(op.op_id)
+
+        if op_batch:
+            self.client.upsert(collection_name=self.OPLOG, points=op_batch)
+        if point_batch:
+            self.client.upsert(collection_name=self.POINTS, points=point_batch)
+        self.received += len(accepted)
+        return {"accepted": accepted, "rejected": rejected, "server_cursor": self._seq}
+
+    def _current_hlc(self, point_id: str) -> str | None:
+        try:
+            rows = self.client.retrieve(collection_name=self.POINTS,
+                                        ids=[self._uuid(point_id)], with_payload=True)
+        except Exception:
+            return None
+        return rows[0].payload.get("hlc") if rows else None
+
+    def _forget(self, point_id: str) -> None:
+        from qdrant_client.models import PointIdsList
+
+        try:
+            self.client.delete(collection_name=self.POINTS,
+                               points_selector=PointIdsList(points=[self._uuid(point_id)]))
+        except Exception:
+            pass
+        self.tree.drop(point_id)
+
+    async def pull(self, cursor: int, limit: int) -> dict[str, Any]:
+        await self._hop()
+        rows, _ = self.client.scroll(collection_name=self.OPLOG, limit=10_000,
+                                     with_payload=True, with_vectors=False)
+        ordered = sorted(rows, key=lambda r: int(r.payload.get("seq", 0)))
+        window = [r for r in ordered if int(r.payload.get("seq", 0)) > cursor][:limit]
+        self.served += len(window)
+        next_cursor = (int(window[-1].payload["seq"]) if window else max(cursor, self._seq))
+        remaining = sum(1 for r in ordered if int(r.payload.get("seq", 0)) > next_cursor)
+        return {
+            "ops": [{k: v for k, v in r.payload.items() if k != "seq"} for r in window],
+            "cursor": next_cursor, "remaining": remaining,
+        }
+
+    # -- fleet knowledge injection ----------------------------------------
+
+    def inject(self, point_id: str, hlc: str, body: dict[str, Any],
+               device_id: str = "edge-fleet") -> Operation:
+        """Another device learned something; land it in the canonical store."""
+        from qdrant_client.models import PointStruct
+
+        op = Operation(kind=OpKind.UPSERT, point_id=point_id, hlc=hlc,
+                       device_id=device_id, body=body)
+        self._seq += 1
+        vector = body.get("dense") or [0.0] * self.dim
+        self.client.upsert(collection_name=self.OPLOG, points=[PointStruct(
+            id=self._uuid(op.op_id), vector=list(vector),
+            payload={"seq": self._seq, **op.as_dict()})])
+        self.client.upsert(collection_name=self.POINTS, points=[PointStruct(
+            id=self._uuid(point_id), vector=list(vector),
+            payload={"aegis_id": point_id, "hlc": hlc, **body})])
+        self.tree.set(point_id, hlc)
+        return op
+
+    @property
+    def ops(self) -> list[Any]:
+        rows, _ = self.client.scroll(collection_name=self.OPLOG, limit=10_000,
+                                     with_payload=True, with_vectors=False)
+        return rows
+
+    @property
+    def points(self) -> dict[str, Any]:
+        rows, _ = self.client.scroll(collection_name=self.POINTS, limit=10_000,
+                                     with_payload=True, with_vectors=False)
+        return {r.payload.get("aegis_id", str(r.id)): r.payload for r in rows}
+
+    def snapshot(self) -> dict[str, Any]:
+        try:
+            points = self.client.get_collection(self.POINTS).points_count
+            oplog = self.client.get_collection(self.OPLOG).points_count
+        except Exception:
+            points = oplog = None
+        return {"endpoint": self.name, "backend": "qdrant-server" if self.url else "qdrant-local",
+                "canonical_points": points, "oplog": oplog, "cursor": self._seq,
+                "received": self.received, "served": self.served,
+                "partitioned": self.partitioned, "sessions": len(self.sessions)}

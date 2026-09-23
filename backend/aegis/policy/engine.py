@@ -46,13 +46,33 @@ class Decision:
 
 
 class PolicyEngine:
+    @staticmethod
+    def resolve(path: str | Path) -> Path:
+        """Find the policy file regardless of the working directory.
+
+        A relative policy path that fails to resolve used to fall back to the
+        built-in default *silently* — so a node started from the wrong
+        directory would quietly run without the operator's governance rules,
+        which is the one failure this subsystem must never have.
+        """
+        candidate = Path(path)
+        if candidate.is_absolute() or candidate.exists():
+            return candidate
+        package_root = Path(__file__).resolve().parents[2]      # backend/
+        for base in (Path.cwd(), package_root, package_root.parent):
+            resolved = base / candidate
+            if resolved.exists():
+                return resolved
+        return candidate
+
     def __init__(self, path: str | Path) -> None:
-        self.path = Path(path)
+        self.path = self.resolve(path)
         self.document: dict[str, Any] = DEFAULT_POLICY
         self.loaded_at = 0.0
         self.mtime = 0.0
         self.evaluations = 0
         self.denied_egress = 0
+        self.using_default = True
         self.reload()
 
     # -- lifecycle --------------------------------------------------------
@@ -61,6 +81,7 @@ class PolicyEngine:
         if yaml is None or not self.path.exists():
             self.document = DEFAULT_POLICY
             self.loaded_at = time.time()
+            self.using_default = True
             return False
         mtime = self.path.stat().st_mtime
         if mtime == self.mtime:
@@ -71,6 +92,7 @@ class PolicyEngine:
                 self.document = document
                 self.mtime = mtime
                 self.loaded_at = time.time()
+                self.using_default = False
                 return True
         except Exception:
             pass                       # a broken policy file keeps the last good one
@@ -139,4 +161,8 @@ class PolicyEngine:
             "denied_egress": self.denied_egress,
             "loaded_at": self.loaded_at,
             "file": str(self.path),
+            "using_built_in_default": self.using_default,
+            "warning": (None if not self.using_default else
+                        f"policy file not found at {self.path} — running the built-in "
+                        f"default, which is more restrictive but is not your policy"),
         }

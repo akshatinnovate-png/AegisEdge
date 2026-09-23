@@ -24,6 +24,7 @@ from .core.tracing import TRACER
 from .inference.classifier import SensitivityClassifier
 from .inference.embedder import Embedder
 from .inference.governor import ThermalGovernor
+from .inference.onnx_runtime import open_sessions
 from .inference.registry import ModelRegistry
 from .inference.reranker import Reranker
 from .inference.sparse import SparseEncoder
@@ -43,7 +44,6 @@ from .learning.privacy import PrivacyBudget
 from .retrieval.agent import ReasoningAgent
 from .retrieval.conformal import ConformalPredictor
 from .retrieval.diversity import MaximalMarginalRelevance
-from .retrieval.late_interaction import LateInteractionIndex
 from .retrieval.pipeline import RetrievalPipeline
 from .retrieval.query_understanding import QueryUnderstanding
 from .sync.crdt import Operation
@@ -51,21 +51,6 @@ from .sync.engine import SyncEngine
 from .sync.gossip import GossipAgent, MeshLink
 from .sync.oracle import ConnectivityOracle
 from .sync.transport import build_transport
-
-SEED_MEMORIES: list[tuple[str, str]] = [
-    ("sensor", "Bay 3 conveyor vibration crossed 4.2 mm/s at 02:14; bearing signature matches the pre-failure cluster from March."),
-    ("sensor", "Ambient temperature in the cell climbed to 61C during the night shift."),
-    ("sensor", "Coolant pressure read 1.74 bar for 96 seconds before the interlock fired."),
-    ("semantic", "Coolant pressure below 1.8 bar for over 90 seconds is treated as a hard stop condition on this cell."),
-    ("semantic", "Restricted-class memories never leave this device under any sync policy."),
-    ("semantic", "Bearing vibration above 4.0 mm/s is an early indicator of raceway spalling."),
-    ("procedural", "Recovery: isolate the drive, purge the line, re-home the gantry, then release the interlock in that order."),
-    ("procedural", "To clear a torque fault: cut servo power, rotate the spindle by hand, confirm free travel, then re-enable."),
-    ("episodic", "Operator acknowledged the torque alarm and switched line 2 to manual feed for eleven minutes."),
-    ("episodic", "Uplink dropped for 47 minutes during the night shift; operations queued locally and replayed on reconnect."),
-    ("episodic", "Maintenance replaced the bay 3 bearing housing and logged the part number on the work order."),
-]
-
 
 class EdgeNode:
     def __init__(self, settings: Settings | None = None) -> None:
@@ -88,16 +73,19 @@ class EdgeNode:
         self.tenants = TenantRegistry(self.audit)
         self.graph = KnowledgeGraph()
 
-        # -- inference
+        # -- inference: real pretrained weights, compiled to ONNX at first boot
         self.registry = ModelRegistry(Path(self.settings.inference.model_dir))
-        self.embedder = Embedder(
-            self.registry, self.settings.inference.embedder, self.settings.memory.dim,
-            self.settings.inference.batch_window_ms, self.settings.inference.max_batch,
-            self.settings.inference.precision, self.settings.inference.model_dir,
-        )
+        embed_session, rerank_session, self.model_bundle = open_sessions(
+            Path(self.settings.inference.model_dir), self.settings.inference.max_tokens)
+        # The model decides the dimensionality; configuration does not get to
+        # disagree with the weights it is about to load.
+        self.settings.memory.dim = self.model_bundle.dim
+        self.embedder = Embedder(self.registry, embed_session, self.model_bundle,
+                                 self.settings.inference.batch_window_ms,
+                                 self.settings.inference.max_batch)
         self.sparse = SparseEncoder(self.settings.memory.sparse_dim)
         self.classifier = SensitivityClassifier()
-        self.reranker = Reranker(self.settings.inference.reranker, self.settings.inference.model_dir)
+        self.reranker = Reranker(rerank_session)
         self.governor = ThermalGovernor(
             self.bus, self.embedder, self.settings.inference.thermal_ceiling_c,
             self.settings.inference.battery_floor_pct,
@@ -106,7 +94,6 @@ class EdgeNode:
         self.understanding = QueryUnderstanding()
         self.conformal = ConformalPredictor(alpha=self.settings.conformal_alpha)
         self.diversity = MaximalMarginalRelevance()
-        self.late_interaction = LateInteractionIndex(self.embedder)
         self.adapter = RetrievalAdapter(self.settings.memory.dim,
                                         rank=self.settings.learning.rank,
                                         alpha=self.settings.learning.alpha)
@@ -123,7 +110,9 @@ class EdgeNode:
         self.consolidator = Consolidator(self.store, self.settings.memory.consolidation_threshold)
 
         # -- sync
-        self.transport = build_transport(self.settings.sync.cloud_url, self.settings.sync.bandwidth_bps)
+        self.transport = build_transport(
+            self.settings.sync.cloud_url, self.settings.sync.bandwidth_bps,
+            dim=self.settings.memory.dim, data_dir=str(self.settings.data_dir))
         self.oracle = ConnectivityOracle(self.bus, self.transport, self.settings.sync.probe_interval_s)
         self.sync = SyncEngine(
             settings=self.settings, bus=self.bus, clock=self.clock, store=self.store,
@@ -143,7 +132,7 @@ class EdgeNode:
         self.pipeline = RetrievalPipeline(
             store=self.store, sparse=self.sparse, reranker=self.reranker, triton=self.triton,
             oracle=self.oracle, bus=self.bus, half_life_days=self.settings.renewal.half_life_days,
-            understanding=self.understanding, late_interaction=self.late_interaction,
+            understanding=self.understanding,
             adapter=self.adapter if self.settings.learning.enabled else None,
             graph=self.graph, conformal=self.conformal, diversity=self.diversity, slo=self.slo,
         )
@@ -179,9 +168,6 @@ class EdgeNode:
         recovery = self.store.recover()
         self.audit.record("boot", self.settings.node_id, wal=recovery)
 
-        if self.settings.seed_demo and not self.store.points:
-            await self.seed()
-
         for point in self.store.points.values():
             self.sync.tree.set(point.id, point.hlc or self.clock.now().pack())
 
@@ -214,25 +200,25 @@ class EdgeNode:
         self.ready = False
         self.scheduler.stop()
         await self.supervisor.stop_all()
-        for index in getattr(self.store.store, "indexes", {}).values():
-            index.storage.flush()
-        self.store.wal.close()
+        self.close()
 
-    async def seed(self) -> int:
-        """Seed through the same path a real write takes.
 
-        Going straight to the store would skip vocabulary learning, the
-        per-token index and mesh notification — so the node would boot with
-        memories it cannot spell-correct against or gossip.
+    def close(self) -> None:
+        """Release every external handle this node holds.
+
+        Both the memory store and the cloud transport open embedded Qdrant
+        instances, and embedded Qdrant is single-writer: a node that leaves
+        either handle open blocks its own replacement from starting. Closing
+        is therefore part of the restart contract, not a tidiness nicety.
         """
-        for collection, text in SEED_MEMORIES:
-            await self.remember(text, collection=collection, source="seed")
-        # one restricted memory, to prove the policy path end to end
-        await self.remember(
-            "Operator 4471 (jo.reyes@plant.io) acknowledged the alarm from console 2.",
-            collection="episodic", source="seed",
-        )
-        return len(self.store.points)
+        self.store.close()
+        for owner in (self.transport, getattr(self, "mesh_link", None)):
+            closer = getattr(getattr(owner, "client", None), "close", None)
+            try:
+                if closer is not None:
+                    closer()
+            except Exception:
+                pass
 
     # -- background loops --------------------------------------------------
 
@@ -326,7 +312,6 @@ class EdgeNode:
                                         source=source, tenant_id=tenant_id)
         op = self.sync.record_local(point)
         self.understanding.observe(text)                  # vocabulary + co-occurrence
-        self.late_interaction.index(point.id, text)       # per-token vectors
         if op is not None and self.settings.mesh_enabled:
             self.mesh.note_local(op)
         self.pipeline.cache.invalidate()
@@ -386,7 +371,7 @@ class EdgeNode:
             "uptime_s": round(time.time() - self.started_at, 1),
             "mode": "FUSED" if self.oracle.state.value != "offline" else "LOCAL",
             "link": self.oracle.snapshot(),
-            "execution_provider": self.embedder.session.provider,
+            "execution_provider": self.embedder.session.active_provider,
             "embedder": self.embedder.name,
             "model_version": self.embedder.version,
             "precision": self.embedder.entry.variant,
@@ -406,7 +391,8 @@ class EdgeNode:
             "status": "ok" if self.ready and self.supervisor.healthy else "degraded",
             "node_id": self.settings.node_id,
             "uptime_s": round(time.time() - self.started_at, 1),
-            "execution_provider": self.embedder.session.provider,
+            "execution_provider": self.embedder.session.active_provider,
+            "model": self.model_bundle.as_dict(),
             "memory_backend": self.store.store.backend,
             "link": self.oracle.state.value,
             "points": len(self.store.points),
@@ -414,5 +400,4 @@ class EdgeNode:
             "tenants": len(self.tenants.tenants),
             "graph_facts": len(self.graph.facts),
             "subsystems": self.supervisor.health(),
-            "fallback_encoder": self.embedder.session.fallback,
         }

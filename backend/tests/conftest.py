@@ -30,11 +30,11 @@ def settings(tmp_path: Path) -> Settings:
     s = Settings()
     s.data_dir = tmp_path / "data"
     s.data_dir.mkdir(parents=True, exist_ok=True)
-    s.seed_demo = False
     s.policy_file = "config/policy.yaml"
-    s.memory.dim = 128
     s.sync.interval_s = 0.05
     s.sync.probe_interval_s = 0.05
+    # The dimensionality comes from the weights, not from configuration —
+    # EdgeNode overwrites it at construction from the model bundle.
     return s
 
 

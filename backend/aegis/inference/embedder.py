@@ -1,7 +1,8 @@
-"""Dense embedder: registry-backed graph + micro-batching + metrics."""
+"""Dense embedder: real ONNX graph, micro-batched, with metrics."""
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -14,19 +15,22 @@ from .registry import ModelEntry, ModelRegistry
 class Embedder:
     role = "embedder"
 
-    def __init__(self, registry: ModelRegistry, name: str, dim: int, window_ms: float, max_batch: int,
-                 variant: str = "int8-dynamic", model_dir: str = "models") -> None:
+    def __init__(self, registry: ModelRegistry, session: OnnxSession, bundle,
+                 window_ms: float, max_batch: int) -> None:
         self.registry = registry
-        self.dim = dim
-        self.name = name
-        path = Path(model_dir) / f"{name}.{variant}.onnx"
+        self.session = session
+        self.bundle = bundle
+        self.dim = session.dim
+        self.name = bundle.source
         self.entry = registry.register(self.role, ModelEntry(
-            name=name, version="1", variant=variant,
-            path=str(path) if path.exists() else None, dim=dim,
+            name=self.name, version="1", variant="fp32",
+            path=str(bundle.embedder_path), sha256=bundle.sha256, dim=self.dim,
+            meta={"vocab": bundle.vocab, "provenance": bundle.source},
         ))
-        self.session = OnnxSession(self.role, path if path.exists() else None, dim, Path(model_dir) / ".cache")
         self.entry.loaded = True
         self.batcher = MicroBatcher(self._encode, window_ms, max_batch)
+        self._window_ms = window_ms
+        self._max_batch = max_batch
 
     def _encode(self, texts: list[str]) -> np.ndarray:
         with METRICS.timer("inference.embed_ms"):
@@ -38,29 +42,33 @@ class Embedder:
     def embed_sync(self, texts: list[str]) -> np.ndarray:
         return self._encode(texts)
 
-    def swap_variant(self, variant: str, model_dir: str = "models") -> None:
-        """Hot-swap precision (thermal governor) without dropping the role."""
-        path = Path(model_dir) / f"{self.name}.{variant}.onnx"
-        entry = self.registry.register(self.role, ModelEntry(
+    def set_precision(self, variant: str) -> None:
+        """Record the precision the governor selected.
+
+        The graph is a gather plus a pooling reduction: there is no separate
+        quantized artefact to swap, and claiming one would be theatre. What
+        the governor actually controls here is the batching window and the
+        token budget, which is where the cost is.
+        """
+        self.entry = self.registry.register(self.role, ModelEntry(
             name=self.name, version="1", variant=variant,
-            path=str(path) if path.exists() else None, dim=self.dim,
+            path=str(self.bundle.embedder_path), sha256=self.bundle.sha256, dim=self.dim,
         ))
-        self.session = OnnxSession(self.role, path if path.exists() else None, self.dim,
-                                   Path(model_dir) / ".cache")
-        self.entry = entry
-        self.batcher = MicroBatcher(self._encode, self.batcher.window_s * 1000, self.batcher.max_batch)
+        self.entry.loaded = True
+
+    def set_token_budget(self, max_tokens: int) -> None:
+        """Shed inference cost by truncating inputs, not by faking a swap."""
+        self.session.tokenizer.max_tokens = max(8, int(max_tokens))
 
     @property
     def version(self) -> str:
         return f"{self.name}@{self.entry.version}"
 
-    def snapshot(self) -> dict[str, object]:
+    def snapshot(self) -> dict[str, Any]:
         hist = METRICS.histograms.get("inference.embed_ms")
         return {
-            "model": self.name,
-            "variant": self.entry.variant,
-            "dim": self.dim,
-            "session": self.session.snapshot(),
-            "batching": self.batcher.snapshot(),
+            "model": self.name, "variant": self.entry.variant, "dim": self.dim,
+            "max_tokens": self.session.tokenizer.max_tokens,
+            "session": self.session.snapshot(), "batching": self.batcher.snapshot(),
             "latency_ms": hist.snapshot() if hist else {},
         }

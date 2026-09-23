@@ -8,7 +8,7 @@ pip install -r requirements.txt
 uvicorn aegis.main:app --reload --port 8000     # API + WebSocket
 python3 scripts/demo.py                          # full lifecycle, no server
 python3 scripts/bench.py                         # index recall + latency on this machine
-python3 -m pytest tests -q                       # 211 tests
+python3 -m pytest tests -q                       # 212 tests
 ```
 
 Open `http://localhost:8000/docs` for the live OpenAPI surface, or point the
@@ -31,20 +31,34 @@ frontend at it (it defaults to `http://localhost:8000`).
 | `aegis/chaos/` | Fault injection |
 | `aegis/api/` | Routers, schemas, WebSocket gateway |
 
-## Optional dependencies
+## Dependencies are not optional
 
-The node runs with none of these and reports exactly which path it is on
-(`/api/v1/health` → `memory_backend`, `execution_provider`, `fallback_encoder`):
+The node refuses to start without real weights or a real vector store. There is
+no fallback encoder and no internal store masquerading as Qdrant.
 
-| Package | Enables | Without it |
-|---|---|---|
-| `qdrant-client` | Qdrant Edge embedded collections | `native-tiered` NumPy store, same semantics |
-| `onnxruntime` | real ONNX graphs + accelerators | deterministic hashed-n-gram encoder |
-| `tritonclient[grpc]` | cloud escalation tier | escalation declines, everything stays local |
-| `psutil` | real thermal/battery telemetry | synthesised sensor drift |
+| Package | Provides |
+|---|---|
+| `wordllama`, `safetensors` | the pretrained 32000 × 256 token embedding table and its 32k BPE tokenizer, shipped in the wheel — provisioning never touches the network |
+| `onnx`, `onnxruntime`, `tokenizers` | the two graphs compiled from those weights at first boot, and the runtime that executes them |
+| `qdrant-client` | Qdrant, embedded by default or a server via `AEGIS_QDRANT_URL` |
+| `psutil` | platform thermal/battery telemetry; where a platform exposes none, the reading is reported **unavailable** rather than synthesised |
 
-Drop graphs into `models/<name>.<variant>.onnx` and they are picked up on the
-next boot — the registry verifies each digest before loading it.
+Only `tritonclient[grpc]` is optional, because it needs a reachable GPU server.
+
+On first boot the node compiles `models/embedder.onnx` and
+`models/reranker.onnx` from the bundled weights, writes `models/tokenizer.json`
+and `models/provenance.json`, and content-addresses both graphs into the
+registry. Subsequent boots load the serialized optimized graph.
+
+## Configuration worth knowing
+
+| Variable | Effect |
+|---|---|
+| `AEGIS_QDRANT_URL` | point the store at a Qdrant Server instead of the embedded instance |
+| `AEGIS_CLOUD_URL` | the sync coordinator: a Qdrant URL, or empty for a real embedded Qdrant under `<data_dir>/cloud` |
+| `AEGIS_REQUIRE_QDRANT=0` | explicitly allow the internal store (it will say so in `/health`) |
+| `AEGIS_REQUIRE_AUTH=1` | enforce API keys and tenant resolution on every route |
+| `AEGIS_DATA_DIR` | one node per directory — embedded Qdrant is single-writer |
 
 ## Index selection
 
@@ -94,6 +108,13 @@ storms rather than happy paths:
   HTTP coordinator to use `HttpCloud` instead.
 - **The WAL is the system of record.** Nothing becomes searchable before it is
   recoverable.
+- **The node ships empty.** There are no seeded demo memories; the demo script
+  and the test suite ingest their own corpus through the same path a deployed
+  device uses.
+- **Embedded Qdrant is single-writer.** Two nodes on one `AEGIS_DATA_DIR` is
+  not a supported configuration, and the error says so in those words. A
+  restart must close its handles first — `EdgeNode.close()` is part of the
+  restart contract, not a tidiness nicety.
 - **The cold tier really leaves RAM.** Cold vectors are evicted to a memmapped
   file; only 1-bit codes stay resident, and rescoring pages back just the
   shortlist. Keeping a full-precision copy "for rescoring" would make the

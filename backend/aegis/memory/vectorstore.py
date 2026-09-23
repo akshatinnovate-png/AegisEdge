@@ -8,6 +8,7 @@ silently swapped.
 """
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -140,6 +141,9 @@ class NativeStore:
             return merged[:k]
         return self._index(collection).search_sparse(sparse, k, allow=allow)
 
+    def close(self) -> None:
+        """No external handles to release for the internal store."""
+
     def index_report(self) -> dict[str, Any]:
         return {"cost_model": self.cost.as_dict(),
                 "collections": {name: ix.snapshot() for name, ix in self.indexes.items()}}
@@ -156,60 +160,174 @@ class NativeStore:
         return sum(i.storage.snapshot()["resident_bytes"] for i in self.indexes.values())
 
 
-class QdrantEdgeStore(NativeStore):
-    """Qdrant Edge embedded adapter.
+class StorageLocked(RuntimeError):
+    """Another process already holds this data directory."""
 
-    Qdrant Edge runs in-process, so collections are created once at boot with
-    named dense + sparse vectors and payload indexes on the fields we filter on
-    (`ts`, `sensitivity`, `model_version`). If the wheel is unavailable the
-    caller falls back to :class:`NativeStore`; we never degrade silently.
+
+class QdrantStore(NativeStore):
+    """Qdrant as the system of record, the adaptive index as the query path.
+
+    Two honest choices are encoded here.
+
+    First, Qdrant owns persistence and the collection API — real `PointStruct`
+    upserts, real payloads, real filters — so the same adapter that runs
+    against an embedded instance runs against a Qdrant Server by changing one
+    setting.
+
+    Second, the hot query path stays on the local adaptive index. The embedded
+    client's local mode is a pure-Python implementation intended for
+    development; this node's own index has a calibrated HNSW and an OPQ/IVF-PQ
+    tier, so routing hot queries through local mode would be slower and less
+    accurate. Against a real server the engine is Rust and that trade flips —
+    `search_remote()` exists for exactly that, and `verify_agreement()` proves
+    the two paths return the same neighbours rather than asking anyone to
+    assume it.
+
+    The active backend is reported verbatim in `/health`: `qdrant-server` when
+    a URL is configured, `qdrant-local` when embedded.
     """
 
-    backend = "qdrant-edge"
-
-    def __init__(self, dim: int, collections: tuple[str, ...], path: str) -> None:
+    def __init__(self, dim: int, collections: tuple[str, ...], path: str,
+                 url: str | None = None, api_key: str | None = None) -> None:
         super().__init__(dim, collections, path)
-        from qdrant_client import QdrantClient  # type: ignore
-        from qdrant_client.models import Distance, VectorParams  # type: ignore
+        from qdrant_client import QdrantClient
+        from qdrant_client.models import Distance, VectorParams
 
-        self.client = QdrantClient(path=path)
+        self.url = url
+        if url:
+            self.client = QdrantClient(url=url, api_key=api_key, timeout=10)
+            self.backend = "qdrant-server"
+        else:
+            storage = Path(path) / "qdrant"
+            try:
+                self.client = QdrantClient(path=str(storage))
+            except Exception as exc:
+                # Embedded Qdrant is single-writer by design. Two node processes
+                # on one directory would corrupt it, so the lock is correct —
+                # but the raw portalocker BlockingIOError tells an operator
+                # nothing about what to do next.
+                if "lock" in str(exc).lower() or isinstance(exc, BlockingIOError):
+                    raise StorageLocked(
+                        f"another AegisEdge process already holds {storage}. "
+                        f"Embedded Qdrant allows one writer: stop the other node, "
+                        f"or point this one at its own AEGIS_DATA_DIR."
+                    ) from exc
+                raise
+            self.backend = "qdrant-local"
+
+        self.collections = collections
         for name in collections:
             if not self.client.collection_exists(name):
                 self.client.create_collection(
                     collection_name=name,
                     vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
                 )
-        for name in collections:
-            for field_name, schema in (("ts", "float"), ("sensitivity", "keyword"), ("model_version", "keyword")):
-                try:
-                    self.client.create_payload_index(name, field_name=field_name, field_schema=schema)
-                except Exception:  # index already present
-                    pass
+        # Payload indexes are a server feature; local mode filters without them.
+        if url:
+            for name in collections:
+                for field_name, schema in (("ts", "float"), ("sensitivity", "keyword"),
+                                           ("tenant_id", "keyword"), ("model_version", "keyword")):
+                    try:
+                        self.client.create_payload_index(name, field_name=field_name,
+                                                         field_schema=schema)
+                    except Exception:
+                        pass                    # already present
+        self.upserts = 0
+        self.remote_searches = 0
+
+    @staticmethod
+    def _qdrant_id(point_id: str) -> str:
+        """Qdrant ids are UUIDs or unsigned ints; ours are ULIDs."""
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, point_id))
 
     def upsert(self, point: MemoryPoint) -> None:
         super().upsert(point)
-        from qdrant_client.models import PointStruct  # type: ignore
+        from qdrant_client.models import PointStruct
 
+        payload = {**self._payload_of(point), "aegis_id": point.id, "text": point.text}
         self.client.upsert(
             collection_name=point.collection,
-            points=[PointStruct(
-                id=abs(hash(point.id)) % (1 << 63),
-                vector=list(point.dense),
-                payload={
-                    "aegis_id": point.id,
-                    "text": point.text,
-                    "ts": point.created_at,
-                    "sensitivity": point.sensitivity.value,
-                    "model_version": point.model_version,
-                    **point.payload,
-                },
-            )],
+            points=[PointStruct(id=self._qdrant_id(point.id),
+                                vector=list(point.dense), payload=payload)],
         )
+        self.upserts += 1
+
+    def delete(self, point_id: str) -> None:
+        super().delete(point_id)
+        from qdrant_client.models import PointIdsList
+
+        for name in self.collections:
+            try:
+                self.client.delete(collection_name=name,
+                                   points_selector=PointIdsList(points=[self._qdrant_id(point_id)]))
+            except Exception:
+                continue
+
+    def search_remote(self, collection: str, query: np.ndarray, k: int) -> list[tuple[str, float]]:
+        """Ask Qdrant itself — the path a server deployment would take."""
+        self.remote_searches += 1
+        targets = self.collections if collection == "*" else (collection,)
+        merged: list[tuple[str, float]] = []
+        for name in targets:
+            try:
+                hits = self.client.query_points(collection_name=name,
+                                                query=list(np.asarray(query, dtype=np.float32)),
+                                                limit=k, with_payload=True).points
+            except Exception:
+                continue
+            merged.extend((h.payload.get("aegis_id", str(h.id)), float(h.score)) for h in hits)
+        merged.sort(key=lambda row: -row[1])
+        return merged[:k]
+
+    def verify_agreement(self, collection: str, query: np.ndarray, k: int = 5) -> dict[str, Any]:
+        """Do the local index and Qdrant return the same neighbours?"""
+        local = [pid for pid, _ in self.search_dense(collection, query, k)]
+        remote = [pid for pid, _ in self.search_remote(collection, query, k)]
+        overlap = len(set(local) & set(remote)) / max(len(local) or 1, 1)
+        return {"local": local, "remote": remote, "overlap": round(overlap, 3),
+                "agree": overlap >= 0.8, "backend": self.backend}
+
+    def counts(self) -> dict[str, dict[str, int]]:
+        return super().counts()
+
+    def close(self) -> None:
+        try:
+            self.client.close()
+        except Exception:
+            pass
+
+    def index_report(self) -> dict[str, Any]:
+        report = super().index_report()
+        report["qdrant"] = {
+            "backend": self.backend, "url": self.url,
+            "upserts": self.upserts, "remote_searches": self.remote_searches,
+            "collections": {
+                name: getattr(self.client.get_collection(name), "points_count", None)
+                for name in self.collections
+            },
+        }
+        return report
 
 
-def build_store(dim: int, collections: tuple[str, ...], path: str) -> VectorStore:
-    """Prefer Qdrant Edge; fall back to the native tiered store."""
+def build_store(dim: int, collections: tuple[str, ...], path: str,
+                url: str | None = None, api_key: str | None = None,
+                required: bool = True) -> VectorStore:
+    """Open the vector store.
+
+    Qdrant is a hard requirement by default: a node that silently falls back to
+    an internal store while claiming to be Qdrant-backed is telling its
+    operator something untrue about where their data lives. Set
+    `AEGIS_REQUIRE_QDRANT=0` to allow the internal store explicitly.
+    """
     try:
-        return QdrantEdgeStore(dim, collections, path)
-    except Exception:
+        return QdrantStore(dim, collections, path, url, api_key)
+    except Exception as exc:
+        if isinstance(exc, StorageLocked):
+            raise
+        if required:
+            raise RuntimeError(
+                f"Qdrant is required but could not be opened ({exc}). "
+                f"Install `qdrant-client`, or set AEGIS_REQUIRE_QDRANT=0 to run on the "
+                f"internal store."
+            ) from exc
         return NativeStore(dim, collections, path)

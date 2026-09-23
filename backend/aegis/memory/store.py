@@ -62,7 +62,9 @@ class MemoryStore:
         self.segments = SegmentStore(data_dir / "segments", settings.node_id)
         self.archived_lsn = self.segments.manifest.checkpoint_lsn
         self.store: VectorStore = build_store(
-            settings.memory.dim, settings.memory.collections, str(data_dir / "qdrant")
+            settings.memory.dim, settings.memory.collections, str(data_dir),
+            url=settings.qdrant_url or None, api_key=settings.qdrant_api_key or None,
+            required=settings.require_qdrant,
         )
         self.points: dict[str, MemoryPoint] = {}
         self.tombstones: dict[str, float] = {}
@@ -267,6 +269,20 @@ class MemoryStore:
                          message=(f"sealed segment <b>{info.segment_id[:12]}</b> · "
                                   f"{info.records} records"))
         return info.as_dict()
+
+    def close(self) -> None:
+        """Release every external handle. A restart depends on this."""
+        for closer in (getattr(self.store, "close", None), self.wal.close):
+            try:
+                if closer is not None:
+                    closer()
+            except Exception:
+                pass
+        for index in getattr(self.store, "indexes", {}).values():
+            try:
+                index.storage.flush()
+            except Exception:
+                pass
 
     def rewind_archive(self, to_lsn: int) -> int:
         """Mark an LSN range as no longer durable so it is re-sealed.

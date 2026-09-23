@@ -163,11 +163,19 @@ async def test_node_archives_and_survives_restart(node, settings):
     assert node.segments.fsck().clean
 
     from aegis.node import EdgeNode
+
+    # A restart is a restart: the running node releases its handles first.
+    # Embedded Qdrant is single-writer, so overlapping nodes is not a scenario
+    # that can occur in production either.
+    node.close()
     reopened = EdgeNode(settings)
-    assert reopened.segments.manifest.generation >= 1
-    assert len(list(reopened.segments.read_all())) >= 6
-    reopened.store.recover()
-    assert len(reopened.store.points) >= 6
+    try:
+        assert reopened.segments.manifest.generation >= 1
+        assert len(list(reopened.segments.read_all())) >= 6
+        reopened.store.recover()
+        assert len(reopened.store.points) >= 6
+    finally:
+        reopened.close()
 
 
 @pytest.mark.asyncio

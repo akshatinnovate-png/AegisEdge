@@ -8,7 +8,6 @@ to the cloud" must never be a thing that quietly happens.
 from __future__ import annotations
 
 import asyncio
-import random
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -104,18 +103,31 @@ class TritonClient:
             raise LinkUnavailable(f"triton: {exc}") from exc
 
     async def _infer(self, query: str, candidates: list[tuple[str, str]]) -> list[tuple[str, float]]:
-        try:
-            import tritonclient.grpc.aio as grpcclient  # type: ignore
+        """Call the ensemble. There is no local stand-in for a remote model.
 
-            if self._client is None:  # pragma: no cover - requires a live server
-                self._client = grpcclient.InferenceServerClient(url=self.url)
-            raise NotImplementedError("bind ensemble IO in deployment")
-        except Exception:
-            # No live endpoint: simulate the round trip so the path is measurable.
-            await asyncio.sleep(random.uniform(0.04, 0.12))
-            scored = [(pid, round(random.uniform(0.35, 0.99), 4)) for pid, _ in candidates]
-            scored.sort(key=lambda x: -x[1])
-            return scored
+        An earlier version returned random scores when no server was reachable
+        so the code path stayed "measurable". That is a lie with a latency
+        histogram attached: it would have reordered real results using noise.
+        Without a live endpoint the escalation is declined upstream, and if one
+        is configured but unreachable this raises so the breaker can open.
+        """
+        import tritonclient.grpc.aio as grpcclient  # type: ignore
+        import numpy as np
+
+        if self._client is None:
+            self._client = grpcclient.InferenceServerClient(url=self.url)
+
+        pairs = [f"{query} [SEP] {text}" for _, text in candidates]
+        payload = np.array([[p.encode("utf-8")] for p in pairs], dtype=object)
+        inputs = grpcclient.InferInput("TEXT", payload.shape, "BYTES")
+        inputs.set_data_from_numpy(payload)
+        response = await self._client.infer(
+            model_name=self.model, inputs=[inputs],
+            outputs=[grpcclient.InferRequestedOutput("SCORES")])
+        scores = response.as_numpy("SCORES").reshape(-1)
+        ranked = [(pid, float(score)) for (pid, _), score in zip(candidates, scores)]
+        ranked.sort(key=lambda row: -row[1])
+        return ranked
 
     def snapshot(self) -> dict[str, Any]:
         hist = METRICS.histograms.get("triton.rerank_ms")

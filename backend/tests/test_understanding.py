@@ -69,19 +69,33 @@ async def test_late_interaction_aligns_query_terms_to_document_terms(node):
     point = await node.remember(
         "Isolate the drive then purge the coolant line before re-homing the gantry",
         collection="procedural")
-    scored = node.late_interaction.score("purge the coolant line", [point.id], explain=True)
+    scored = node.reranker.maxsim("purge the coolant line", [(point.id, point.text)], explain=True)
     assert scored and scored[0].point_id == point.id
     alignments = scored[0].as_dict()["alignments"]
     assert alignments
-    assert any(a["doc_term"] in {"purge", "coolant", "line"} for a in alignments)
+    # real BPE pieces, so match on the stem rather than a whole word
+    assert any(a["doc_term"].strip("\u2581").lower() in
+               {"purge", "cool", "coolant", "ant", "line"} for a in alignments)
 
 
 @pytest.mark.asyncio
-async def test_late_interaction_storage_is_quantized(node):
+async def test_reranker_overrides_a_misleading_retrieval_score(node):
+    """The whole point of a reranker: it can demote a confident wrong answer."""
+    good = await node.remember("Coolant pressure below 1.8 bar is a hard stop", "semantic")
+    bad = await node.remember("The canteen reopens at seven on weekdays", "episodic")
+    ranked = node.reranker.rerank(
+        "coolant pressure hard stop",
+        [(good.id, good.text, 0.2), (bad.id, bad.text, 0.9)], top_k=2)
+    assert ranked[0][0] == good.id
+
+
+@pytest.mark.asyncio
+async def test_reranker_caches_document_token_matrices(node):
     point = await node.remember("a reasonably long procedural memory about the gantry drive")
-    tokens = len(node.late_interaction.terms[point.id])
-    # int8 codes + one float scale per token, not float32 per dimension
-    assert node.late_interaction.resident_bytes < tokens * node.embedder.dim * 4
+    node.reranker.maxsim("gantry drive", [(point.id, point.text)])
+    hits = node.reranker.cache_hits
+    node.reranker.maxsim("gantry drive", [(point.id, point.text)])
+    assert node.reranker.cache_hits > hits          # tokens re-used, not recomputed
 
 
 def test_common_words_are_not_corrected_into_domain_terms(understanding):

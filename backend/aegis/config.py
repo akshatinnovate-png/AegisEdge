@@ -26,7 +26,8 @@ def _env(key: str, default: Any) -> Any:
 
 @dataclass(slots=True)
 class MemoryConfig:
-    dim: int = field(default_factory=lambda: _env("dim", 384))
+    # Set by the model bundle at boot; the pretrained table is 256-dimensional.
+    dim: int = field(default_factory=lambda: _env("dim", 256))
     sparse_dim: int = field(default_factory=lambda: _env("sparse_dim", 1 << 18))
     collections: tuple[str, ...] = ("episodic", "semantic", "procedural", "sensor")
     hot_capacity: int = field(default_factory=lambda: _env("hot_capacity", 20_000))
@@ -38,9 +39,7 @@ class MemoryConfig:
 
 @dataclass(slots=True)
 class InferenceConfig:
-    embedder: str = field(default_factory=lambda: _env("embedder", "bge-small-en-v1.5"))
-    reranker: str = field(default_factory=lambda: _env("reranker", "cross-encoder-mini"))
-    precision: str = field(default_factory=lambda: _env("precision", "int8-dynamic"))
+    max_tokens: int = field(default_factory=lambda: _env("max_tokens", 128))
     batch_window_ms: float = field(default_factory=lambda: _env("batch_window_ms", 8.0))
     max_batch: int = field(default_factory=lambda: _env("max_batch", 32))
     model_dir: str = field(default_factory=lambda: _env("model_dir", "models"))
@@ -51,7 +50,7 @@ class InferenceConfig:
 @dataclass(slots=True)
 class SyncConfig:
     enabled: bool = field(default_factory=lambda: _env("sync_enabled", True))
-    cloud_url: str = field(default_factory=lambda: _env("cloud_url", "loopback://cloud"))
+    cloud_url: str = field(default_factory=lambda: _env("cloud_url", ""))
     interval_s: float = field(default_factory=lambda: _env("sync_interval_s", 12.0))
     batch_ops: int = field(default_factory=lambda: _env("sync_batch_ops", 256))
     bandwidth_bps: int = field(default_factory=lambda: _env("sync_bandwidth_bps", 2_000_000))
@@ -87,7 +86,9 @@ class Settings:
     port: int = field(default_factory=lambda: _env("port", 8000))
     cors_origins: str = field(default_factory=lambda: _env("cors_origins", "*"))
     policy_file: str = field(default_factory=lambda: _env("policy_file", "config/policy.yaml"))
-    seed_demo: bool = field(default_factory=lambda: _env("seed_demo", True))
+    require_qdrant: bool = field(default_factory=lambda: _env("require_qdrant", True))
+    qdrant_url: str = field(default_factory=lambda: _env("qdrant_url", ""))
+    qdrant_api_key: str = field(default_factory=lambda: _env("qdrant_api_key", ""))
     telemetry_interval_s: float = field(default_factory=lambda: _env("telemetry_interval_s", 2.0))
     scheduler_concurrency: int = field(default_factory=lambda: _env("scheduler_concurrency", 3))
     mesh_enabled: bool = field(default_factory=lambda: _env("mesh_enabled", True))

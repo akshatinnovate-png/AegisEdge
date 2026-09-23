@@ -1,11 +1,24 @@
+# Runtime — all required. The node refuses to start without real weights or a
+# real vector store rather than silently substituting a stand-in.
 fastapi>=0.110
 uvicorn[standard]>=0.29
 pydantic>=2.6
 numpy>=1.26
 PyYAML>=6.0
 httpx>=0.27
-# optional, auto-detected at runtime:
-# qdrant-client>=1.9      # Qdrant Edge embedded store
-# onnxruntime>=1.17       # local ONNX inference
-# tritonclient[grpc]      # cloud escalation tier
-# psutil                  # real thermal / battery telemetry
+
+# Inference: real ONNX graphs compiled at first boot from pretrained weights.
+onnxruntime>=1.17
+onnx>=1.15
+tokenizers>=0.15
+safetensors>=0.4
+wordllama>=0.4            # ships the pretrained token embeddings + BPE tokenizer
+
+# Vector store: Qdrant, embedded by default, or a server via AEGIS_QDRANT_URL.
+qdrant-client>=1.9
+
+# Platform telemetry for the thermal/power governor.
+psutil>=5.9
+
+# Optional, auto-detected at runtime:
+# tritonclient[grpc]      # cloud escalation tier (needs a reachable server)

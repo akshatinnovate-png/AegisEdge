@@ -16,6 +16,27 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from aegis.config import Settings           # noqa: E402
+
+CORPUS: list[tuple[str, str]] = [
+    ("sensor", "Bay 3 conveyor vibration crossed 4.2 mm/s at 02:14; the bearing signature "
+               "matches the pre-failure cluster from March."),
+    ("sensor", "Ambient temperature in the cell climbed to 61 C during the night shift."),
+    ("sensor", "Coolant pressure read 1.74 bar for 96 seconds before the interlock fired."),
+    ("semantic", "Coolant pressure below 1.8 bar for over 90 seconds is treated as a hard "
+                 "stop condition on this cell."),
+    ("semantic", "Restricted-class memories never leave this device under any sync policy."),
+    ("semantic", "Bearing vibration above 4.0 mm/s is an early indicator of raceway spalling."),
+    ("procedural", "Recovery: isolate the drive, purge the line, re-home the gantry, then "
+                   "release the interlock in that order."),
+    ("procedural", "To clear a torque fault: cut servo power, rotate the spindle by hand, "
+                   "confirm free travel, then re-enable."),
+    ("episodic", "Operator acknowledged the torque alarm and switched line 2 to manual feed "
+                 "for eleven minutes."),
+    ("episodic", "Uplink dropped for 47 minutes during the night shift; operations queued "
+                 "locally and replayed on reconnect."),
+    ("episodic", "Maintenance replaced the bay 3 bearing housing BX-7741-Q and logged the "
+                 "part number on the work order."),
+]
 from aegis.core.slo import Level            # noqa: E402
 from aegis.core.tenancy import Scope        # noqa: E402
 from aegis.node import EdgeNode             # noqa: E402
@@ -39,15 +60,23 @@ async def main() -> None:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     for stale in ("memory.wal", "opqueue.jsonl", "migration.checkpoint.json", "audit.log"):
         (settings.data_dir / stale).unlink(missing_ok=True)
-    shutil.rmtree(settings.data_dir / "segments", ignore_errors=True)   # start from nothing
+    for stale_dir in ("segments", "qdrant", "cloud"):
+        shutil.rmtree(settings.data_dir / stale_dir, ignore_errors=True)   # start from nothing
 
     node = EdgeNode(settings)
     await node.start()
+
+    # The node ships empty. Everything below operates on memories ingested
+    # here, through the same path a deployed device uses.
+    for collection, text in CORPUS:
+        await node.remember(text, collection=collection, source="operations")
 
     head(1, "COLD BOOT")
     health = node.health()
     line("node", health["node_id"])
     line("memory backend", health["memory_backend"])
+    line("embedding model", f"{health['model']['source']} · {health['model']['dim']}d · "
+                            f"vocab {health['model']['vocab']:,}")
     line("execution provider", health["execution_provider"])
     line("points resident", health["points"])
     line("subsystems running", sum(1 for s in health["subsystems"].values() if s["state"] == "running"))

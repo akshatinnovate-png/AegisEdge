@@ -8,3 +8,5 @@ backend/models/.cache/
 *.onnx
 .venv/
 .DS_Store
+models/
+.aegis/

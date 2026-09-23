@@ -98,11 +98,16 @@ async def test_wal_survives_garbage_appended_to_its_tail(node, settings):
     await node.chaos.inject("corrupt_wal", duration_s=0.1, bytes_=128)
 
     from aegis.node import EdgeNode
+
+    node.close()
     reopened = EdgeNode(settings)
-    stats = reopened.store.recover()
-    assert stats["applied"] >= 8
-    assert stats["torn"] >= 1                    # the garbage was seen and discarded
-    assert len(reopened.store.points) >= 8
+    try:
+        stats = reopened.store.recover()
+        assert stats["applied"] >= 8
+        assert stats["torn"] >= 1                # the garbage was seen and discarded
+        assert len(reopened.store.points) >= 8
+    finally:
+        reopened.close()
 
 
 @pytest.mark.asyncio
@@ -136,10 +141,14 @@ async def test_repeated_restarts_are_idempotent(node, settings):
     for i in range(10):
         await node.remember(f"observation {i}")
     node.store.archive()
+    node.close()
     counts = []
     for _ in range(3):
         reopened = EdgeNode(settings)
-        reopened.store.recover()
-        counts.append(len(reopened.store.points))
+        try:
+            reopened.store.recover()
+            counts.append(len(reopened.store.points))
+        finally:
+            reopened.close()
     assert len(set(counts)) == 1                 # replay converges to one state
     assert counts[0] >= 10

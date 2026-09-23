@@ -56,7 +56,7 @@ class RetrievalResult:
 class RetrievalPipeline:
     def __init__(self, *, store: MemoryStore, sparse, reranker, triton, oracle,
                  bus: EventBus, half_life_days: float = 21.0,
-                 understanding=None, late_interaction=None, adapter=None,
+                 understanding=None, adapter=None,
                  graph=None, conformal=None, diversity=None, slo=None) -> None:
         self.store = store
         self.sparse = sparse
@@ -67,7 +67,6 @@ class RetrievalPipeline:
         self.scorer = Scorer(half_life_days)
         self.cache = SemanticCache()
         self.understanding = understanding
-        self.late_interaction = late_interaction
         self.adapter = adapter
         self.graph = graph
         self.conformal = conformal
@@ -209,33 +208,20 @@ class RetrievalPipeline:
         t0 = time.perf_counter()
         with TRACER.span("rerank") as span:
             if allowed("cross_encoder"):
-                reranked = self.reranker.rerank(query, candidates, top_k=max(k * 2, 8))
+                reranked = self.reranker.rerank(query, candidates, top_k=max(k * 2, 8),
+                                                explain=explain and allowed("late_interaction"))
             else:
                 # Shed the cross-encoder but keep the fusion ordering rather
                 # than returning an arbitrary one.
                 reranked = sorted(((pid, score) for pid, _, score in candidates),
                                   key=lambda row: -row[1])[: max(k * 2, 8)]
-            span.set(candidates=len(candidates), cross_encoder=allowed("cross_encoder"))
+            span.set(candidates=len(candidates), late_interaction=allowed("cross_encoder"))
         result.stages["rerank_ms"] = round((time.perf_counter() - t0) * 1000, 3)
 
-        # 4b. late interaction: per-token MaxSim over the shortlist only
-        if self.late_interaction is not None and len(reranked) > 1 and allowed("late_interaction"):
-            t0 = time.perf_counter()
-            with TRACER.span("late_interaction") as span:
-                maxsim = self.late_interaction.score(query, [pid for pid, _ in reranked],
-                                                     explain=explain)
-                span.set(scored=len(maxsim))
-            if maxsim:
-                blended = {e.point_id: e.score for e in maxsim}
-                alignments = {e.point_id: e.as_dict()["alignments"] for e in maxsim}
-                reranked = [(pid, 0.6 * score + 0.4 * blended.get(pid, score))
-                            for pid, score in reranked]
-                reranked.sort(key=lambda row: -row[1])
-                result.stages["maxsim_ms"] = round((time.perf_counter() - t0) * 1000, 3)
-            else:
-                alignments = {}
-        else:
-            alignments = {}
+        alignments = {
+            pid: [a.as_dict() for a in row.alignments]
+            for pid, row in getattr(self.reranker, "last_explanations", {}).items()
+        } if explain else {}
 
         # 5. final scoring with recency / salience / confidence
         scored: list[tuple[MemoryPoint, float, dict[str, float], float]] = []
@@ -385,8 +371,6 @@ class RetrievalPipeline:
         }
         if self.understanding is not None:
             out["understanding"] = self.understanding.snapshot()
-        if self.late_interaction is not None:
-            out["late_interaction"] = self.late_interaction.snapshot()
         if self.adapter is not None:
             out["adapter"] = self.adapter.snapshot()
         return out
