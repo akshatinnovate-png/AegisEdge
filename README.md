@@ -925,6 +925,9 @@ Point it at a live backend:
 - [x] Energy accounting with a measured/modelled source ladder
 - [x] Runtime provenance receipt over source, weights and compiled graphs
 - [x] Two-layer semantic cache — 80× on a repeated question, after the old one was found dead
+- [x] Mesh converges 50/50 peers in 6 waves — the earlier 36/50 was the harness stopping a wave short, not a limit
+- [x] Steady-state soak that holds the corpus still, so growth can be attributed rather than guessed at
+- [ ] **Open:** ~2.6 KB/query resident growth under *concurrent* load, linear over 64,000 queries. Python objects, the ONNX arena, input shapes, the encoder, the micro-batcher, instrumentation, background writes and allocator retention are each measured and ruled out; it does not reproduce when the warm-up is concurrent rather than sequential. See `soak_steady` in `backend/scripts/stress.py`
 - [ ] Multi-modal named vector spaces (schema supports them; encoders pending)
 - [ ] Mesh convergence past 36/50 peers in six waves — under investigation
 - [ ] Soak phase cannot yet separate a leak from legitimate corpus growth

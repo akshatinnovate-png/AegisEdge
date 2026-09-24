@@ -14,6 +14,7 @@ seconds.
 from __future__ import annotations
 
 import re
+import os
 import threading
 from pathlib import Path
 from typing import Any
@@ -80,6 +81,8 @@ class Tokenizer:
     # well under 8; this leaves room for scripts that tokenise far worse.
     CHAR_BUDGET_PER_TOKEN = 16
 
+
+
     _lock = threading.Lock()
     _cache: dict[str, "Tokenizer"] = {}
 
@@ -145,6 +148,17 @@ class OnnxSession:
         options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         options.intra_op_num_threads = 0
         options.enable_mem_pattern = True
+        # On the resident-set growth the steady-state soak reports: it is not
+        # this layer, and several plausible fixes here were tried and measured
+        # to do nothing. Disabling the CPU memory arena
+        # (`enable_cpu_mem_arena = False`), the documented knob for exactly
+        # this shape of problem: byte-for-byte identical at every checkpoint.
+        # Bucketing sequence lengths and batch sizes so the runtime meets a few
+        # dozen input shapes rather than a thousand: +41.6 / 83.7 / 125.2 /
+        # 165.6 MB against +41.7 / 83.1 / 125.1 / 165.5 without. The encoder
+        # itself is clean in isolation — 0.0 MB over 12,000 texts at batch 1
+        # and at batch 8 — so none of this is where the memory goes. See
+        # `soak_steady` in scripts/stress.py for what is and is not ruled out.
         if not self._cache.exists():
             options.optimized_model_filepath = str(self._cache)   # AOT: pay once, not per boot
         providers = [p for p, label in EP_LADDER if label and p in self.available]
@@ -178,7 +192,9 @@ class OnnxSession:
         return self.session.run(None, {"input_ids": ids, "attention_mask": mask})[0]
 
     def token_embeddings(self, text: str) -> tuple[np.ndarray, list[str]]:
-        """Per-token vectors for late interaction, with their surface forms."""
+        """Per-token vectors for late interaction, with their surface forms.
+
+        """
         ids = self.tokenizer.token_ids(text)
         if not ids:
             return np.zeros((0, self.dim), dtype=np.float32), []

@@ -22,6 +22,12 @@ from ..core.tracing import TRACER
 from ..memory.filters import Filter
 
 
+# The only fields a cached answer is ever read back for. Everything else in a
+# `RetrievalResult` is per-request narration: the trace, the explanations, the
+# stage timings. Storing them is memory spent on data the reader throws away.
+CACHEABLE_FIELDS = frozenset({"results", "escalated", "escalation", "mode", "plan"})
+
+
 def _filter_key(filters: dict[str, Any] | None) -> str:
     """A stable digest of a filter spec, for use in a cache key.
 
@@ -200,10 +206,9 @@ class RetrievalPipeline:
         verbatim = self.cache.get_exact(search_text, namespace)
         if verbatim is not None:
             span_root.__exit__(None, None, None)
-            fields = {"results", "escalated", "escalation", "mode", "plan"}
             out = RetrievalResult(query=query,
                                   **{key: value for key, value in verbatim.items()
-                                     if key in fields})
+                                     if key in CACHEABLE_FIELDS})
             out.cached = True
             out.understanding = result.understanding
             out.latency_ms = (time.perf_counter() - t_start) * 1000
@@ -270,8 +275,8 @@ class RetrievalPipeline:
             # cache that only learns from full work never learns from itself.
             self.cache.put_exact(search_text, cached, namespace)
             span_root.__exit__(None, None, None)
-            fields = {"results", "escalated", "escalation", "mode", "plan"}
-            out = RetrievalResult(query=query, **{k: v for k, v in cached.items() if k in fields})
+            out = RetrievalResult(query=query,
+                                  **{k: v for k, v in cached.items() if k in CACHEABLE_FIELDS})
             out.cached = True
             out.latency_ms = (time.perf_counter() - t_start) * 1000
             # Two differently-spelled queries can normalise to the same text and
@@ -509,7 +514,15 @@ class RetrievalPipeline:
         # Cacheable under the key computed above, which already accounts for
         # the filter. Writes bump the cache epoch, so a stored answer cannot
         # outlive the corpus it was drawn from.
-        payload = result.as_dict()
+        # Store only what a cache hit actually serves. `as_dict()` carries the
+        # span tree, the per-hit explain blocks and the understanding record —
+        # useful in a response, dead weight in a cache, and the read path below
+        # discards all of it anyway. Keeping the whole dict put roughly 190 MB
+        # into a 1,024-entry cache over 2,400 unique queries, which the
+        # steady-state soak correctly reported as growth that no write
+        # explained.
+        payload = {key: value for key, value in result.as_dict().items()
+                   if key in CACHEABLE_FIELDS}
         self.cache.put(vector, payload, namespace)
         self.cache.put_exact(search_text, payload, namespace)
         if not result.results and inferred and _relaxable:

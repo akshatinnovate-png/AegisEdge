@@ -668,12 +668,114 @@ async def phase_soak(h: Harness, seconds: float) -> dict[str, Any]:
         "samples": samples, "rss_baseline_mb": baseline, "rss_final_mb": rss_mb(),
         "bytes_per_point": round(growth_per_point),
         "rss_slope_mb_per_s_tail": round(tail_slope, 3),
+        "steady_state": None,      # filled below
         "ops_per_s": round((ingested + queried) / seconds, 1),
     }
     h.line("throughput", f"{result['ops_per_s']} mixed ops/s")
     h.line("RSS slope (tail)", f"{tail_slope:+.3f} MB/s")
+    # The slope above cannot distinguish a leak from the corpus growing, so
+    # hold the corpus still and measure again.
+    result["steady_state"] = await soak_steady(h, node)
     node.close()
     return result
+
+
+async def soak_steady(h: Harness, node, seconds: float = 45.0) -> dict[str, Any]:
+    """Hold the corpus still and keep querying, then report what grew.
+
+    It reports evidence rather than a verdict, because the verdict is not
+    settled. There is a real, reproducible resident-set growth under
+    *concurrent* load — roughly 2.6 KB per query, linear over 64,000 queries
+    with no plateau — and a long investigation ruled out most of the obvious
+    causes without finding it.
+
+    What is ruled out, each measured:
+
+    * **Python objects.** tracemalloc accounts for under 1 MB of a 31 MB rise.
+      Every in-process structure is flat: cache entries, graph facts, the
+      understanding vocabulary, adapter examples, tracer spans, store points.
+    * **The ONNX memory arena.** `enable_cpu_mem_arena = False` is the
+      documented knob for this shape of problem and is byte-for-byte identical
+      with it on and off.
+    * **Input shapes.** Bucketing sequence length *and* batch size, so the
+      runtime meets dozens of shapes rather than a thousand:
+      +41.6/83.7/125.2/165.6 MB against +41.7/83.1/125.1/165.5 without.
+    * **The encoder.** 0.0 MB over 12,000 texts at batch 1 and at batch 8.
+    * **The micro-batcher.** +0.1 MB over 12,000 embeds at 8-way concurrency.
+    * **Instrumentation.** Disabling tracing, metrics and the event bus
+      individually and together: no difference.
+    * **Background writes.** Nothing durable changes during the window — the
+      WAL, segment count, segment bytes and graph facts are all unmoved.
+    * **Allocator retention.** `malloc_trim(0)` returns 0.3–5.8 MB of it.
+
+    And one clue that has not been run down: it does not reproduce when the
+    warm-up is *concurrent* rather than sequential. Same code, same
+    concurrency, same corpus — +165 MB one way, +0.9 MB the other.
+
+    Reproduce with 8-way concurrency after a sequential warm-up and watch RSS
+    across four windows of 16,000 queries. Until somebody finds it, this
+    reports the slope over each half of the window and what changed
+    underneath, which is what a reader needs to judge their own deployment.
+    """
+    queries = [synthetic(i, random.Random(i)) for i in range(128)]
+    before = _durable_state(node)
+    gc.collect()
+    samples: list[dict[str, Any]] = []
+    started = time.perf_counter()
+    served = 0
+    while time.perf_counter() - started < seconds:
+        await asyncio.gather(*(node.pipeline.search(queries[(served + i) % len(queries)], k=5)
+                               for i in range(8)))
+        served += 8
+        now = time.perf_counter() - started
+        if not samples or now - samples[-1]["t_s"] >= 3.0:
+            gc.collect()
+            samples.append({"t_s": round(now, 1), "rss_mb": rss_mb(), "queries": served})
+
+    after = _durable_state(node)
+    half = max(len(samples) // 2, 2)
+    first, second = samples[:half], samples[half:] or samples[-2:]
+
+    def slope_of(window: list[dict[str, Any]]) -> float:
+        if len(window) < 2:
+            return 0.0
+        return ((window[-1]["rss_mb"] - window[0]["rss_mb"])
+                / max(window[-1]["t_s"] - window[0]["t_s"], 1e-6))
+
+    early, late = slope_of(first), slope_of(second)
+    changed = {k: after[k] - before[k] for k in before if after[k] != before[k]}
+    result = {
+        "seconds": round(seconds, 1), "queries": served,
+        "rss_first_mb": samples[0]["rss_mb"] if samples else 0.0,
+        "rss_last_mb": samples[-1]["rss_mb"] if samples else 0.0,
+        "rss_slope_first_half": round(early, 4),
+        "rss_slope_second_half": round(late, 4),
+        "flattening": bool(late <= max(early * 0.67, 0.0)),
+        "durable_state_before": before,
+        "durable_state_changed": changed,
+        "samples": samples,
+    }
+    result["verdict"] = (
+        f"{served:,} queries, no ingest. RSS slope {early:+.3f} → {late:+.3f} MB/s"
+        + (" (flattening)" if result["flattening"] else " (not yet flattening)")
+        + (f"; background work still wrote: {changed}" if changed
+           else "; nothing durable changed underneath it"))
+    h.line("steady-state soak", result["verdict"])
+    return result
+
+
+def _durable_state(node) -> dict[str, int]:
+    """Everything that would explain growth without an explicit ingest."""
+    stats = node.store.store.snapshot() if hasattr(node.store.store, "snapshot") else {}
+    segments = stats.get("segments", {}) if isinstance(stats, dict) else {}
+    return {
+        "points": len(node.store.points),
+        "wal_lsn": int(getattr(node.store.wal, "lsn", 0)),
+        "wal_bytes": int(node.store.wal.stats().get("bytes", 0)),
+        "graph_facts": len(node.graph.facts),
+        "segments": int(segments.get("segments", 0) or 0),
+        "segment_bytes": int(segments.get("bytes", 0) or 0),
+    }
 
 
 async def phase_mesh(h: Harness, peers: int, divergence: int) -> dict[str, Any]:
@@ -716,10 +818,15 @@ async def phase_mesh(h: Harness, peers: int, divergence: int) -> dict[str, Any]:
     first = await agents[names[1]].anti_entropy(source)
     first_s = time.perf_counter() - t0
 
-    # epidemic spread: every peer runs a round against a random other
+    # Epidemic spread: every peer runs a round against one random other, so the
+    # informed set roughly doubles per wave and 50 peers need about log2(50)
+    # waves plus the tail. An earlier version of this stopped at six and
+    # reported "36/50 converged" as though that were the mesh's limit; it is
+    # one wave short of done. Run until convergence, and report the wave count
+    # it actually needed, which is the interesting number.
     t0 = time.perf_counter()
     rounds = 0
-    for wave in range(6):
+    for wave in range(30):
         await asyncio.gather(*(agents[n].anti_entropy(random.choice([m for m in names if m != n]))
                                for n in names))
         rounds += len(names)

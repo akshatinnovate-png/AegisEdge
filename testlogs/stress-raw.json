@@ -4,1008 +4,267 @@
     "machine": "x86_64",
     "cpus": 4,
     "platform": "Linux-6.18.44-fc-v37-x86_64-with-glibc2.39",
-    "started_at": 1790246943.7150543,
+    "started_at": 1790279370.5387003,
     "ram_total_mb": 16878,
-    "cpu_model": "Intel(R) Xeon(R) Processor @ 2.80GHz"
+    "cpu_model": "Intel(R) Xeon(R) Processor @ 2.10GHz"
   },
   "phases": {
-    "models": {
-      "batches": [
-        {
-          "batch": 1,
-          "docs_per_s": 8055,
-          "us_per_doc": 124.14,
-          "runs": 15991
-        },
-        {
-          "batch": 8,
-          "docs_per_s": 17019,
-          "us_per_doc": 58.76,
-          "runs": 4243
-        },
-        {
-          "batch": 32,
-          "docs_per_s": 24243,
-          "us_per_doc": 41.25,
-          "runs": 1514
-        },
-        {
-          "batch": 128,
-          "docs_per_s": 29421,
-          "us_per_doc": 33.99,
-          "runs": 460
-        },
-        {
-          "batch": 512,
-          "docs_per_s": 27542,
-          "us_per_doc": 36.31,
-          "runs": 108
-        },
-        {
-          "batch": 2048,
-          "docs_per_s": 28575,
-          "us_per_doc": 35.0,
-          "runs": 28
-        }
-      ],
-      "peak": {
-        "batch": 128,
-        "docs_per_s": 29421,
-        "us_per_doc": 33.99,
-        "runs": 460
-      },
-      "embeddings_per_ms": 29.4,
-      "tokenizer_tokens_per_s": 1255229,
-      "note": "single process, no GPU; batch>512 shows cache pressure not compute gain"
-    },
-    "ingest": {
-      "target": 12000,
-      "ingested": 12000,
-      "failures": 0,
-      "wall_s": 224.93,
-      "sustained_docs_per_s": 53.3,
-      "latency_ms": {
-        "n": 12000,
-        "min": 12.683,
-        "p50": 18.381,
-        "p90": 22.36,
-        "p95": 24.052,
-        "p99": 30.786,
-        "max": 258.315,
-        "mean": 18.71
-      },
-      "checkpoints": [
-        {
-          "points": 1500,
-          "elapsed_s": 22.09,
-          "docs_per_s": 67.9,
-          "window_p95_ms": 16.926,
-          "rss_mb": 357.8,
-          "rss_per_point_kb": -128.73,
-          "graph_facts": 1687,
-          "ann_strategy": "flat"
-        },
-        {
-          "points": 3000,
-          "elapsed_s": 45.69,
-          "docs_per_s": 65.7,
-          "window_p95_ms": 18.926,
-          "rss_mb": 385.3,
-          "rss_per_point_kb": -55.2,
-          "graph_facts": 3038,
-          "ann_strategy": "flat"
-        },
-        {
-          "points": 4500,
-          "elapsed_s": 70.89,
-          "docs_per_s": 63.5,
-          "window_p95_ms": 20.375,
-          "rss_mb": 415.3,
-          "rss_per_point_kb": -30.13,
-          "graph_facts": 4269,
-          "ann_strategy": "flat"
-        },
-        {
-          "points": 6000,
-          "elapsed_s": 98.08,
-          "docs_per_s": 61.2,
-          "window_p95_ms": 21.3,
-          "rss_mb": 443.1,
-          "rss_per_point_kb": -17.97,
-          "graph_facts": 5498,
-          "ann_strategy": "flat"
-        },
-        {
-          "points": 7500,
-          "elapsed_s": 127.25,
-          "docs_per_s": 58.9,
-          "window_p95_ms": 23.656,
-          "rss_mb": 469.8,
-          "rss_per_point_kb": -10.81,
-          "graph_facts": 6710,
-          "ann_strategy": "flat"
-        },
-        {
-          "points": 9000,
-          "elapsed_s": 158.47,
-          "docs_per_s": 56.8,
-          "window_p95_ms": 24.313,
-          "rss_mb": 531.5,
-          "rss_per_point_kb": -2.16,
-          "graph_facts": 7910,
-          "ann_strategy": "flat"
-        },
-        {
-          "points": 10500,
-          "elapsed_s": 191.4,
-          "docs_per_s": 54.9,
-          "window_p95_ms": 26.25,
-          "rss_mb": 563.2,
-          "rss_per_point_kb": 1.17,
-          "graph_facts": 9122,
-          "ann_strategy": "flat"
-        },
-        {
-          "points": 12000,
-          "elapsed_s": 224.93,
-          "docs_per_s": 53.3,
-          "window_p95_ms": 26.631,
-          "rss_mb": 590.1,
-          "rss_per_point_kb": 3.27,
-          "graph_facts": 10325,
-          "ann_strategy": "flat"
-        }
-      ],
-      "rss_start_mb": 550.9,
-      "rss_end_mb": 607.9,
-      "bytes_per_point_resident": 4750,
-      "shipped_default_quota": {
-        "max_points": 100000,
-        "max_ingest_per_minute": 600,
-        "max_qps": 50.0,
-        "max_bytes": 536870912
-      },
-      "concurrent_ingest": [
-        {
-          "parallel": 1,
-          "docs": 4,
-          "docs_per_s": 28.3
-        },
-        {
-          "parallel": 8,
-          "docs": 32,
-          "docs_per_s": 89.1
-        },
-        {
-          "parallel": 32,
-          "docs": 128,
-          "docs_per_s": 61.7
-        },
-        {
-          "parallel": 128,
-          "docs": 512,
-          "docs_per_s": 76.9
-        }
-      ],
-      "graph_entities": 8925,
-      "graph_facts": 10860,
-      "wal": {
-        "lsn": 12676,
-        "appended": 12676,
-        "torn": 0,
-        "checkpoint_lsn": 0,
-        "bytes": 80373310
-      },
-      "collections": {
-        "episodic": 3663,
-        "procedural": 3027,
-        "sensor": 2991,
-        "semantic": 2995
-      }
-    },
-    "scale": {
-      "scales": [
-        {
-          "points": 1000,
-          "build_s": 13.8,
-          "build_docs_per_s": 72.5,
-          "strategy": "flat",
-          "search_ms": {
-            "n": 30,
-            "min": 0.12,
-            "p50": 0.178,
-            "p90": 0.271,
-            "p95": 0.281,
-            "p99": 0.324,
-            "max": 0.324,
-            "mean": 0.179
-          },
-          "recall_at_10": 1.0,
-          "rss_mb": 727.1,
-          "resident_bytes": 1024000
-        },
-        {
-          "points": 5000,
-          "build_s": 81.14,
-          "build_docs_per_s": 61.6,
-          "strategy": "flat",
-          "search_ms": {
-            "n": 30,
-            "min": 0.221,
-            "p50": 0.278,
-            "p90": 0.522,
-            "p95": 0.857,
-            "p99": 3.792,
-            "max": 3.792,
-            "mean": 0.427
-          },
-          "recall_at_10": 1.0,
-          "rss_mb": 933.4,
-          "resident_bytes": 5120000
-        },
-        {
-          "points": 20000,
-          "build_s": 466.66,
-          "build_docs_per_s": 42.9,
-          "strategy": "flat",
-          "search_ms": {
-            "n": 30,
-            "min": 1.167,
-            "p50": 1.326,
-            "p90": 1.769,
-            "p95": 1.796,
-            "p99": 2.294,
-            "max": 2.294,
-            "mean": 1.407
-          },
-          "recall_at_10": 1.0,
-          "rss_mb": 1552.7,
-          "resident_bytes": 20480000
-        }
-      ]
-    },
-    "concurrency": {
-      "levels": [
-        {
-          "concurrency": 1,
-          "queries": 64,
-          "errors": 0,
-          "wall_s": 2.12,
-          "qps": 30.2,
-          "latency_ms": {
-            "n": 64,
-            "min": 9.775,
-            "p50": 29.369,
-            "p90": 44.588,
-            "p95": 45.812,
-            "p99": 90.114,
-            "max": 90.114,
-            "mean": 30.812
-          },
-          "slo_level": "FULL",
-          "burn_rate": 0.0
-        },
-        {
-          "concurrency": 4,
-          "queries": 64,
-          "errors": 0,
-          "wall_s": 1.911,
-          "qps": 33.5,
-          "latency_ms": {
-            "n": 64,
-            "min": 15.887,
-            "p50": 85.572,
-            "p90": 117.274,
-            "p95": 124.67,
-            "p99": 138.198,
-            "max": 138.198,
-            "mean": 77.945
-          },
-          "slo_level": "FULL",
-          "burn_rate": 0.0
-        },
-        {
-          "concurrency": 16,
-          "queries": 64,
-          "errors": 0,
-          "wall_s": 1.145,
-          "qps": 55.9,
-          "latency_ms": {
-            "n": 64,
-            "min": 27.135,
-            "p50": 156.2,
-            "p90": 235.774,
-            "p95": 250.408,
-            "p99": 280.538,
-            "max": 280.538,
-            "mean": 151.18
-          },
-          "slo_level": "FULL",
-          "burn_rate": 0.0
-        },
-        {
-          "concurrency": 64,
-          "queries": 256,
-          "errors": 0,
-          "wall_s": 5.015,
-          "qps": 51.1,
-          "latency_ms": {
-            "n": 256,
-            "min": 19.77,
-            "p50": 579.405,
-            "p90": 1022.574,
-            "p95": 1153.507,
-            "p99": 1406.861,
-            "max": 1451.384,
-            "mean": 594.193
-          },
-          "slo_level": "FULL",
-          "burn_rate": 0.0
-        },
-        {
-          "concurrency": 256,
-          "queries": 1024,
-          "errors": 0,
-          "wall_s": 18.34,
-          "qps": 55.8,
-          "latency_ms": {
-            "n": 1024,
-            "min": 16.247,
-            "p50": 2334.225,
-            "p90": 3639.009,
-            "p95": 3955.597,
-            "p99": 4456.308,
-            "max": 4609.449,
-            "mean": 2287.642
-          },
-          "slo_level": "FULL",
-          "burn_rate": 0.0
-        },
-        {
-          "concurrency": 1024,
-          "queries": 4096,
-          "errors": 0,
-          "wall_s": 68.726,
-          "qps": 59.6,
-          "latency_ms": {
-            "n": 4096,
-            "min": 15.46,
-            "p50": 8176.739,
-            "p90": 13271.185,
-            "p95": 14160.467,
-            "p99": 14891.579,
-            "max": 15291.756,
-            "mean": 8155.914
-          },
-          "slo_level": "FULL",
-          "burn_rate": 0.0
-        }
-      ],
-      "corpus": 2000,
-      "ladder": {
-        "held_s": 45.0,
-        "concurrency": 64,
-        "evaluate_interval_s": 5.0,
-        "queries_served": 2688,
-        "errors": 0,
-        "samples": [
-          {
-            "t_s": 5.5,
-            "level": "FULL",
-            "burn_rate": 0.0,
-            "pressure": 0.0,
-            "p99_ms": 896.13,
-            "disabled": []
-          },
-          {
-            "t_s": 11.1,
-            "level": "FULL",
-            "burn_rate": 0.0,
-            "pressure": 0.0,
-            "p99_ms": 1050.73,
-            "disabled": []
-          },
-          {
-            "t_s": 16.7,
-            "level": "FULL",
-            "burn_rate": 0.0,
-            "pressure": 0.0,
-            "p99_ms": 1750.24,
-            "disabled": []
-          },
-          {
-            "t_s": 22.8,
-            "level": "FULL",
-            "burn_rate": 0.0,
-            "pressure": 0.0,
-            "p99_ms": 1045.26,
-            "disabled": []
-          },
-          {
-            "t_s": 28.4,
-            "level": "FULL",
-            "burn_rate": 0.0,
-            "pressure": 0.0,
-            "p99_ms": 1005.68,
-            "disabled": []
-          },
-          {
-            "t_s": 33.7,
-            "level": "FULL",
-            "burn_rate": 0.0,
-            "pressure": 0.0,
-            "p99_ms": 1016.76,
-            "disabled": []
-          },
-          {
-            "t_s": 38.8,
-            "level": "FULL",
-            "burn_rate": 0.0,
-            "pressure": 0.0,
-            "p99_ms": 923.46,
-            "disabled": []
-          },
-          {
-            "t_s": 45.1,
-            "level": "FULL",
-            "burn_rate": 0.0,
-            "pressure": 0.0,
-            "p99_ms": 1854.78,
-            "disabled": []
-          }
-        ],
-        "levels_reached": [
-          "FULL"
-        ],
-        "seconds_to_first_shed": null,
-        "final_level": "FULL",
-        "features_disabled": [],
-        "p99_first_ms": 973.43,
-        "p99_last_ms": 1389.12,
-        "p99_change_pct": 42.7
-      }
-    },
-    "adversarial": {
-      "cases": [
-        {
-          "case": "empty string",
-          "outcome": "accepted",
-          "detail": "MemoryPoint",
-          "ms": 83.74
-        },
-        {
-          "case": "single space",
-          "outcome": "accepted",
-          "detail": "MemoryPoint",
-          "ms": 13.64
-        },
-        {
-          "case": "1 MB single token",
-          "outcome": "accepted",
-          "detail": "MemoryPoint",
-          "ms": 962.54
-        },
-        {
-          "case": "100k words",
-          "outcome": "accepted",
-          "detail": "MemoryPoint",
-          "ms": 1084.44
-        },
-        {
-          "case": "null bytes",
-          "outcome": "accepted",
-          "detail": "MemoryPoint",
-          "ms": 148.05
-        },
-        {
-          "case": "all control chars",
-          "outcome": "accepted",
-          "detail": "MemoryPoint",
-          "ms": 13.99
-        },
-        {
-          "case": "4-byte emoji storm",
-          "outcome": "accepted",
-          "detail": "MemoryPoint",
-          "ms": 33.48
-        },
-        {
-          "case": "RTL + zero width",
-          "outcome": "accepted",
-          "detail": "MemoryPoint",
-          "ms": 29.45
-        },
-        {
-          "case": "surrogate-ish unicode",
-          "outcome": "accepted",
-          "detail": "MemoryPoint",
-          "ms": 16.45
-        },
-        {
-          "case": "SQL-ish injection",
-          "outcome": "accepted",
-          "detail": "MemoryPoint",
-          "ms": 15.47
-        },
-        {
-          "case": "prompt injection",
-          "outcome": "accepted",
-          "detail": "MemoryPoint",
-          "ms": 14.13
-        },
-        {
-          "case": "path traversal",
-          "outcome": "accepted",
-          "detail": "MemoryPoint",
-          "ms": 13.59
-        },
-        {
-          "case": "json bomb text",
-          "outcome": "accepted",
-          "detail": "MemoryPoint",
-          "ms": 116.07
-        },
-        {
-          "case": "deep filter nesting",
-          "outcome": "accepted",
-          "detail": "RetrievalResult",
-          "ms": 10.14
-        },
-        {
-          "case": "nan filter",
-          "outcome": "accepted",
-          "detail": "RetrievalResult",
-          "ms": 9.71
-        },
-        {
-          "case": "huge k",
-          "outcome": "accepted",
-          "detail": "RetrievalResult",
-          "ms": 2088.3
-        },
-        {
-          "case": "empty query",
-          "outcome": "accepted",
-          "detail": "RetrievalResult",
-          "ms": 153.08
-        },
-        {
-          "case": "query of 1M chars",
-          "outcome": "accepted",
-          "detail": "RetrievalResult",
-          "ms": 30120.03
-        },
-        {
-          "case": "unknown collection",
-          "outcome": "accepted",
-          "detail": "RetrievalResult",
-          "ms": 140.48
-        },
-        {
-          "case": "unknown tenant",
-          "outcome": "accepted",
-          "detail": "RetrievalResult",
-          "ms": 9.09
-        },
-        {
-          "case": "negative ttl payload",
-          "outcome": "accepted",
-          "detail": "MemoryPoint",
-          "ms": 15.76
-        },
-        {
-          "case": "payload with self-ref",
-          "outcome": "accepted",
-          "detail": "MemoryPoint",
-          "ms": 15.07
-        }
-      ],
-      "survived": {
-        "fsck_clean": true,
-        "search_works": true,
-        "audit_chain_intact": true
-      },
-      "timeouts": 0
-    },
-    "faults": {
-      "faults_injected": [
-        "link_drop",
-        "packet_loss",
-        "latency_spike",
-        "clock_skew",
-        "disk_full",
-        "thermal_spike",
-        "corrupt_wal",
-        "partition",
-        "corrupt_segment",
-        "memory_pressure",
-        "query_storm",
-        "peer_churn"
-      ],
-      "wall_s": 3.87,
-      "queries_answered": 190,
-      "queries_failed": 0,
-      "latency_ms": {
-        "n": 200,
-        "min": 8.435,
-        "p50": 14.773,
-        "p90": 16.708,
-        "p95": 17.335,
-        "p99": 138.723,
-        "max": 168.498,
-        "mean": 16.15
-      },
-      "slo_level_after": "FULL",
-      "audit_chain_intact": true,
-      "points_resident": 400,
-      "wal_torn": 1,
-      "subsystems_alive": 11,
-      "subsystems_total": 11
-    },
     "soak": {
-      "seconds": 150.0,
-      "ingested": 2420,
-      "queried": 2420,
+      "seconds": 60.0,
+      "ingested": 1800,
+      "queried": 1800,
       "samples": [
         {
-          "t_s": 3.3,
-          "rss_mb": 2032.1,
+          "t_s": 0.6,
+          "rss_mb": 241.2,
           "points": 20,
           "graph_facts": 24,
-          "wal_bytes": 125924,
-          "cache_entries": 0,
+          "wal_bytes": 125921,
+          "cache_entries": 20,
           "reranker_cache": 40
         },
         {
-          "t_s": 6.4,
-          "rss_mb": 2032.4,
-          "points": 80,
-          "graph_facts": 102,
-          "wal_bytes": 505003,
-          "cache_entries": 0,
-          "reranker_cache": 153
+          "t_s": 5.1,
+          "rss_mb": 253.6,
+          "points": 180,
+          "graph_facts": 238,
+          "wal_bytes": 1137647,
+          "cache_entries": 20,
+          "reranker_cache": 349
         },
         {
-          "t_s": 11.5,
-          "rss_mb": 2035.4,
-          "points": 200,
-          "graph_facts": 263,
-          "wal_bytes": 1264171,
-          "cache_entries": 0,
-          "reranker_cache": 373
+          "t_s": 10.3,
+          "rss_mb": 277.1,
+          "points": 360,
+          "graph_facts": 451,
+          "wal_bytes": 2276060,
+          "cache_entries": 20,
+          "reranker_cache": 689
         },
         {
-          "t_s": 16.4,
-          "rss_mb": 2042.1,
-          "points": 320,
-          "graph_facts": 405,
-          "wal_bytes": 2023157,
-          "cache_entries": 0,
-          "reranker_cache": 598
+          "t_s": 15.1,
+          "rss_mb": 296.3,
+          "points": 520,
+          "graph_facts": 626,
+          "wal_bytes": 3287415,
+          "cache_entries": 20,
+          "reranker_cache": 981
         },
         {
-          "t_s": 21.3,
-          "rss_mb": 2051.8,
-          "points": 440,
-          "graph_facts": 536,
-          "wal_bytes": 2781844,
-          "cache_entries": 0,
-          "reranker_cache": 816
+          "t_s": 20.7,
+          "rss_mb": 331.5,
+          "points": 700,
+          "graph_facts": 826,
+          "wal_bytes": 4426047,
+          "cache_entries": 20,
+          "reranker_cache": 1331
         },
         {
-          "t_s": 26.9,
-          "rss_mb": 2061.3,
-          "points": 560,
-          "graph_facts": 667,
-          "wal_bytes": 3540313,
-          "cache_entries": 0,
-          "reranker_cache": 1024
-        },
-        {
-          "t_s": 31.3,
-          "rss_mb": 2081.6,
-          "points": 640,
-          "graph_facts": 757,
-          "wal_bytes": 4046354,
-          "cache_entries": 0,
-          "reranker_cache": 1180
-        },
-        {
-          "t_s": 36.8,
-          "rss_mb": 2091.2,
-          "points": 760,
-          "graph_facts": 890,
-          "wal_bytes": 4805628,
-          "cache_entries": 0,
-          "reranker_cache": 1395
-        },
-        {
-          "t_s": 41.2,
-          "rss_mb": 2097.6,
+          "t_s": 25.3,
+          "rss_mb": 347.4,
           "points": 840,
           "graph_facts": 981,
-          "wal_bytes": 5311721,
-          "cache_entries": 0,
-          "reranker_cache": 1532
+          "wal_bytes": 5311647,
+          "cache_entries": 20,
+          "reranker_cache": 1586
         },
         {
-          "t_s": 46.6,
-          "rss_mb": 2107.4,
-          "points": 960,
-          "graph_facts": 1105,
-          "wal_bytes": 6070932,
-          "cache_entries": 0,
-          "reranker_cache": 1747
+          "t_s": 30.5,
+          "rss_mb": 365.2,
+          "points": 1000,
+          "graph_facts": 1144,
+          "wal_bytes": 6324194,
+          "cache_entries": 20,
+          "reranker_cache": 1885
         },
         {
-          "t_s": 51.6,
-          "rss_mb": 2117.5,
-          "points": 1060,
-          "graph_facts": 1200,
-          "wal_bytes": 6703668,
-          "cache_entries": 0,
-          "reranker_cache": 1919
-        },
-        {
-          "t_s": 56.7,
-          "rss_mb": 2126.3,
-          "points": 1160,
-          "graph_facts": 1303,
-          "wal_bytes": 7336502,
-          "cache_entries": 0,
+          "t_s": 35.3,
+          "rss_mb": 380.0,
+          "points": 1140,
+          "graph_facts": 1286,
+          "wal_bytes": 7209605,
+          "cache_entries": 20,
           "reranker_cache": 2048
         },
         {
-          "t_s": 61.8,
-          "rss_mb": 2130.0,
-          "points": 1260,
-          "graph_facts": 1411,
-          "wal_bytes": 7969714,
-          "cache_entries": 0,
+          "t_s": 40.3,
+          "rss_mb": 388.4,
+          "points": 1280,
+          "graph_facts": 1432,
+          "wal_bytes": 8096533,
+          "cache_entries": 20,
           "reranker_cache": 2048
         },
         {
-          "t_s": 66.5,
-          "rss_mb": 2133.7,
-          "points": 1340,
-          "graph_facts": 1492,
-          "wal_bytes": 8475966,
-          "cache_entries": 0,
+          "t_s": 45.6,
+          "rss_mb": 393.9,
+          "points": 1420,
+          "graph_facts": 1577,
+          "wal_bytes": 8982247,
+          "cache_entries": 20,
           "reranker_cache": 2048
         },
         {
-          "t_s": 72.1,
-          "rss_mb": 2136.8,
-          "points": 1440,
-          "graph_facts": 1594,
-          "wal_bytes": 9108714,
-          "cache_entries": 0,
+          "t_s": 50.4,
+          "rss_mb": 401.8,
+          "points": 1540,
+          "graph_facts": 1687,
+          "wal_bytes": 9741440,
+          "cache_entries": 20,
           "reranker_cache": 2048
         },
         {
-          "t_s": 76.6,
-          "rss_mb": 2140.2,
-          "points": 1500,
-          "graph_facts": 1651,
-          "wal_bytes": 9488544,
-          "cache_entries": 0,
+          "t_s": 55.2,
+          "rss_mb": 404.4,
+          "points": 1660,
+          "graph_facts": 1809,
+          "wal_bytes": 10501134,
+          "cache_entries": 20,
           "reranker_cache": 2048
         },
         {
-          "t_s": 81.9,
-          "rss_mb": 2142.7,
-          "points": 1580,
-          "graph_facts": 1724,
-          "wal_bytes": 9994456,
-          "cache_entries": 0,
-          "reranker_cache": 2048
-        },
-        {
-          "t_s": 86.2,
-          "rss_mb": 2144.5,
-          "points": 1640,
-          "graph_facts": 1791,
-          "wal_bytes": 10374502,
-          "cache_entries": 0,
-          "reranker_cache": 2048
-        },
-        {
-          "t_s": 91.9,
-          "rss_mb": 2147.6,
-          "points": 1720,
-          "graph_facts": 1859,
-          "wal_bytes": 10881056,
-          "cache_entries": 0,
-          "reranker_cache": 2048
-        },
-        {
-          "t_s": 97.0,
-          "rss_mb": 2150.2,
+          "t_s": 60.6,
+          "rss_mb": 412.5,
           "points": 1800,
           "graph_facts": 1938,
-          "wal_bytes": 11387412,
-          "cache_entries": 0,
-          "reranker_cache": 2048
-        },
-        {
-          "t_s": 101.9,
-          "rss_mb": 2152.2,
-          "points": 1840,
-          "graph_facts": 1979,
-          "wal_bytes": 11640685,
-          "cache_entries": 0,
-          "reranker_cache": 2048
-        },
-        {
-          "t_s": 107.0,
-          "rss_mb": 2154.3,
-          "points": 1900,
-          "graph_facts": 2036,
-          "wal_bytes": 12020385,
-          "cache_entries": 0,
-          "reranker_cache": 2048
-        },
-        {
-          "t_s": 111.8,
-          "rss_mb": 2155.6,
-          "points": 1960,
-          "graph_facts": 2091,
-          "wal_bytes": 12400126,
-          "cache_entries": 0,
-          "reranker_cache": 2048
-        },
-        {
-          "t_s": 117.3,
-          "rss_mb": 2157.5,
-          "points": 2020,
-          "graph_facts": 2146,
-          "wal_bytes": 12779669,
-          "cache_entries": 0,
-          "reranker_cache": 2048
-        },
-        {
-          "t_s": 121.7,
-          "rss_mb": 2168.3,
-          "points": 2080,
-          "graph_facts": 2203,
-          "wal_bytes": 13159118,
-          "cache_entries": 0,
-          "reranker_cache": 2048
-        },
-        {
-          "t_s": 127.3,
-          "rss_mb": 2169.3,
-          "points": 2140,
-          "graph_facts": 2261,
-          "wal_bytes": 13539003,
-          "cache_entries": 0,
-          "reranker_cache": 2048
-        },
-        {
-          "t_s": 131.7,
-          "rss_mb": 2170.6,
-          "points": 2200,
-          "graph_facts": 2308,
-          "wal_bytes": 13918563,
-          "cache_entries": 0,
-          "reranker_cache": 2048
-        },
-        {
-          "t_s": 136.7,
-          "rss_mb": 2172.2,
-          "points": 2260,
-          "graph_facts": 2360,
-          "wal_bytes": 14298207,
-          "cache_entries": 0,
-          "reranker_cache": 2048
-        },
-        {
-          "t_s": 141.6,
-          "rss_mb": 2175.8,
-          "points": 2300,
-          "graph_facts": 2394,
-          "wal_bytes": 14551324,
-          "cache_entries": 0,
-          "reranker_cache": 2048
-        },
-        {
-          "t_s": 146.8,
-          "rss_mb": 2177.4,
-          "points": 2360,
-          "graph_facts": 2447,
-          "wal_bytes": 14931013,
-          "cache_entries": 0,
-          "reranker_cache": 2048
-        },
-        {
-          "t_s": 151.8,
-          "rss_mb": 2178.5,
-          "points": 2420,
-          "graph_facts": 2499,
-          "wal_bytes": 15310908,
-          "cache_entries": 0,
+          "wal_bytes": 11387315,
+          "cache_entries": 20,
           "reranker_cache": 2048
         }
       ],
-      "rss_baseline_mb": 2031.8,
-      "rss_final_mb": 2178.5,
-      "bytes_per_point": 60620,
-      "rss_slope_mb_per_s_tail": 0.265,
-      "ops_per_s": 32.3
+      "rss_baseline_mb": 238.7,
+      "rss_final_mb": 412.5,
+      "bytes_per_point": 96556,
+      "rss_slope_mb_per_s_tail": 1.049,
+      "steady_state": {
+        "seconds": 45.0,
+        "queries": 47440,
+        "rss_first_mb": 414.4,
+        "rss_last_mb": 479.5,
+        "rss_slope_first_half": 1.4286,
+        "rss_slope_second_half": 1.6286,
+        "flattening": false,
+        "durable_state_before": {
+          "points": 1800,
+          "wal_lsn": 1800,
+          "wal_bytes": 11387315,
+          "graph_facts": 1938,
+          "segments": 0,
+          "segment_bytes": 0
+        },
+        "durable_state_changed": {},
+        "samples": [
+          {
+            "t_s": 0.5,
+            "rss_mb": 414.4,
+            "queries": 8
+          },
+          {
+            "t_s": 3.5,
+            "rss_mb": 414.8,
+            "queries": 1040
+          },
+          {
+            "t_s": 6.5,
+            "rss_mb": 419.5,
+            "queries": 4536
+          },
+          {
+            "t_s": 9.5,
+            "rss_mb": 424.9,
+            "queries": 8232
+          },
+          {
+            "t_s": 12.7,
+            "rss_mb": 430.6,
+            "queries": 11512
+          },
+          {
+            "t_s": 15.7,
+            "rss_mb": 435.5,
+            "queries": 14904
+          },
+          {
+            "t_s": 18.7,
+            "rss_mb": 440.4,
+            "queries": 18232
+          },
+          {
+            "t_s": 21.7,
+            "rss_mb": 445.3,
+            "queries": 21568
+          },
+          {
+            "t_s": 24.7,
+            "rss_mb": 450.3,
+            "queries": 25024
+          },
+          {
+            "t_s": 27.7,
+            "rss_mb": 455.0,
+            "queries": 28136
+          },
+          {
+            "t_s": 30.7,
+            "rss_mb": 459.8,
+            "queries": 31464
+          },
+          {
+            "t_s": 33.7,
+            "rss_mb": 464.9,
+            "queries": 34968
+          },
+          {
+            "t_s": 36.7,
+            "rss_mb": 470.0,
+            "queries": 38416
+          },
+          {
+            "t_s": 39.7,
+            "rss_mb": 474.5,
+            "queries": 41408
+          },
+          {
+            "t_s": 42.7,
+            "rss_mb": 479.5,
+            "queries": 44888
+          }
+        ],
+        "verdict": "47,440 queries, no ingest. RSS slope +1.429 \u2192 +1.629 MB/s (not yet flattening); nothing durable changed underneath it"
+      },
+      "ops_per_s": 60.0
     },
     "mesh": {
       "peers": 50,
-      "divergence": 5000,
+      "divergence": 2000,
       "first_round": {
         "peer": "edge-000",
-        "pulled": 0,
+        "pulled": 254,
         "pushed": 0,
         "complete": false,
         "cells": 2048,
-        "rtt_ms": 1379.0
+        "rtt_ms": 17.4
       },
-      "first_round_s": 1.576,
-      "waves": 6,
-      "rounds": 300,
-      "spread_s": 35.53,
-      "converged_peers": 36,
-      "full_convergence": false,
+      "first_round_s": 0.083,
+      "waves": 7,
+      "rounds": 350,
+      "spread_s": 12.21,
+      "converged_peers": 50,
+      "full_convergence": true,
       "iblt_cells": 2048,
       "codec": {
-        "frames": 0,
-        "raw_bytes": 0,
-        "wire_bytes": 0,
-        "ratio": 1.0,
-        "saved_bytes": 0,
-        "compressed_frames": 0,
+        "frames": 5,
+        "raw_bytes": 477225,
+        "wire_bytes": 40931,
+        "ratio": 11.66,
+        "saved_bytes": 436294,
+        "compressed_frames": 5,
         "skipped_compression": 0
       },
-      "ops_per_s": 5066
-    },
-    "limits": {
-      "findings": [
-        {
-          "test": "shipped default quota",
-          "quota": {
-            "max_points": 100000,
-            "max_ingest_per_minute": 600,
-            "max_qps": 50.0,
-            "max_bytes": 536870912
-          },
-          "note": "lifted for the remaining measurements"
-        },
-        {
-          "test": "20k concurrent embed futures",
-          "outcome": "survived",
-          "ms": 2498.9
-        },
-        {
-          "test": "quota flood (500 writes, cap 50)",
-          "accepted": 50,
-          "refused": 450,
-          "outcome": "enforced"
-        },
-        {
-          "test": "2k writes: WAL growth",
-          "wal_growth_mb": 12.65,
-          "bytes_per_op": 6327,
-          "sealed_segment": 2050
-        },
-        {
-          "test": "k=50 on small corpus",
-          "outcome": "ok",
-          "returned": 50
-        },
-        {
-          "test": "on-disk footprint",
-          "points": 2050,
-          "bytes": 48569320,
-          "bytes_per_point": 23692
-        }
-      ]
+      "ops_per_s": 8187
     },
     "_meta": {
-      "total_wall_s": 1267.8
+      "total_wall_s": 119.0
     }
   }
 }
