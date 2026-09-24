@@ -89,3 +89,76 @@ async def test_agent_flags_a_contradiction(node):
     await node.remember("The 1.8 bar hard stop was lifted for bay 3 this week", collection="semantic")
     answer = await node.agent.answer("is 1.8 bar a hard stop")
     assert answer.contradictions
+
+
+# -- scope: what the caller asked vs what the node guessed --------------------
+
+@pytest.mark.asyncio
+async def test_semantic_cache_is_keyed_by_scope_not_just_tenant(node):
+    """A cached answer must not escape the question it was the answer to.
+
+    The cache was namespaced by tenant after a cross-tenant leak, but not by
+    collection, mode or k. So a query run once over all collections was then
+    served verbatim for `collection="procedural"` — five episodic hits from a
+    collection holding nothing — and every scoped query after it was wrong in
+    the same way.
+    """
+    for i in range(20):
+        await node.remember(f"bay {i % 4} conveyor vibration crossed {i / 10:.1f} mm/s")
+
+    everywhere = await node.pipeline.search("conveyor", k=5, collection="*")
+    assert everywhere.results
+
+    for empty in ("procedural", "semantic"):
+        scoped = await node.pipeline.search("conveyor", k=5, collection=empty)
+        assert scoped.results == [], f"{empty} is empty but returned hits"
+
+    # ...and the cache must still work within a single scope.
+    again = await node.pipeline.search("conveyor", k=5, collection="*")
+    assert len(again.results) == len(everywhere.results)
+
+
+@pytest.mark.asyncio
+async def test_an_inferred_narrowing_never_empties_the_results(node):
+    """Query understanding may guess; it may not silently answer nothing.
+
+    "conveyor vibration night shift" reads as sensor intent, so the pipeline
+    narrowed to the sensor collection. With those memories stored as episodic
+    the hard filter returned zero hits — while the single word "conveyor"
+    returned five, because it inferred nothing at all.
+    """
+    for i in range(20):
+        await node.remember(
+            f"bay {i % 4} conveyor vibration crossed {i / 10:.1f} mm/s during the night shift")
+
+    result = await node.pipeline.search("conveyor vibration night shift", k=5)
+    assert result.results, "an inferred filter emptied the result set"
+
+    relaxed = result.as_dict()["understanding"].get("inference_relaxed")
+    assert relaxed is not None
+    assert relaxed["dropped"]
+    assert relaxed["recovered_hits"] == len(result.results)
+
+
+@pytest.mark.asyncio
+async def test_an_explicit_filter_is_obeyed_even_when_it_matches_nothing(node):
+    """Only our own guess is ever backed out. The caller's question is theirs."""
+    for i in range(20):
+        await node.remember(f"bay {i % 4} conveyor vibration crossed {i / 10:.1f} mm/s")
+
+    assert (await node.pipeline.search("conveyor", k=5, collection="procedural")).results == []
+    explicit = await node.pipeline.search(
+        "conveyor", k=5, filters={"collection": "procedural"})
+    assert explicit.results == []
+    assert "inference_relaxed" not in explicit.as_dict().get("understanding", {})
+
+
+@pytest.mark.asyncio
+async def test_tenant_isolation_is_never_relaxed(node):
+    """An empty visible set is a boundary, not a guess that went wrong."""
+    for i in range(10):
+        await node.remember(f"bay {i} conveyor vibration crossed {i / 10:.1f} mm/s")
+    ghost = await node.pipeline.search("conveyor vibration night shift", k=5,
+                                       tenant_id="nobody-owns-this")
+    assert ghost.results == []
+    assert "inference_relaxed" not in ghost.as_dict().get("understanding", {})

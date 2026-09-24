@@ -75,14 +75,54 @@ class RetrievalPipeline:
         self.queries = 0
         self.rewritten = 0
         self.degraded_queries = 0
+        self.relaxed_inferences = 0
+
+    async def _relax(self, result, inferred, query, k, collection, mode, explain,
+                     allow_escalation, filters, tenant_id, stages):
+        """Retry at the scope the caller asked for, dropping what we inferred.
+
+        An inference must never be able to empty a result set the caller would
+        otherwise have got. Query understanding reads "conveyor vibration
+        night shift" as sensor intent and narrows to the sensor collection; if
+        the corpus keeps those memories as episodic, that hard filter returns
+        nothing, while the single word "conveyor" returns five hits because it
+        inferred nothing at all. A guess that silently replaces results with an
+        empty page is worse than no guess.
+
+        Only what *this layer* added is ever backed out. A filter the caller
+        supplied is honoured even when it matches nothing — that is their
+        question, and answering a different one would be the same sin in the
+        opposite direction.
+        """
+        self.relaxed_inferences += 1
+        relaxed = await self.search(
+            query, k=k, collection=collection, mode=mode, explain=explain,
+            allow_escalation=allow_escalation, filters=filters,
+            understand=False, tenant_id=tenant_id, _relaxable=False)
+        relaxed.understanding = {
+            **result.understanding,
+            "inference_relaxed": {
+                "dropped": inferred,
+                "reason": "the inferred narrowing matched nothing; retried at "
+                          "the scope the caller asked for",
+                "recovered_hits": len(relaxed.results),
+            },
+        }
+        relaxed.stages = {**stages, **relaxed.stages}
+        return relaxed
 
     async def search(self, query: str, k: int = 5, collection: str = "*",
                      mode: str = "hybrid", explain: bool = True,
                      allow_escalation: bool = True,
                      filters: dict[str, Any] | None = None,
                      understand: bool = True,
-                     tenant_id: str | None = None) -> RetrievalResult:
+                     tenant_id: str | None = None,
+                     _relaxable: bool = True) -> RetrievalResult:
         t_start = time.perf_counter()
+        # What the caller actually asked for, kept so an inference that turns
+        # out to be wrong can be backed out rather than silently obeyed.
+        asked_collection, asked_filters = collection, filters
+        inferred: dict[str, Any] = {}
         self.queries += 1
         result = RetrievalResult(query=query, mode=mode)
         span_root = TRACER.span("search", query=query, k=k, collection=collection, mode=mode)
@@ -109,8 +149,10 @@ class RetrievalPipeline:
                 self.rewritten += 1
             if analysis.filters and not filters:
                 filters = analysis.filters
+                inferred["filters"] = analysis.filters
             if collection == "*" and analysis.collection != "*":
                 collection = analysis.collection
+                inferred["collection"] = analysis.collection
             result.stages["understand_ms"] = round(analysis.ms, 3)
 
         # 1. embed the query (micro-batched with concurrent ingest)
@@ -133,9 +175,25 @@ class RetrievalPipeline:
                 result.latency_ms = (time.perf_counter() - t_start) * 1000
                 result.trace = root.as_dict()
                 span_root.__exit__(None, None, None)
+                # The planner proves the filter matches nothing. When that
+                # filter was our own guess, that is the strongest possible
+                # signal the guess was wrong — and the earliest point we can
+                # know it, which is why the relaxation has to live here too
+                # and not only at the end of the happy path.
+                if inferred and _relaxable:
+                    return await self._relax(
+                        result, inferred, query, k, asked_collection, mode, explain,
+                        allow_escalation, asked_filters, tenant_id, result.stages)
                 return result
 
-        namespace = tenant_id or "default"
+        # Everything that changes what a correct answer *is* belongs in the
+        # cache key, not just who asked. Keying on the tenant alone meant a
+        # query run once over all collections was then served verbatim for
+        # `collection="procedural"` — five episodic hits from a collection
+        # holding nothing at all — and the same for a different retrieval mode
+        # or a larger k. The tenant was namespaced after a cross-tenant leak;
+        # the scope of the question was not, and scope is part of the question.
+        namespace = f"{tenant_id or 'default'}|{collection}|{mode}|{k}"
         cached = self.cache.get(vector, namespace) if not filters else None
         if cached is not None:
             span_root.__exit__(None, None, None)
@@ -162,6 +220,10 @@ class RetrievalPipeline:
             visible = self.store.visible(tenant_id)
             allow = visible if allow is None else (allow & visible)
             if not allow:
+                # Deliberately *not* relaxed. An empty visible set is a tenancy
+                # boundary, not an inference that went wrong, and retrying at a
+                # wider scope here would turn a correct empty answer into an
+                # isolation breach.
                 result.latency_ms = (time.perf_counter() - t_start) * 1000
                 result.trace = root.as_dict()
                 span_root.__exit__(None, None, None)
@@ -202,6 +264,12 @@ class RetrievalPipeline:
             candidates.append((point.id, point.text, hit.rrf * 60))
         if not candidates:
             result.latency_ms = (time.perf_counter() - t_start) * 1000
+            # Retrieval found nothing to rank. If the scope it searched was our
+            # own inference rather than the caller's, this is where that shows.
+            if inferred and _relaxable:
+                return await self._relax(
+                    result, inferred, query, k, asked_collection, mode, explain,
+                    allow_escalation, asked_filters, tenant_id, result.stages)
             return result
 
         # 4. cross-encoder rerank on-device
@@ -363,6 +431,11 @@ class RetrievalPipeline:
         if not filters:
             # filtered results are not cacheable by vector alone
             self.cache.put(vector, result.as_dict(), namespace)
+        if not result.results and inferred and _relaxable:
+            return await self._relax(
+                result, inferred, query, k, asked_collection, mode, explain,
+                allow_escalation, asked_filters, tenant_id, result.stages)
+
         self.bus.publish(
             "search", "query", query=query, hits=len(result.results),
             latency_ms=round(result.latency_ms, 2), escalated=result.escalated,
@@ -376,6 +449,7 @@ class RetrievalPipeline:
         hist = METRICS.histograms.get("retrieval.query_ms")
         out: dict[str, Any] = {
             "queries": self.queries, "rewritten": self.rewritten,
+            "relaxed_inferences": self.relaxed_inferences,
             "cache": self.cache.snapshot(),
             "latency_ms": hist.snapshot() if hist else {},
         }

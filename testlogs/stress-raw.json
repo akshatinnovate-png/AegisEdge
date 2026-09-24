@@ -932,6 +932,80 @@
       "bytes_per_point": 60620,
       "rss_slope_mb_per_s_tail": 0.265,
       "ops_per_s": 32.3
+    },
+    "mesh": {
+      "peers": 50,
+      "divergence": 5000,
+      "first_round": {
+        "peer": "edge-000",
+        "pulled": 0,
+        "pushed": 0,
+        "complete": false,
+        "cells": 2048,
+        "rtt_ms": 1379.0
+      },
+      "first_round_s": 1.576,
+      "waves": 6,
+      "rounds": 300,
+      "spread_s": 35.53,
+      "converged_peers": 36,
+      "full_convergence": false,
+      "iblt_cells": 2048,
+      "codec": {
+        "frames": 0,
+        "raw_bytes": 0,
+        "wire_bytes": 0,
+        "ratio": 1.0,
+        "saved_bytes": 0,
+        "compressed_frames": 0,
+        "skipped_compression": 0
+      },
+      "ops_per_s": 5066
+    },
+    "limits": {
+      "findings": [
+        {
+          "test": "shipped default quota",
+          "quota": {
+            "max_points": 100000,
+            "max_ingest_per_minute": 600,
+            "max_qps": 50.0,
+            "max_bytes": 536870912
+          },
+          "note": "lifted for the remaining measurements"
+        },
+        {
+          "test": "20k concurrent embed futures",
+          "outcome": "survived",
+          "ms": 2498.9
+        },
+        {
+          "test": "quota flood (500 writes, cap 50)",
+          "accepted": 50,
+          "refused": 450,
+          "outcome": "enforced"
+        },
+        {
+          "test": "2k writes: WAL growth",
+          "wal_growth_mb": 12.65,
+          "bytes_per_op": 6327,
+          "sealed_segment": 2050
+        },
+        {
+          "test": "k=50 on small corpus",
+          "outcome": "ok",
+          "returned": 50
+        },
+        {
+          "test": "on-disk footprint",
+          "points": 2050,
+          "bytes": 48569320,
+          "bytes_per_point": 23692
+        }
+      ]
+    },
+    "_meta": {
+      "total_wall_s": 1267.8
     }
   }
 }
