@@ -1,0 +1,146 @@
+{
+  "cost_model": {
+    "calibrated": true,
+    "flat_ns_per_point": 606.67,
+    "graph_ns_per_hop": 182.77,
+    "interpreter_overhead_x": 1.0,
+    "hnsw_crossover": 5000,
+    "ivf_crossover": 60000
+  },
+  "dim": 256,
+  "k": 10,
+  "corpora": [
+    {
+      "points": 2000,
+      "cost_model_chose": "flat",
+      "strategies": [
+        {
+          "strategy": "flat",
+          "append_s": 0.02,
+          "build_s": 0.0,
+          "recall_at_k": 1.0,
+          "latency_ms": {
+            "p50": 0.094,
+            "p95": 0.778,
+            "p99": 1.022,
+            "mean": 0.167
+          }
+        },
+        {
+          "strategy": "hnsw",
+          "append_s": 0.01,
+          "build_s": 20.11,
+          "recall_at_k": 1.0,
+          "latency_ms": {
+            "p50": 2.12,
+            "p95": 3.712,
+            "p99": 4.001,
+            "mean": 2.564
+          }
+        },
+        {
+          "strategy": "ivf_pq",
+          "append_s": 0.02,
+          "build_s": 16.15,
+          "recall_at_k": 1.0,
+          "latency_ms": {
+            "p50": 20.327,
+            "p95": 22.4,
+            "p99": 23.252,
+            "mean": 19.791
+          }
+        }
+      ],
+      "fastest": "flat",
+      "cost_model_correct": true
+    },
+    {
+      "points": 8000,
+      "cost_model_chose": "hnsw",
+      "strategies": [
+        {
+          "strategy": "flat",
+          "append_s": 0.06,
+          "build_s": 0.0,
+          "recall_at_k": 1.0,
+          "latency_ms": {
+            "p50": 0.345,
+            "p95": 0.466,
+            "p99": 0.607,
+            "mean": 0.346
+          }
+        },
+        {
+          "strategy": "hnsw",
+          "append_s": 0.06,
+          "build_s": 94.85,
+          "recall_at_k": 0.9167,
+          "latency_ms": {
+            "p50": 2.429,
+            "p95": 2.72,
+            "p99": 2.764,
+            "mean": 2.468
+          }
+        },
+        {
+          "strategy": "ivf_pq",
+          "append_s": 0.06,
+          "build_s": 48.34,
+          "recall_at_k": 0.99,
+          "latency_ms": {
+            "p50": 132.164,
+            "p95": 174.08,
+            "p99": 175.945,
+            "mean": 134.211
+          }
+        }
+      ],
+      "fastest": "flat",
+      "cost_model_correct": false
+    },
+    {
+      "points": 20000,
+      "cost_model_chose": "hnsw",
+      "strategies": [
+        {
+          "strategy": "flat",
+          "append_s": 0.17,
+          "build_s": 0.0,
+          "recall_at_k": 1.0,
+          "latency_ms": {
+            "p50": 0.886,
+            "p95": 1.394,
+            "p99": 1.661,
+            "mean": 0.952
+          }
+        },
+        {
+          "strategy": "hnsw",
+          "append_s": 0.17,
+          "build_s": 251.84,
+          "recall_at_k": 0.7733,
+          "latency_ms": {
+            "p50": 4.34,
+            "p95": 5.555,
+            "p99": 8.37,
+            "mean": 4.371
+          }
+        },
+        {
+          "strategy": "ivf_pq",
+          "append_s": 0.18,
+          "build_s": 123.38,
+          "recall_at_k": 0.9967,
+          "latency_ms": {
+            "p50": 550.512,
+            "p95": 659.505,
+            "p99": 662.573,
+            "mean": 565.249
+          }
+        }
+      ],
+      "fastest": "flat",
+      "cost_model_correct": false
+    }
+  ]
+}

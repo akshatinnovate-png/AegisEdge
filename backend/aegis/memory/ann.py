@@ -12,6 +12,8 @@ That calibration is reported, not assumed.
 """
 from __future__ import annotations
 
+import heapq
+import math
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -41,6 +43,32 @@ class CostModel:
     detail: dict[str, float] = field(default_factory=dict)
 
     def calibrate(self, dim: int = 384, sample: int = 4096) -> "CostModel":
+        """Measure both search shapes on *this* device, then pick the crossover.
+
+        The previous version of this measured a graph hop as
+        ``data[neighbours] @ query`` — thirty-two neighbours in a single
+        vectorised call. That is the arithmetic of a hop and almost none of
+        its cost. A real traversal in the interpreter pays per node for the
+        visited set, the candidate heap and the Python-level loop around them,
+        and those dominate. Measuring only the arithmetic put the overhead
+        ratio at about 1 and collapsed the crossover onto its 5,000 floor.
+
+        `scripts/strategy_bakeoff.py` shows what that cost, by forcing each
+        strategy onto the same corpus:
+
+            20,000 points   flat    p50 0.886 ms   recall 1.000   build   0 s
+                            hnsw    p50 4.340 ms   recall 0.773   build 252 s
+                            ivf_pq  p50 550.5 ms   recall 0.997   build 123 s
+
+        Exhaustive search was 4.9x faster than the graph with perfect recall
+        and no build at all, and the model was choosing the graph from 5,000
+        points up. It only failed to make anything worse because index
+        migration is deferred to the maintenance lane, which the scale runs
+        never reach — a latent misconfiguration masked by an unrelated fix.
+
+        So the hop is now timed with its bookkeeping, and the crossover is
+        solved from the two measurements rather than a constant.
+        """
         rng = np.random.default_rng(0)
         data = rng.normal(size=(sample, dim)).astype(np.float32)
         data /= np.linalg.norm(data, axis=1, keepdims=True)
@@ -51,20 +79,41 @@ class CostModel:
             np.argsort(-(data @ query))[:10]
         flat_ns = (time.perf_counter() - t0) / (5 * sample) * 1e9
 
-        # a graph hop is a small gather plus a dot product over a neighbour set
-        neighbours = rng.integers(0, sample, size=32)
+        # A hop as it is actually executed: dedupe against the visited set,
+        # gather, score, and push onto the candidate heap.
+        fan_out = 32
+        rounds = 200
+        adjacency = [rng.integers(0, sample, size=fan_out).tolist() for _ in range(rounds)]
+        visited: set[int] = set()
+        heap: list[tuple[float, int]] = []
         t0 = time.perf_counter()
-        for _ in range(500):
-            data[neighbours] @ query
-        hop_ns = (time.perf_counter() - t0) / (500 * 32) * 1e9
+        for neighbours in adjacency:
+            fresh = [n for n in neighbours if n not in visited]
+            if not fresh:
+                continue
+            visited.update(fresh)
+            scores = data[fresh] @ query
+            for node, score in zip(fresh, scores):
+                heapq.heappush(heap, (-float(score), node))
+            if len(visited) > sample // 2:
+                visited.clear()
+                heap.clear()
+        hop_ns = (time.perf_counter() - t0) / (rounds * fan_out) * 1e9
 
         self.flat_ns_per_point = flat_ns
         self.graph_ns_per_hop = hop_ns
-        # HNSW touches ~ef*log(n) points; it pays off once flat's linear scan
-        # costs more than that bounded walk, including the interpreter overhead
-        # the measurement above already contains.
         overhead = max(hop_ns / max(flat_ns, 1e-9), 1.0)
-        self.hnsw_crossover = int(max(5_000, 64 * overhead * 40))
+
+        # Flat costs n * flat_ns. A graph walk touches roughly ef * log2(n)
+        # nodes, each at hop_ns. The crossover is the smallest n where the walk
+        # is genuinely cheaper — and it has to beat exhaustive search that is
+        # also exact, so a graph only earns the switch once it is clearly ahead.
+        self.hnsw_crossover = self._solve_crossover(flat_ns, hop_ns)
+        # IVF-PQ is not a latency structure here: the bake-off puts it at
+        # 550 ms against flat's 0.9 ms at 20,000 points. It exists for the case
+        # where RAM, not time, is the binding constraint, which `choose` treats
+        # as a separate decision. The count-based threshold is kept far out of
+        # the way so it never wins on size alone.
         self.ivf_crossover = int(self.hnsw_crossover * 12)
         self.calibrated = True
         self.detail = {
@@ -73,8 +122,35 @@ class CostModel:
             "interpreter_overhead_x": round(overhead, 1),
             "hnsw_crossover": self.hnsw_crossover,
             "ivf_crossover": self.ivf_crossover,
+            "validated_by": "scripts/strategy_bakeoff.py",
         }
         return self
+
+    # How many nodes a search actually scores, as a multiple of ef*log2(n).
+    # Derived, not guessed: the bake-off measured HNSW at 4.34 ms per query on
+    # 20,000 points where a hop costs 852.8 ns, so the walk scored about 5,090
+    # nodes against ef*log2(20,000) = 915 — a factor of 5.6. Assuming the
+    # textbook ef*log2(n) directly overestimates the walk by that much and
+    # pushes the crossover out to 880,000 points, which is its own kind of
+    # wrong. Re-derive it with `scripts/strategy_bakeoff.py` on new hardware.
+    VISIT_FACTOR = 5.6
+
+    @classmethod
+    def _solve_crossover(cls, flat_ns: float, hop_ns: float, ef: int = 64,
+                         margin: float = 1.5) -> int:
+        """Smallest corpus where a graph walk beats the linear scan by `margin`.
+
+        The margin is not timidity. Exhaustive search returns recall 1.000; the
+        graph measured 0.773 at 20,000 points. Trading exactness for latency is
+        only worth it when the latency win is decisive, so a dead heat resolves
+        in favour of the exact answer.
+        """
+        for n in range(10_000, 20_000_001, 10_000):
+            flat_cost = n * flat_ns
+            walk_cost = ef * math.log2(max(n, 2)) * cls.VISIT_FACTOR * hop_ns
+            if walk_cost * margin < flat_cost:
+                return n
+        return 20_000_000
 
     def choose(self, count: int, memory_pressure: float = 0.0) -> Strategy:
         """Pick a strategy for a collection of this size under this pressure."""

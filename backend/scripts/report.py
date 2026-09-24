@@ -57,9 +57,52 @@ def main() -> None:
     ]))
     add("")
 
+    add("## What the stress runs found\n")
+    add("Seven defects, each one found by pushing the system until it gave way "
+        "and then reading what broke rather than what was supposed to happen. "
+        "All are fixed; the sections below are the numbers from the run after "
+        "the fixes.\n")
+    add(table(["#", "Defect", "Impact", "Found by"], [
+        ["1", "Quadratic vector append (`np.vstack` per insert)",
+         "403× slower inserts at 32k points; a scale run that never returned",
+         "ingest throughput decaying with corpus size"],
+        ["2", "Index migration ran inline on the write path",
+         "one write blocked **30.8 s** while a graph was built under it",
+         "worst-case write latency at the strategy crossover"],
+        ["3", "Catastrophic regex backtracking in the PII classifier",
+         "a single 1 MB ingest wedged the node for **79 minutes** at 100% CPU — "
+         "a denial-of-service vector on an unauthenticated path",
+         "the adversarial phase hanging; `py-spy` stack dump"],
+        ["4", "`slo.observe()` called only in the HTTP layer",
+         "the degradation ladder was blind to every query from the WebSocket, "
+         "agent, mesh or internal retrieval: p99 **1,850 ms** against a 150 ms "
+         "target with a burn rate of exactly 0.0 and nothing shed",
+         "sustained-overload ladder measurement"],
+        ["5", "Semantic cache keyed on tenant only",
+         "a `collection=\"*\"` answer was served verbatim for a scoped query — "
+         "five hits from a collection holding nothing",
+         "chasing defect 7; scoped queries returning another scope's results"],
+        ["6", "Inferred query narrowing applied as a hard filter",
+         "ordinary queries returned **zero** hits: `conveyor` → 5, "
+         "`conveyor vibration night shift` → 0 on a corpus where every "
+         "document contains all four words",
+         "manual probing after the cache fix stopped masking it"],
+        ["7", "Tokenizer encoded the whole input to keep 128 tokens",
+         "1 MB query 853 ms → 35.5 ms; the same text stored as a document paid "
+         "it again on every rerank, making one adversarial query take 30 s",
+         "profiling the 1 MB query"],
+        ["8", "In-flight sync outlived the storage handle",
+         "shutdown raised bare `RuntimeError` into un-awaited background tasks",
+         "never-retrieved future exceptions during soak"],
+    ]))
+    add("")
+    add("Two of these — 3 and 6 — are the kind that do not show up in a demo. "
+        "The first needs a hostile input nobody types by accident; the second "
+        "looks like a working system returning an honest empty answer.\n")
+
     # ── headline regression found and fixed ──
     if before and after:
-        add("## The bottleneck this run found\n")
+        add("## Defects 1 and 2, measured before and after\n")
         add("The first pass never finished. Ingest throughput decayed as the corpus "
             "grew — 75 docs/s at 2k points, 53 docs/s at 10k — and a scale phase at "
             "32k points ran for 25 minutes without returning. Two causes, both real:\n")

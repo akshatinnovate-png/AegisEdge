@@ -95,7 +95,8 @@ def main() -> None:
         print("node ready:", json.dumps(get(f"{api}/health"))[:120])
 
         script = out / "_shots.js"
-        script.write_text(SHOTS % {"web": args.web, "api": api, "out": str(out)}, encoding="utf-8")
+        script.write_text(SHOTS % {"web": args.web, "api": api, "out": str(out),
+                                   "base": f"http://127.0.0.1:{args.port}"}, encoding="utf-8")
         subprocess.run(["node", str(script)], check=True)
     finally:
         node.terminate()
@@ -119,9 +120,15 @@ async function post(page, path, body) {
 
 (async () => {
   const b = await chromium.launch();
-  const page = await b.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 2 });
+  const page = await b.newPage({ viewport: { width: 1600, height: 1000 }, deviceScaleFactor: 1.5 });
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
+
+  // The console defaults to :8000; this capture runs the node elsewhere so it
+  // does not collide with a real one. Without this the page renders perfectly
+  // and shows NO NODE with every figure blank — which is the frontend being
+  // honest about having no backend, and a useless screenshot.
+  await page.addInitScript((api) => { window.AEGIS_API = api; }, '%(base)s');
 
   await page.goto('http://localhost:%(web)d/index.html');
   await page.waitForTimeout(1500);
@@ -129,6 +136,10 @@ async function post(page, path, body) {
 
   await page.waitForTimeout(9000);
   await page.screenshot({ path: '%(out)s/02-hero.png' });
+
+  // Refuse to produce a gallery of a disconnected console.
+  const link = await page.evaluate(() => (document.body.innerText.match(/NO NODE/) ? 'down' : 'up'));
+  if (link === 'down') { console.log(JSON.stringify({ fatal: 'console never reached the node' })); await b.close(); process.exit(3); }
 
   await page.fill('#searchInput', 'colent presure hard stop');
   await page.click('.btn--go');

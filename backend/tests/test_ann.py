@@ -123,3 +123,39 @@ def test_forced_strategies_stay_accurate(strategy):
     index.force(strategy)
     assert index.strategy is strategy
     assert _recall(index, data, k=10, probes=20) >= 0.85
+
+
+def test_cost_model_does_not_choose_a_graph_where_exhaustive_search_wins():
+    """The crossover was measured, not assumed, and the measurement was brutal.
+
+    `scripts/strategy_bakeoff.py` forced each strategy onto the same corpus:
+
+        20,000 points   flat    p50 0.886 ms   recall 1.000   build   0 s
+                        hnsw    p50 4.340 ms   recall 0.773   build 252 s
+                        ivf_pq  p50 550.5 ms   recall 0.997   build 123 s
+
+    Exhaustive search was 4.9x faster than the graph, exact where the graph
+    lost a quarter of its recall, and free to build - and the cost model was
+    selecting the graph from 5,000 points upward, because it timed a hop as
+    one vectorised numpy call and so missed the interpreter overhead that
+    dominates a real traversal.
+    """
+    from aegis.memory.ann import CostModel, Strategy
+
+    cost = CostModel().calibrate(dim=256, sample=2048)
+
+    # Timing a hop honestly must show it costs multiples of a scanned point.
+    assert cost.detail["interpreter_overhead_x"] > 4.0
+
+    for count in (1_000, 5_000, 20_000, 50_000):
+        assert cost.choose(count) is Strategy.FLAT, (
+            f"chose {cost.choose(count).value} at {count:,} points, where the "
+            "bake-off shows exhaustive search is both faster and exact")
+
+    # It must still switch eventually, or it is not a cost model at all.
+    assert cost.choose(5_000_000) is not Strategy.FLAT
+
+    # IVF-PQ costs 550 ms a query here: it is a memory decision, never a
+    # latency one, and must not be reachable on size alone at edge scale.
+    assert cost.choose(100_000) is not Strategy.IVF_PQ
+    assert cost.choose(20_000, memory_pressure=0.95) is Strategy.IVF_PQ
