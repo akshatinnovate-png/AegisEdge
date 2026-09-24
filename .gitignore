@@ -10,3 +10,7 @@ backend/models/.cache/
 .DS_Store
 models/
 .aegis/
+
+# Transient: the stress harness rewrites this on every run. The durable
+# artefacts are testlogs/stress-raw.json and testlogs/STRESS-REPORT.md.
+testlogs/stress-run.log
