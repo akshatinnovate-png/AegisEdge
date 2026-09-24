@@ -146,16 +146,29 @@ def test_cost_model_does_not_choose_a_graph_where_exhaustive_search_wins():
 
     # Timing a hop honestly must show it costs multiples of a scanned point.
     assert cost.detail["interpreter_overhead_x"] > 4.0
+    # And the calibration must be reproducible: a single timing swung this
+    # between 40,000 and 110,000 across consecutive runs on one machine.
+    again = CostModel().calibrate(dim=256, sample=2048)
+    ratio = again.hnsw_crossover / max(cost.hnsw_crossover, 1)
+    assert 0.5 < ratio < 2.0, (cost.hnsw_crossover, again.hnsw_crossover)
 
-    for count in (1_000, 5_000, 20_000, 50_000):
+    # The bake-off measured flat as both faster and exact at every scale it
+    # tested, the largest being 20,000 points. Assert the range it covers,
+    # with headroom — not a specific crossover, which is a timing-derived
+    # number and would make this a test of the machine's mood.
+    for count in (1_000, 5_000, 20_000):
         assert cost.choose(count) is Strategy.FLAT, (
             f"chose {cost.choose(count).value} at {count:,} points, where the "
             "bake-off shows exhaustive search is both faster and exact")
 
+    # And the crossover must land well past anything an edge device holds,
+    # rather than on top of it.
+    assert cost.hnsw_crossover > 50_000, cost.as_dict()
+
     # It must still switch eventually, or it is not a cost model at all.
-    assert cost.choose(5_000_000) is not Strategy.FLAT
+    assert cost.choose(cost.hnsw_crossover * 2) is not Strategy.FLAT
 
     # IVF-PQ costs 550 ms a query here: it is a memory decision, never a
     # latency one, and must not be reachable on size alone at edge scale.
-    assert cost.choose(100_000) is not Strategy.IVF_PQ
+    assert cost.choose(min(100_000, cost.hnsw_crossover - 1)) is not Strategy.IVF_PQ
     assert cost.choose(20_000, memory_pressure=0.95) is Strategy.IVF_PQ

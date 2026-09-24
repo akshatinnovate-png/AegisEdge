@@ -277,6 +277,96 @@ bookkeeping (overhead **12.1×**), and the crossover is solved from the two
 measurements: **110,000 points**, with the model predicting 4.82 ms for HNSW at
 20k against a measured 4.34 ms.
 
+
+---
+
+## 4.3 PROVE IT — four claims, each with the button that would falsify it
+
+Every team claims. Almost none invite verification, because offering to be
+checked only works if you would survive it. A third mode, **PROVE IT**, is the
+offer.
+
+| | |
+|---|---|
+| ![Prove panel](testlogs/images/11-prove-panel.png) | ![Under load](testlogs/images/12b-prove-pinned.png) |
+| **The panel.** Durability, degradation, energy, provenance and time travel — each with the control that would break it if the claim were false. | **Under load, at a pinned rung.** ESSENTIAL suspends eight stages *by name*; in-flight requests are capped and what the cap holds back is counted. |
+| ![Killed](testlogs/images/13-prove-killed.png) | ![Recovered](testlogs/images/14-prove-recovered.png) |
+| **SIGKILL, from the browser.** No handler runs, no buffer is flushed, nothing is tidied. | **Back in 2.9 s.** 36 operations replayed in 52.7 ms. *27 memories before the kill, 27 after — nothing was lost.* |
+
+### Hand the judge the crowbar
+
+`scripts/supervise.py` runs the node as a child and restarts it, recording each
+death: which signal, how long it lived, whether it was a hard kill.
+`POST /api/v1/chaos/kill` lets somebody with a browser and no terminal pull the
+rug out. SIGKILL is the default because it is the only interesting one. The
+endpoint **refuses unless a supervisor is present** — a kill button with
+nothing behind it is not a demonstration, it is the end of the demo.
+
+`GET /api/v1/integrity/recovery` then answers the only question that matters
+after a crash, in the terms the claim was made in. A torn tail record is
+reported and explained rather than glossed: the WAL is fsynced *before* a write
+is acknowledged, so a half-written record is one whose caller never got an
+answer, and discarding it is the only correct thing to do.
+
+Beside it, every fault the chaos controller knows — corrupt the WAL, corrupt a
+segment, fill the disk, skew the clock, memory pressure, query storm — and
+`fsck` to check afterwards.
+
+### Joules, not milliseconds
+
+**40,191 answers per 1% of a 50 Wh pack, at 44.8 mJ each.** Latency is the
+figure everything reports and the wrong one to optimise a battery-powered
+device against: answering in 4 ms while holding four cores flat is worse, on a
+robot, than 12 ms on one core.
+
+Three sources, tried in order, and every reading says which produced it — the
+CPU package's RAPL counter, battery discharge, or CPU-seconds times an assumed
+per-core draw. The first two are measurements. The third is a **model**, and it
+is labelled `modelled` everywhere it appears, because a model dressed as a
+measurement survives exactly until somebody checks it. The coefficient is
+configuration rather than a constant buried in a module: the right value for a
+Xeon and an A78 differ by an order of magnitude and only the deployer knows
+which they have.
+
+### The receipt
+
+A demo is an assertion, and nobody watching one can tell a node running the
+committed code from a node running a branch with the hard parts stubbed. So the
+node computes, at runtime, a **Merkle root** over its own source, the weights
+it loaded and the graphs it compiled from them:
+
+```bash
+python3 -m aegis.core.provenance        # in a clean clone
+curl localhost:8000/api/v1/provenance   # on the running node
+```
+
+If the roots match, the process answering you is the code that is public. A
+tree rather than a flat hash, so a mismatch is *located* file by file. A dirty
+working tree is reported, not hidden. And the receipt states its own limit:
+this is integrity, not authenticity — it proves the running process matches a
+tree with this root, not who produced the tree.
+
+### Degradation you can drive
+
+A dial that issues real queries, and the ladder lighting up as the node sheds.
+Two honesty fixes were needed to make the reading mean anything. At 900 q/s the
+browser had 1,333 fetches outstanding and the panel reported a p50 of 3.6
+seconds while the node's own burn rate sat at zero — the node was fine and the
+*browser* was the bottleneck; in-flight requests are now capped and what the
+cap turns away is counted and shown. And one browser may simply be unable to
+make a node breach its objective, which is an honest result rather than a
+broken demo: the panel says so instead of manufacturing a stall, and the rung
+pins beside the dial are labelled as pins, because a manual override is not the
+same evidence as organic shedding.
+
+### Time travel
+
+![Time travel](testlogs/images/15-prove-timetravel.png)
+
+A slider over the last 72 hours: what this device believed then, and what it has
+learned or retracted since. The bitemporal graph has been in the system all
+along and nothing had ever surfaced it.
+
 ---
 
 ## 5. System shape
@@ -691,6 +781,10 @@ local simulation when the backend is absent.
 | `GET` | `/api/v1/sync/conflicts` | Conflict records and the human review queue |
 | `POST` | `/api/v1/mesh/exchange` | The receiving half of the mesh, when the peer is another device |
 | `POST` | `/api/v1/mesh/offline` | Pull this device's radio, or put it back |
+| `POST` | `/api/v1/chaos/kill` | Send this node SIGKILL; refused without a supervisor |
+| `GET` | `/api/v1/integrity/recovery` | What the last boot recovered, and what it could not |
+| `GET` | `/api/v1/energy` | Joules per operation, and answers per 1% of battery |
+| `GET` | `/api/v1/provenance` · `POST /provenance/verify` | The Merkle receipt, and a file-by-file comparison |
 | `GET` | `/api/v1/space` | The embedding space: pooling, fitted geometry, lexicon, gate history |
 | `GET` | `/api/v1/space/anisotropy` | Measured conditioning of the stored vectors |
 | `POST` | `/api/v1/space/evaluate` | Score candidate spaces against the shipped one — measures, never arms |
@@ -733,6 +827,7 @@ Two things this environment could not run, stated rather than papered over:
 cd backend
 pip install -r requirements.txt      # includes the pretrained weights and Qdrant
 uvicorn aegis.main:app --port 8000      # REST + WebSocket on :8000
+python3 scripts/supervise.py --port 8000   # ...or supervised, so it can be killed
 python3 scripts/demo.py                 # whole lifecycle in one process, no server
 python3 scripts/bench.py                # index recall + latency, measured here
 python3 -m pytest tests -q              # 247 tests
@@ -825,6 +920,11 @@ Point it at a live backend:
 - [x] USE mode — the product beside its own machinery, with the causal link between them
 - [x] Mesh over HTTP — two real node processes gossiping directly, no cloud, no coordinator
 - [x] Handling class travels with a memory; a receiver can no longer relax it
+- [x] PROVE IT mode — durability, degradation, energy, provenance and time travel, each falsifiable from the browser
+- [x] Supervised process with a browser-triggered SIGKILL and an honest recovery verdict
+- [x] Energy accounting with a measured/modelled source ladder
+- [x] Runtime provenance receipt over source, weights and compiled graphs
+- [x] Two-layer semantic cache — 80× on a repeated question, after the old one was found dead
 - [ ] Multi-modal named vector spaces (schema supports them; encoders pending)
 - [ ] Mesh convergence past 36/50 peers in six waves — under investigation
 - [ ] Soak phase cannot yet separate a leak from legitimate corpus growth
@@ -1050,6 +1150,410 @@ storms rather than happy paths:
   operations are commutative, so anti-entropy applies a set directly; vector
   clocks guard the streaming path, where a supersede can outrun what it
   supersedes.
+
+---
+
+# Appendix 3 — how every part actually works
+
+The main architecture is §5 and the feature plan is §6. This appendix is the
+layer beneath both: every module in the node, what mechanism it uses, and why
+that mechanism rather than the obvious one. It is written to be read by
+somebody deciding whether to trust the system, so where a choice was made
+against the intuitive option, the reason is stated rather than implied.
+
+Eighty-eight modules, grouped as they are on disk.
+
+## A3.1 Core — clocks, scheduling, budgets, isolation
+
+**`core/clock.py` — hybrid logical clock.** Wall time alone cannot order
+events across devices whose clocks disagree, and a Lamport counter alone
+cannot be compared to a human timestamp. An HLC carries both: a physical
+millisecond and a logical counter that increments when two events share a
+millisecond. It never goes backwards, even when NTP steps the system clock
+backwards underneath it, because the physical component is `max(local wall,
+last seen)`. Every memory and every operation carries one, and that is what
+makes "which of these two edits is later" answerable offline.
+
+**`core/bus.py` — in-process pub/sub, bounded and drop-oldest.** Every
+subsystem publishes what it did; the WebSocket gateway and the console
+subscribe. Queues are bounded and drop the *oldest* event when full, which is
+the correct choice for telemetry: a slow consumer must never apply
+backpressure to the thing it is watching, and a stale event is worth less than
+a current one.
+
+**`core/scheduler.py` — QoS lanes.** Background work and queries compete for
+one interpreter, so background work is submitted to lanes (`QUERY`, `SYNC`,
+`MAINTENANCE`) with deadlines and a shedding policy rather than run
+unconditionally. Under pressure the maintenance lane is dropped first, which
+is why an index rebuild or a scrub cannot make a query slow. Pressure is
+exposed so the SLO ladder can read it.
+
+**`core/slo.py` — the degradation ladder.** Five rungs, FULL through SURVIVAL.
+Each optional retrieval stage declares the rung at which it stops running, and
+the pipeline asks once per query so the answer cannot shift mid-flight. The
+manager climbs on error-budget burn rate or scheduler pressure, one rung per
+evaluation, and holds a rung for a dwell period so a burst cannot make it
+flap. It de-escalates only when burn falls and pressure clears. This is the
+subsystem that was found blind — see §3 — because latency was reported to it
+only from the HTTP layer.
+
+**`core/supervisor.py` — restart budgets.** Background loops are supervised
+with a restart budget and crash-loop detection. A subsystem that dies
+repeatedly is reported, not restarted forever, because an endless restart is
+indistinguishable from working until somebody looks.
+
+**`core/tenancy.py` — isolation that is enforced structurally.** Tenants have
+quotas (points, bytes, ingest rate, QPS), hashed and scoped API keys, and a
+visible id set. Cross-tenant reads are refused in `MemoryStore.get`, not at
+the call sites: one forgotten filter upstream is a data breach, one refusal at
+the bottom is not.
+
+**`core/energy.py` — joules per operation.** Three sources tried in order —
+the CPU package's RAPL counter, battery discharge, then CPU-seconds times an
+assumed per-core draw — and every reading carries which one produced it. The
+first two are measurements and the third is a model, labelled `modelled`
+wherever it appears. Attribution uses CPU time rather than wall time, so a
+query that waited on the micro-batcher is not billed for the wait.
+
+**`core/provenance.py` — the receipt.** A Merkle tree (not a flat hash, so a
+mismatch can be *located*) over the source files, the model weights and the
+compiled graphs. `verify_against` names changed, added and removed files. The
+receipt states its own limit: integrity, not authenticity.
+
+**`core/metrics.py`, `core/tracing.py`.** Counters, gauges and
+streaming-quantile histograms with Prometheus exposition; spans nested per
+query so `/api/v1/traces` can show where a slow query actually spent its time
+rather than where one would guess.
+
+**`core/circuit.py`, `core/backoff.py`, `core/ratelimit.py`.** A per-endpoint
+circuit breaker so a dead coordinator is not retried into the ground;
+decorrelated-jitter backoff, which avoids the synchronised retry storm that
+plain exponential backoff produces across a fleet; token buckets for sync
+bandwidth and for fleet-wide reconnect control.
+
+**`core/ids.py`.** ULID-shaped identifiers: monotonic and lexicographically
+sortable, so an id sorts by creation time without a separate index.
+
+**`core/errors.py`.** Typed failures. A subsystem that fails loudly is cheaper
+than one that lies — `LinkUnavailable`, `WalCorrupt`, `PolicyDenied`,
+`StorageLocked` each carry the remedy in the message.
+
+## A3.2 Memory — the system of record
+
+**`memory/schema.py` — what a memory is.** `MemoryPoint` carries text, dense
+and sparse vectors, payload, tier, sensitivity, **sync class**, HLC, device
+id, tenant, model version and supersession. `SyncClass` is ordered by
+restriction (`FULL` < `REDACTED` < `METADATA_ONLY` < `LOCAL_ONLY`) with a
+`strictest()` helper, because a memory crossing devices must never have its
+handling relaxed by the receiver.
+
+**`memory/wal.py` — crash-safe write-ahead log.** Every mutation is appended
+with a CRC and fsynced *before* the write is acknowledged. Replay stops at the
+first torn record and reports how many it discarded. A torn tail is not data
+loss: the log is fsynced before acknowledgement, so a half-written record is
+one whose caller never received an answer, and replaying it would invent a
+memory nobody was promised.
+
+**`memory/segments.py` — immutable segments, crash-safe manifest.** Sealed
+segments are content-addressed and never mutated. The manifest is written
+temp → fsync → rename → fsync-directory, which is the only sequence that is
+atomic on POSIX. `fsck` walks every segment and verifies checksums; `scrub`
+does it in the background on a budget; a corrupt segment is quarantined rather
+than deleted. `IncompatibleFormat` is a distinct exception because
+`json.JSONDecodeError` subclasses `ValueError` and was once caught by the
+version check, turning a corrupt manifest into a crash.
+
+**`memory/store.py` — the ingest path.** Quota check, classify, redact,
+embed, WAL append, index, extract graph facts, record the CRDT op. Quota is
+checked first so an over-quota tenant does not waste an embed and leave
+partial state. Nothing becomes searchable before it is in the WAL.
+
+**`memory/vectorstore.py` — the store abstraction.** `NativeStore` (tiered,
+adaptive, on-disk cold tier) and `QdrantStore` (embedded by default, a server
+by URL). Embedded Qdrant is single-writer, so a second node on one data
+directory raises `StorageLocked` naming the remedy rather than a bare
+`BlockingIOError` from the lock library.
+
+**`memory/index.py` — one collection's whole retrieval surface.** Dense index,
+sparse postings, payload index, planner, tier map, warm int8 codes and cold
+RaBitQ codes. The cold path scans codes in RAM and pages in only the shortlist
+the error bound cannot rule out.
+
+**`memory/ann.py` — the adaptive index and its cost model.** Flat BLAS, HNSW
+or IVF-PQ, chosen by a model calibrated on the device at boot. The crossover
+is solved from two measurements — cost per scanned point, cost per graph hop
+*including the interpreter bookkeeping a real traversal pays* — with a margin,
+because exhaustive search is also exact and a graph only earns the switch when
+it is decisively faster. Migration is decided on the write path and performed
+on the maintenance lane, because building a graph inline once stalled a single
+write for 30.8 seconds.
+
+**`memory/hnsw.py`.** Heuristic neighbour selection rather than plain nearest
+neighbours, which keeps the graph navigable instead of clumping; soft deletes
+with graph repair, so a removal does not strand the nodes that routed through
+it.
+
+**`memory/pq.py`.** OPQ rotation then IVF-PQ. `nprobe` and rescore depth are
+self-calibrated against the actual corpus, because a true neighbour in an
+unprobed cell cannot be recovered at any rescore depth — clustered corpora
+need roughly a quarter of cells probed, uniform ones nearly all, and the right
+number is a property of the data rather than the algorithm.
+
+**`memory/quantize.py`, `memory/rabitq.py`.** Symmetric int8 for the warm
+tier. The cold tier is RaBitQ: centre on the corpus centroid, rotate (fast
+Hadamard when the dimension is a power of two, dense QR otherwise), keep sign
+bits plus one float for how well the code aligns with its vector. That float
+makes the estimator unbiased and yields a per-vector error bound, which then
+*derives* the rescoring depth instead of a fixed multiplier. `ColdCodebook`
+stores bits, factors and radii in three growable buffers so a cold scan runs
+off views rather than allocating the corpus per query.
+
+**`memory/growable.py`.** A row-appendable matrix with geometric capacity that
+exposes its filled region as a **view**. `np.vstack` per insert is O(n) per
+write and O(n²) overall; this is amortised O(1) and keeps every `matrix @
+query` one BLAS call over contiguous memory. Deletion is swap-with-last, and
+the caller is handed the moved row so it can fix its own bookkeeping.
+
+**`memory/vectors.py`, `memory/tiering.py`.** HOT full precision resident,
+WARM int8, COLD evicted to a memory-mapped file with only codes in RAM.
+Keeping a full-precision copy "for rescoring" would make the compression ratio
+a slide rather than a fact. The compactor promotes and demotes on a decayed
+access score.
+
+**`memory/filters.py`, `memory/planner.py`.** Inverted payload indexes over
+the fields worth indexing, and a cost-based planner that chooses pre-filter,
+post-filter or scan from measured selectivity — the same decision a database
+optimiser makes, for the same reason.
+
+**`memory/graph.py` — the bitemporal knowledge graph.** Two independent time
+axes: when a fact was *true* (valid time) and when this device *believed* it
+(transaction time). Retraction is not deletion, so "when did we stop believing
+this" remains answerable, which is exactly what an incident review asks. The
+live view is materialised once and reused until a mutation bumps a version or
+a fact's validity window closes — the earliest such moment is kept as an
+expiry so the cache is correct rather than merely fast. Time-travel queries
+bypass it deliberately: a cache of *now* must never answer a question about
+some other time.
+
+**`memory/consolidation.py`, `memory/repair.py`.** Near-duplicate memories are
+merged with provenance preserved. Repair recovers damaged points peer-first
+and reports what neither peer could supply as permanently lost, by identifier
+— a corrupt segment is usually a lost durable copy rather than a lost memory,
+and reporting those as "recovered from a peer" would overstate the repair.
+
+## A3.3 Inference — real weights, and a node that checks its own representation
+
+**`inference/models.py` — provisioning without a network.** The pretrained
+32000×256 token table and its 32k BPE tokenizer ship inside the PyPI wheel. At
+first boot the node compiles two ONNX graphs from those weights, writes the
+tokenizer and a provenance file, and content-addresses both graphs into the
+registry. Two details that cost an evening each: `onnx` emits IR version 14
+while the runtime accepts at most 13, so the IR version is pinned; and
+`ReduceL2` takes its axes as an *attribute* until opset 18 while `ReduceSum`
+takes them as an *input* from opset 13, which is not a symmetry anyone
+expects.
+
+**`inference/onnx_runtime.py` — sessions and the execution-provider ladder.**
+Providers are probed in preference order and the best available is used; the
+optimised graph is serialised on first boot so later boots pay nothing. The
+embedding graph is a gather, a masked mean and an L2 normalise — which is what
+makes weighted pooling possible with no graph change, since the mask is the
+denominator. Text is clipped to a character bound before tokenising, because
+only `max_tokens` survive and a 1 MB input otherwise spends 694 ms producing
+tokens it immediately discards.
+
+**`inference/batcher.py` — micro-batching, on the event loop deliberately.**
+Concurrent embeds inside an 8 ms window coalesce into one run. Moving that run
+to a thread pool was tried and measured *worse* (2,069 → 1,332 qps at 256
+concurrent); ONNX Runtime already releases the GIL and parallelises
+internally, so the executor added a hop per batch and bought nothing. The
+measurement is in the module docstring so it is not rediscovered.
+
+**`inference/embedder.py`.** The dense encoder, plus the node's two on-device
+adaptations and the gate that decides whether either is allowed on.
+
+**`inference/lexicon.py` — unigram statistics from this device's own stream.**
+SIF weighting needs `p(t)`, and estimating it here rather than shipping it
+from a web crawl is what makes it an edge feature. It also measured *worse* on
+this encoder at every setting, because the token table is a distillation
+trained for mean pooling and has already absorbed the correction. It ships
+off, kept as the candidate the gate rejects.
+
+**`inference/geometry.py` — corpus-fitted whitening.** Streaming mean and Gram
+matrix, Ledoit–Wolf shrinkage so the node never inverts an estimate it cannot
+support, eigendecomposition, and a **rank** rather than a dimension: enough
+directions to hold the energy target, and never one whose eigenvalue has
+fallen through a conditioning floor. Whitening at full dimension amplifies
+near-zero directions by four orders of magnitude and took cold-tier recall
+from 0.77 to 0.11.
+
+**`inference/adaptation.py` — the gate.** A paraphrase task built from the
+node's own memories: delete half a stored document's words and the document it
+came from is the correct answer by construction, so no labels are needed.
+Adoption requires a **paired bootstrap** whose 95% interval excludes zero,
+because the same transform measured +0.0175 MRR on one probe sample of one
+corpus and −0.0001 on another. Measuring never arms anything: the winning
+transform changes the output dimension, so arming is an explicit call behind a
+renewal migration.
+
+**`inference/sparse.py`, `inference/reranker.py`.** A SPLADE-shaped sparse
+encoder backed by BM25 statistics, and a ColBERT-style late-interaction
+reranker computing MaxSim over per-token vectors from the same pretrained
+space, returning the token alignments that produced the score so a ranking can
+be explained rather than asserted.
+
+**`inference/classifier.py` — PII on the ingest path.** Anchored patterns and
+an overlapping-window scan. It sits on the ingest path by design, which is
+also why its worst case was a weapon: one unanchored regex made a single 1 MB
+write take 79 minutes at 100% CPU. Truncating the scan was rejected — a secret
+at offset two megabytes must not escape classification because scanning it was
+inconvenient.
+
+**`inference/governor.py`, `inference/registry.py`, `inference/triton.py`.**
+A thermal and power governor that sheds inference cost on its own terms rather
+than waiting for the silicon to throttle it, and reports **unavailable**
+where a platform exposes no sensor instead of synthesising one; a
+content-addressed model registry; and a real gRPC Triton client whose
+escalation decision is recorded with its reason, including when it declines.
+
+## A3.4 Retrieval — the query path, stage by stage
+
+**`retrieval/pipeline.py`** runs: understand → *exact cache* → embed →
+plan → dense + sparse → fuse → rerank → graph boost → diversity → conformal →
+score. Each optional stage asks the SLO ladder once whether it may run.
+
+**`retrieval/query_understanding.py`.** A BK-tree over the local vocabulary
+repairs spelling with no network and no spell-check service; corpus
+co-occurrence expands the query; intent is classified and may *suggest* a
+collection. The BK-tree prunes on the triangle inequality, which requires true
+edit distances — pruning on clamped distances silently returns nothing, as it
+did until a test caught it. An inferred narrowing is advisory: when it matches
+nothing the query is retried at the caller's scope, because a guess that
+silently replaces results with an empty page is worse than no guess.
+
+**`retrieval/cache.py` — two layers.** An exact layer keyed on normalised
+query text, checked *before* the encoder, and a vector layer for
+differently-worded questions. A vector hit teaches the exact layer, so the
+next identical question skips the encoder — a cache that only learns from full
+work never learns from itself. Both share one epoch, so a write invalidates
+both. The key carries tenant, collection, mode, k and a canonical digest of
+the filter, because everything that changes what a correct answer *is* belongs
+in the key.
+
+**`retrieval/fusion.py`, `retrieval/scoring.py`.** Reciprocal rank fusion,
+which combines rankings without needing the two score scales to be
+commensurate; then final ranking over rerank score, recency with a half-life,
+confidence and the adapter delta.
+
+**`retrieval/diversity.py`.** Maximal marginal relevance, so five phrasings of
+one memory do not occupy all five result slots.
+
+**`retrieval/conformal.py`.** Split conformal prediction: a held-out
+calibration set gives a distribution-free coverage guarantee, and the node
+abstains when the answer falls below it. Realised coverage is reported
+alongside the target, because a guarantee nobody checks is a claim.
+
+**`retrieval/contradiction.py`, `retrieval/agent.py`.** Contradiction
+detection between retrieved memories, and an agentic loop that plans,
+retrieves, verifies and answers with citations — every claim pointing at the
+memory it came from, and the reasoning steps returned with it.
+
+## A3.5 Sync — designed for a link that is usually down
+
+**`sync/crdt.py`.** An append-only operation log of commutative operations.
+Commutativity is what makes order-independent merge possible, which is what
+makes offline editing safe.
+
+**`sync/merkle.py`, `sync/iblt.py`.** Merkle range digests to find *which*
+ranges differ without sending the contents, then an Invertible Bloom Lookup
+Table to recover the exact symmetric difference in one round — cells sized to
+the expected divergence, so reconciliation costs a function of what actually
+differs rather than of how much is stored.
+
+**`sync/causal.py`.** Vector clocks and a causal delivery buffer, applied to
+the rumour path only. CRDT operations are commutative so anti-entropy can
+apply a set directly; the streaming path needs ordering because a supersede
+can outrun the thing it supersedes. Clocks tick only for operations that are
+actually shareable — a withheld operation that advanced the clock once stalled
+delivery for everything behind it.
+
+**`sync/gossip.py`, `sync/meshlink.py`.** Epidemic anti-entropy between peers,
+preferring live peers while occasionally probing a dead one so partitions
+heal. `MeshLink` dispatches in-process for tests and simulated fleets;
+`HttpMeshLink` carries the same RPC to another node process, which is what
+makes two real devices possible. The peer receives it on
+`POST /api/v1/mesh/exchange` and hands it to its own `GossipAgent`, so there
+is one implementation of anti-entropy rather than two to keep in step.
+
+**`sync/compression.py`.** Delta encoding against the previous operation,
+int8 vectors, then zlib — skipped when it would not pay, and the skip counted.
+
+**`sync/queue.py`, `sync/oracle.py`.** A durable queue that survives restart,
+and a connectivity oracle with asymmetric EWMA — quick to believe the link is
+down, slow to believe it is back — which fires `on_link_restored` the instant
+it recovers rather than waiting for the next poll.
+
+**`sync/transport.py`, `sync/conflict.py`, `sync/engine.py`.** Loopback, HTTP
+and Qdrant transports behind one protocol; an arbiter that resolves by HLC,
+then by vector similarity, and escalates a genuine semantic conflict to a
+human review queue rather than silently picking; and the engine that coalesces
+concurrent reconciliations, pushes what policy allows, pulls what it is
+missing and materialises it — preserving the sender's handling class rather
+than relabelling everything it accepts as freely shareable.
+
+## A3.6 Learning, renewal, policy, chaos
+
+**`learning/adapter.py`.** A rank-16 low-rank adapter over the retrieval
+space, trained from real choices rather than synthetic labels. Low rank
+because the update must be small enough to send and cheap enough to apply on a
+query.
+
+**`learning/privacy.py`, `learning/federated.py`.** Per-coordinate Gaussian
+noise with a tracked budget, and secure aggregation with pairwise cancelling
+masks so the coordinator sees only the sum. Each round reports its SNR and the
+cohort size the stated epsilon would actually require — which, at ε=2 over 12k
+parameters, is hundreds of thousands of devices. DP can be switched off for a
+small fleet; that is an audited choice, and secure aggregation still hides the
+individual update either way.
+
+**`renewal/freshness.py`, `renewal/migrator.py`, `renewal/scheduler.py`.**
+Freshness scoring over age, access and drift; dual-space migration that
+re-embeds into a new space while both are queryable, with shadow evaluation
+comparing the two before the switch and checkpoints so an interrupted
+migration resumes rather than restarts.
+
+**`policy/engine.py`, `policy/redaction.py`, `policy/audit.py`.** A declarative,
+hot-reloadable policy engine that resolves its file against the working
+directory and then the package root, and marks the snapshot
+`using_built_in_default` when it found neither — a policy that silently fell
+back to defaults because the working directory differed is a policy that is
+not enforcing what anyone thinks. Redaction is reversible through a local-only
+vault, so the original never leaves but is not destroyed. The audit log is
+hash-chained, and its verification walks the chain rather than trusting a
+stored flag.
+
+**`chaos/faults.py`.** Twelve faults — link drop, packet loss, latency spike,
+clock skew, disk full, thermal spike, corrupt WAL, partition, corrupt segment,
+memory pressure, query storm, peer churn — each with a scheduled clear, so the
+resilience claims can be tested rather than asserted. `POST /chaos/kill` is
+separate and refuses unless a supervisor is present.
+
+## A3.7 API and the composition root
+
+**`node.py`** builds every subsystem and supervises the background loops:
+compaction (which also runs deferred index migrations and the periodic space
+review), consolidation, governor sampling, telemetry, archiving, scrubbing,
+SLO evaluation, sync and mesh. `close()` releases external handles and marks
+the transports unavailable, so a reconcile still in flight sees a link that is
+down — something every path already survives — rather than a bare
+`RuntimeError` raised into a task nobody is awaiting.
+
+**`api/`** is nineteen routers over that node, plus a multiplexed WebSocket
+gateway. `security.py` resolves a principal from a scoped, hashed API key and
+refuses cross-tenant access structurally; auth is off by default because a
+single-tenant device on a private network should not need a credential to
+answer its own operator, and every route behaves identically with it on.
+
 
 ---
 *Code Cubicle 6.0 · 3 OCT online · 11 OCT offline*
