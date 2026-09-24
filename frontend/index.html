@@ -10,6 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Archivo:wght@400;600;800;900&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="styles.css" />
 <link rel="stylesheet" href="use.css" />
+<link rel="stylesheet" href="prove.css" />
 </head>
 <body data-mode="console">
 
@@ -55,6 +56,7 @@
   <div class="top__meta" id="topMeta">NODE · <span id="nodeId">edge-00</span></div>
   <div class="mode-switch">
     <button data-mode="use" aria-pressed="false">USE IT</button>
+    <button data-mode="prove" aria-pressed="false">PROVE IT</button>
     <button data-mode="console" aria-pressed="true">INSPECT IT</button>
   </div>
   <div class="link" id="linkPill" data-state="offline">
@@ -165,6 +167,157 @@ e.g. bay 3 conveyor vibration crossed 4.2 mm/s at 02:14, bearing signature match
     </div>
   </section>
 
+
+  <!-- ── PROVE IT — four claims and the buttons that would break them ── -->
+  <section id="prove">
+    <div class="console__head">
+      <h2>PROVE IT</h2>
+      <span style="font:400 10px/1.6 var(--mono);letter-spacing:.08em;color:var(--dim);max-width:52ch">
+        Every claim on this page has a button that would falsify it. Press them.
+      </span>
+    </div>
+
+    <div class="proof">
+      <div class="proof__head">
+        <span class="proof__title">01 · DURABILITY</span>
+        <span class="proof__claim">Nothing becomes searchable before it is recoverable.
+          The WAL is fsynced before a write is acknowledged, so losing the process
+          costs milliseconds and no memories.</span>
+      </div>
+      <div class="proof__body">
+        <div class="grid2">
+          <div>
+            <div class="figure"><span class="figure__n" id="durCount">—</span>
+              <span class="figure__u">MEMORIES RESIDENT</span></div>
+            <div class="kv">
+              <span>WAL sequence</span><b id="durWal">—</b>
+              <span>process generation</span><b id="durGen">—</b>
+              <span>supervisor</span><b id="durSupervised">—</b>
+            </div>
+            <div style="margin-top:14px">
+              <button class="danger" id="durKill">KILL THIS NODE · SIGKILL</button>
+            </div>
+            <div class="faults">
+              <button data-fault="corrupt_wal">corrupt the WAL</button>
+              <button data-fault="corrupt_segment">corrupt a segment</button>
+              <button data-fault="disk_full">fill the disk</button>
+              <button data-fault="clock_skew">skew the clock</button>
+              <button data-fault="memory_pressure">memory pressure</button>
+              <button data-fault="query_storm">query storm</button>
+              <button id="durFsck">run fsck</button>
+            </div>
+          </div>
+          <div>
+            <div class="verdict verdict--wait" id="durVerdict">
+              Count the memories, kill the process, and count again. SIGKILL runs no
+              handler, flushes no buffer and tidies nothing — which is the only kind of
+              crash worth testing.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="proof">
+      <div class="proof__head">
+        <span class="proof__title">02 · DEGRADATION UNDER LOAD</span>
+        <span class="proof__claim">The ladder sheds optional stages to protect p99 rather
+          than letting every query get slower together. Drive it until it does.</span>
+      </div>
+      <div class="proof__body">
+        <div class="dial">
+          <input type="range" id="dial" min="0" max="1500" step="25" value="0" />
+          <span class="dial__v" id="dialValue">idle</span>
+        </div>
+        <div class="faults" style="margin:0 0 12px">
+          <button data-pin="ECONOMISE">pin ECONOMISE</button>
+          <button data-pin="TRIM">pin TRIM</button>
+          <button data-pin="ESSENTIAL">pin ESSENTIAL</button>
+          <button data-pin="SURVIVAL">pin SURVIVAL</button>
+          <button data-pin="">release the pin</button>
+        </div>
+        <div class="ladder" id="ladder">
+          <span class="rung" data-rung="FULL" data-on="true">FULL</span>
+          <span class="rung" data-rung="ECONOMISE">ECONOMISE</span>
+          <span class="rung" data-rung="TRIM">TRIM</span>
+          <span class="rung" data-rung="ESSENTIAL">ESSENTIAL</span>
+          <span class="rung" data-rung="SURVIVAL">SURVIVAL</span>
+        </div>
+        <div class="figure__sub" id="sloReason"></div>
+        <div style="margin-top:8px" id="sloShed"></div>
+        <div class="spark" id="spark"></div>
+        <div class="kv" style="margin-top:12px">
+          <span>p50 / p99 observed here</span><b><span id="loadP50">0</span> / <span id="loadP99">0</span> ms</b>
+          <span>error-budget burn rate</span><b id="loadBurn">0.00</b>
+          <span>requests in flight</span><b id="loadInflight">0</b>
+        </div>
+        <div class="mono-note">Bars are individual queries; <em>red</em> ones missed the
+          latency objective. The ladder will not move on a burst — it holds a rung for a
+          dwell period so a spike cannot make it flap, and it climbs one rung per
+          evaluation rather than jumping to the bottom.</div>
+        <div class="mono-note">If the dial cannot make this node breach its objective,
+          that is the honest result and not a broken demo — one browser can only generate
+          so much load. The pins above show what each rung actually disables, and are
+          labelled as pins because a manual override is not the same evidence as organic
+          shedding.</div>
+      </div>
+    </div>
+
+    <div class="grid2">
+      <div class="proof">
+        <div class="proof__head"><span class="proof__title">03 · ENERGY</span></div>
+        <div class="proof__body">
+          <div class="figure"><span class="figure__n" id="energyN">—</span>
+            <span class="figure__u" id="energyU">ANSWERS PER 1% OF BATTERY</span></div>
+          <div class="figure__sub" id="energySub"></div>
+          <div style="margin-top:10px" id="energySource"></div>
+          <div class="mono-note" id="energyHow"></div>
+          <div class="mono-note">Latency is the figure everything reports and the wrong
+            one to optimise a battery-powered device against. Answering in 4 ms while
+            holding four cores flat is worse, on a robot, than 12 ms on one.</div>
+        </div>
+      </div>
+
+      <div class="proof">
+        <div class="proof__head"><span class="proof__title">04 · PROVENANCE</span></div>
+        <div class="proof__body">
+          <div class="kv">
+            <span>source files hashed</span><b id="provFiles">—</b>
+            <span>model artefacts</span><b id="provModels">—</b>
+            <span>commit</span><b id="provCommit">—</b>
+            <span>branch</span><b id="provBranch">—</b>
+            <span>working tree</span><b id="provClean">—</b>
+          </div>
+          <div style="margin-top:10px;font:400 10px/1.6 var(--mono);color:var(--orange);
+            word-break:break-all" id="provRoot">—</div>
+          <div class="mono-note">Clone the repository and run
+            <em>python3 -m aegis.core.provenance</em>. If the roots match, the process
+            answering you is the code you are reading. This is integrity, not
+            authenticity: it does not prove who wrote the tree.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="proof">
+      <div class="proof__head">
+        <span class="proof__title">05 · TIME TRAVEL</span>
+        <span class="proof__claim">The graph is bitemporal: when a fact was true, and
+          when this device believed it, are separate axes. Retracting is not deleting.</span>
+      </div>
+      <div class="proof__body">
+        <div class="dial">
+          <input type="range" id="ttSlider" min="0" max="72" step="1" value="0" />
+          <span class="dial__v" id="ttWhen">now</span>
+        </div>
+        <div class="kv">
+          <span>facts believed then</span><b id="ttFacts">—</b>
+          <span>entities known then</span><b id="ttEntities">—</b>
+        </div>
+        <div id="ttDiff"></div>
+      </div>
+    </div>
+  </section>
+
   <!-- ── LIVE CONSOLE ── -->
   <section class="console" id="console">
     <div class="console__head">
@@ -246,5 +399,6 @@ e.g. bay 3 conveyor vibration crossed 4.2 mm/s at 02:14, bearing signature match
 
 <script src="app.js"></script>
 <script src="use.js"></script>
+<script src="prove.js"></script>
 </body>
 </html>
