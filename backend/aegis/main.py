@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 
 from .api import (routes_chaos, routes_graph, routes_health, routes_index,
                   routes_integrity, routes_learning, routes_memory, routes_mesh,
-                  routes_renewal, routes_search, routes_slo, routes_space,
+                  routes_receipts, routes_renewal, routes_search, routes_slo, routes_space,
                   routes_sync, routes_tenancy, ws)
 from .config import get_settings
 from .core.errors import AegisError
@@ -71,7 +71,7 @@ def create_app() -> FastAPI:
     for module in (routes_health, routes_memory, routes_search, routes_sync,
                    routes_renewal, routes_chaos, routes_index, routes_learning,
                    routes_mesh, routes_tenancy, routes_graph, routes_integrity,
-                   routes_slo, routes_space):
+                   routes_slo, routes_space, routes_receipts):
         app.include_router(module.router)
     app.include_router(ws.router)
 

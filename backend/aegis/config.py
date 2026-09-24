@@ -108,6 +108,12 @@ class Settings:
     space_review_interval_s: float = field(
         default_factory=lambda: _env("space_review_interval_s", 900.0))
     require_auth: bool = field(default_factory=lambda: _env("require_auth", False))
+    # Energy accounting. The coefficient is only used where the platform
+    # exposes no real counter, and every reading says which it used.
+    watts_per_busy_core: float = field(
+        default_factory=lambda: _env("watts_per_busy_core", 6.0))
+    battery_capacity_wh: float = field(
+        default_factory=lambda: _env("battery_capacity_wh", 0.0))
 
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     inference: InferenceConfig = field(default_factory=InferenceConfig)

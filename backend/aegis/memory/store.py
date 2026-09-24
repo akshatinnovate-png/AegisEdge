@@ -75,6 +75,8 @@ class MemoryStore:
 
     # -- recovery ---------------------------------------------------------
 
+    last_recovery: dict[str, Any] | None = None
+
     def recover(self) -> dict[str, Any]:
         """Replay the WAL. An unclean shutdown costs a few milliseconds, not data."""
         t0 = time.perf_counter()
@@ -103,6 +105,12 @@ class MemoryStore:
                 continue        # a single unreadable record never blocks recovery
         stats = self.wal.stats() | {"applied": applied,
                                     "duration_ms": round((time.perf_counter() - t0) * 1000, 2)}
+        # Kept, not just logged. After a hard kill the only question anyone
+        # asks is "what did you lose", and an answer that scrolled past in a
+        # log is not an answer.
+        stats["points_resident"] = len(self.points)
+        stats["recovered_at"] = time.time()
+        self.last_recovery = stats
         self.bus.publish("memory", "wal_replayed", **stats,
                          message=f"WAL replayed · <b>{applied}</b> ops · {stats['torn']} torn")
         return stats

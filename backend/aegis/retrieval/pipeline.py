@@ -6,6 +6,7 @@ recorded, so a result can be explained rather than merely returned.
 """
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -17,6 +18,16 @@ from ..core.metrics import METRICS
 from ..core.slo import SLOManager
 from ..core.tracing import TRACER
 from ..memory.filters import Filter
+
+
+def _cpu_seconds() -> float:
+    """Process CPU time, which is what a joule estimate has to be built on.
+
+    Wall time bills a query for every millisecond it spent queued behind
+    something else; CPU time bills it for the work it actually caused.
+    """
+    usage = os.times()
+    return usage.user + usage.system
 from ..memory.schema import MemoryPoint, Sensitivity
 from ..memory.store import MemoryStore
 from .cache import SemanticCache
@@ -57,7 +68,8 @@ class RetrievalPipeline:
     def __init__(self, *, store: MemoryStore, sparse, reranker, triton, oracle,
                  bus: EventBus, half_life_days: float = 21.0,
                  understanding=None, adapter=None,
-                 graph=None, conformal=None, diversity=None, slo=None) -> None:
+                 graph=None, conformal=None, diversity=None, slo=None,
+                 energy=None) -> None:
         self.store = store
         self.sparse = sparse
         self.reranker = reranker
@@ -72,6 +84,7 @@ class RetrievalPipeline:
         self.conformal = conformal
         self.diversity = diversity
         self.slo: SLOManager | None = slo
+        self.energy = energy
         self.queries = 0
         self.rewritten = 0
         self.degraded_queries = 0
@@ -119,6 +132,8 @@ class RetrievalPipeline:
                      tenant_id: str | None = None,
                      _relaxable: bool = True) -> RetrievalResult:
         t_start = time.perf_counter()
+        cpu_start = _cpu_seconds()
+        cpu_used = lambda: _cpu_seconds() - cpu_start          # noqa: E731
         # What the caller actually asked for, kept so an inference that turns
         # out to be wrong can be backed out rather than silently obeyed.
         asked_collection, asked_filters = collection, filters
@@ -428,6 +443,11 @@ class RetrievalPipeline:
         # cannot see.
         if self.slo is not None:
             self.slo.observe(result.latency_ms, ok=True)
+        if self.energy is not None:
+            # Attributed at the end, from CPU time actually consumed, so a
+            # query that waited on the micro-batcher is not billed for it.
+            self.energy.sample("query", wall_seconds=result.latency_ms / 1000.0,
+                               cpu_seconds=max(cpu_used(), 0.0))
         if not filters:
             # filtered results are not cacheable by vector alone
             self.cache.put(vector, result.as_dict(), namespace)

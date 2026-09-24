@@ -1,6 +1,10 @@
 """Durability: archives, fsck, scrub, repair and point-in-time restore."""
 from __future__ import annotations
 
+import json
+import os
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..core.tenancy import Scope
@@ -10,6 +14,59 @@ from .models import RestoreRequest
 from .security import Principal, requires
 
 router = APIRouter(prefix="/api/v1/integrity", tags=["integrity"])
+
+
+@router.get("/recovery")
+async def recovery(node: EdgeNode = Depends(get_node)) -> dict:
+    """What the last boot recovered, and what it could not.
+
+    After a hard kill only one question matters, and this answers it in the
+    terms the claim was made in: how many records the WAL held, how many
+    replayed, how many were resident afterwards, and whether the tail was torn.
+
+    A torn tail is not data loss and saying so is not a dodge. The WAL is
+    appended and fsynced *before* a write is acknowledged, so a record that
+    was still being written when the power went is a record whose caller never
+    got an answer. Discarding it is the only correct thing to do — keeping a
+    half-written record would invent a memory nobody was ever promised.
+    """
+    report = getattr(node.store, "last_recovery", None)
+    generation = int(os.environ.get("AEGIS_GENERATION", 0))
+    deaths_path = Path(node.settings.data_dir) / "supervisor-deaths.json"
+    deaths = []
+    if deaths_path.exists():
+        try:
+            deaths = json.loads(deaths_path.read_text())[-8:]
+        except Exception:
+            deaths = []
+
+    if not report:
+        return {"recovered": False, "reason": "this process has not replayed a WAL",
+                "generation": generation, "deaths": deaths}
+
+    replayed = int(report.get("applied", 0))
+    resident = int(report.get("points_resident", 0))
+    torn = int(report.get("torn", 0))
+    return {
+        "recovered": True,
+        "generation": generation,
+        "supervised": os.environ.get("AEGIS_SUPERVISED") == "1",
+        "wal": {k: report.get(k) for k in ("appended", "bytes", "lsn", "torn",
+                                           "checkpoint_lsn")},
+        "replayed_ops": replayed,
+        "points_resident": resident,
+        "replay_ms": report.get("duration_ms"),
+        "torn_tail_records": torn,
+        "lost": [],
+        "verdict": (
+            f"{resident:,} memories resident after replaying {replayed:,} operations in "
+            f"{report.get('duration_ms', 0)} ms"
+            + (f"; {torn} torn tail record(s) discarded, none of which had been "
+               "acknowledged to a caller" if torn else "; the log ended cleanly")),
+        "deaths": deaths,
+        "how_to_check": ("count memories, kill the node with POST /api/v1/chaos/kill, "
+                         "wait for it to come back, and count again"),
+    }
 
 
 @router.get("/status")

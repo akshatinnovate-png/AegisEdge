@@ -17,6 +17,8 @@ from .chaos.faults import ChaosController
 from .config import Settings, get_settings
 from .core.bus import EventBus
 from .core.clock import HybridClock
+from .core.energy import EnergyMeter
+from .core.provenance import Provenance
 from .core.metrics import METRICS
 from .core.scheduler import Lane, QoSScheduler
 from .core.slo import Level, SLOManager
@@ -95,6 +97,15 @@ class EdgeNode:
         )
         self.triton = TritonClient(url=None)
         self.understanding = QueryUnderstanding()
+        # Joules, not just milliseconds. On anything battery-powered the
+        # second number decides whether the first one is affordable.
+        self.energy = EnergyMeter(
+            watts_per_busy_core=self.settings.watts_per_busy_core,
+            battery_capacity_wh=(self.settings.battery_capacity_wh or None))
+        # A receipt proving this process is the published tree. Computed lazily:
+        # hashing the source costs a few milliseconds and nothing needs it at boot.
+        self.provenance = Provenance(Path(__file__).resolve().parent.parent,
+                                     bundle=self.model_bundle)
         # A bounded window of recent text, kept so the adaptation gate has a
         # corpus to build its probe task from without re-reading the store.
         self._corpus_sample: list[str] = []
@@ -148,6 +159,7 @@ class EdgeNode:
             understanding=self.understanding,
             adapter=self.adapter if self.settings.learning.enabled else None,
             graph=self.graph, conformal=self.conformal, diversity=self.diversity, slo=self.slo,
+            energy=self.energy,
         )
         self.agent = ReasoningAgent(self.pipeline, self.store, self.bus)
 
