@@ -152,3 +152,65 @@ async def test_repeated_restarts_are_idempotent(node, settings):
             reopened.close()
     assert len(set(counts)) == 1                 # replay converges to one state
     assert counts[0] >= 10
+
+
+# -- the PII classifier must not be a denial-of-service vector ---------------
+
+def test_classifier_cost_is_linear_in_input_size():
+    """A stress run wedged this node for 16 minutes on one `remember()` call.
+
+    The email pattern was unanchored, so a long run of word characters made it
+    backtrack quadratically: measured at 4x the time for 2x the input, which
+    extrapolates to 79 minutes for a 1 MB write on an unauthenticated ingest
+    path. This asserts the shape of the cost curve, not a wall-clock number,
+    so it stays meaningful on a slower machine than the one it was written on.
+    """
+    import time
+    from aegis.inference.classifier import SensitivityClassifier
+
+    classifier = SensitivityClassifier()
+    timings = {}
+    for size in (16_000, 64_000, 256_000):
+        text = "a" * size
+        start = time.perf_counter()
+        classifier.classify(text)
+        timings[size] = time.perf_counter() - start
+
+    # 16x the input must not cost anything like 16^2 the time. Generous bound:
+    # the quadratic version was ~256x here, the linear one is ~16x.
+    ratio = timings[256_000] / max(timings[16_000], 1e-6)
+    assert ratio < 48, f"cost grew {ratio:.0f}x for 16x the input — superlinear again"
+
+
+def test_classifier_still_finds_pii_beyond_one_scan_window():
+    """The fix must not have become a truncation.
+
+    Bounding the scan is only acceptable while coverage is total: a secret
+    past the first window is exactly the one somebody hid there.
+    """
+    from aegis.inference.classifier import SCAN_WINDOW, SensitivityClassifier
+
+    classifier = SensitivityClassifier()
+    buried = "x" * (SCAN_WINDOW * 3) + " write to jo.reyes@plant.io about it"
+    result = classifier.classify(buried)
+    assert "email" in result.signals
+    assert result.sensitivity.value == "restricted"
+
+    # ...including a match that straddles a window boundary.
+    straddling = "y" * (SCAN_WINDOW - 8) + "jo.reyes@plant.io tail"
+    assert "email" in classifier.classify(straddling).signals
+
+
+def test_no_classifier_pattern_backtracks_catastrophically():
+    """Guard the whole pattern set, not just the one that was found broken."""
+    import time
+    from aegis.inference.classifier import PATTERNS
+
+    hostile = ["a" * 40_000, "1" * 40_000, "1 " * 20_000, "1-" * 20_000,
+               "a." * 20_000, "a+-" * 13_000, "a" * 39_999 + "@"]
+    for name, pattern, _ in PATTERNS:
+        for text in hostile:
+            start = time.perf_counter()
+            pattern.search(text)
+            elapsed = time.perf_counter() - start
+            assert elapsed < 0.5, f"{name} took {elapsed:.2f}s on {len(text)} chars"

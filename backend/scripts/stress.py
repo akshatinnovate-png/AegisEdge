@@ -388,8 +388,95 @@ async def phase_concurrency(h: Harness, corpus: int, levels: list[int]) -> dict[
                f"{row['qps']:>8.1f} qps   p50 {row['latency_ms']['p50']:>7.2f}   "
                f"p99 {row['latency_ms']['p99']:>8.2f} ms   slo {row['slo_level']}   err {errors}")
 
+    ladder = await ladder_response(h, node)
     node.close()
-    return {"levels": rows, "corpus": corpus}
+    return {"levels": rows, "corpus": corpus, "ladder": ladder}
+
+
+async def ladder_response(h: Harness, node, seconds: float = 45.0,
+                          concurrency: int = 64) -> dict[str, Any]:
+    """Does the degradation ladder actually protect p99, and how fast?
+
+    The sweep above cannot answer this, and an earlier version of it silently
+    pretended to. `SLOManager.evaluate` climbs at most one rung per call and
+    refuses any transition within `MIN_DWELL_S` of the last one — deliberate
+    hysteresis, so a burst does not make the node flap between rungs. Calling
+    it once per concurrency level therefore measures the dwell guard and
+    nothing else, and every row came back FULL no matter how far p99 had gone.
+
+    What the node really does is call `evaluate` from `_slo_loop` every
+    `slo_interval_s`, continuously, for as long as the pressure lasts. So the
+    honest test is to hold the overload and drive the ladder on the same
+    cadence the product uses, sampling where it gets to and what it costs.
+    """
+    queries = [synthetic(i, random.Random(i)) for i in range(256)]
+    node.slo.latencies.clear()
+    node.slo.outcomes.clear()
+    interval = node.settings.slo_interval_s
+
+    samples: list[dict[str, Any]] = []
+    started = time.perf_counter()
+    last_evaluated = started
+    first_shed: float | None = None
+    served = 0
+    errors = 0
+    recent: list[float] = []
+
+    async def one(index: int) -> None:
+        nonlocal served, errors
+        t0 = time.perf_counter()
+        try:
+            await node.pipeline.search(queries[index % len(queries)], k=5)
+            recent.append((time.perf_counter() - t0) * 1000)
+            served += 1
+        except Exception:
+            errors += 1
+
+    issued = 0
+    while time.perf_counter() - started < seconds:
+        await asyncio.gather(*(one(issued + i) for i in range(concurrency)))
+        issued += concurrency
+        now = time.perf_counter()
+        if now - last_evaluated >= interval:
+            last_evaluated = now
+            before = node.slo.level
+            node.slo.evaluate(pressure=node.scheduler.pressure)
+            window = recent[-256:]
+            samples.append({
+                "t_s": round(now - started, 1),
+                "level": node.slo.level.name,
+                "burn_rate": round(node.slo.burn_rate, 2),
+                "pressure": round(node.scheduler.pressure, 3),
+                "p99_ms": round(sorted(window)[int(0.99 * (len(window) - 1))], 2) if window else 0.0,
+                "disabled": node.slo.disabled(),
+            })
+            if first_shed is None and node.slo.level is not before:
+                first_shed = now - started
+
+    levels = [s["level"] for s in samples]
+    early = [s["p99_ms"] for s in samples[:2]] or [0.0]
+    late = [s["p99_ms"] for s in samples[-2:]] or [0.0]
+    result = {
+        "held_s": round(seconds, 1), "concurrency": concurrency,
+        "evaluate_interval_s": interval,
+        "queries_served": served, "errors": errors,
+        "samples": samples,
+        "levels_reached": sorted(set(levels), key=lambda n: levels.index(n)),
+        "seconds_to_first_shed": round(first_shed, 1) if first_shed is not None else None,
+        "final_level": node.slo.level.name,
+        "features_disabled": node.slo.disabled(),
+        "p99_first_ms": round(sum(early) / len(early), 2),
+        "p99_last_ms": round(sum(late) / len(late), 2),
+    }
+    result["p99_change_pct"] = (round((result["p99_last_ms"] - result["p99_first_ms"])
+                                      / max(result["p99_first_ms"], 1e-6) * 100, 1))
+    h.line("ladder under sustained load",
+           f"{' -> '.join(result['levels_reached'])}  first shed "
+           f"{result['seconds_to_first_shed']}s  p99 {result['p99_first_ms']:.0f} -> "
+           f"{result['p99_last_ms']:.0f} ms ({result['p99_change_pct']:+.0f}%)")
+    if result["features_disabled"]:
+        h.line("shed to protect it", ", ".join(result["features_disabled"]))
+    return result
 
 
 async def phase_adversarial(h: Harness) -> dict[str, Any]:

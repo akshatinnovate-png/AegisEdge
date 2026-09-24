@@ -57,6 +57,331 @@
       "embeddings_per_ms": 31.1,
       "tokenizer_tokens_per_s": 1238945,
       "note": "single process, no GPU; batch>512 shows cache pressure not compute gain"
+    },
+    "ingest": {
+      "target": 12000,
+      "ingested": 12000,
+      "failures": 0,
+      "wall_s": 227.98,
+      "sustained_docs_per_s": 52.6,
+      "latency_ms": {
+        "n": 12000,
+        "min": 12.124,
+        "p50": 18.74,
+        "p90": 22.594,
+        "p95": 24.303,
+        "p99": 31.601,
+        "max": 266.408,
+        "mean": 18.964
+      },
+      "checkpoints": [
+        {
+          "points": 1500,
+          "elapsed_s": 22.04,
+          "docs_per_s": 68.1,
+          "window_p95_ms": 17.009,
+          "rss_mb": 357.4,
+          "rss_per_point_kb": -128.87,
+          "graph_facts": 1687,
+          "ann_strategy": "flat"
+        },
+        {
+          "points": 3000,
+          "elapsed_s": 45.9,
+          "docs_per_s": 65.4,
+          "window_p95_ms": 18.908,
+          "rss_mb": 385.0,
+          "rss_per_point_kb": -55.23,
+          "graph_facts": 3038,
+          "ann_strategy": "flat"
+        },
+        {
+          "points": 4500,
+          "elapsed_s": 71.97,
+          "docs_per_s": 62.5,
+          "window_p95_ms": 20.736,
+          "rss_mb": 415.0,
+          "rss_per_point_kb": -30.16,
+          "graph_facts": 4269,
+          "ann_strategy": "flat"
+        },
+        {
+          "points": 6000,
+          "elapsed_s": 99.95,
+          "docs_per_s": 60.0,
+          "window_p95_ms": 22.077,
+          "rss_mb": 442.8,
+          "rss_per_point_kb": -17.98,
+          "graph_facts": 5498,
+          "ann_strategy": "flat"
+        },
+        {
+          "points": 7500,
+          "elapsed_s": 129.55,
+          "docs_per_s": 57.9,
+          "window_p95_ms": 23.181,
+          "rss_mb": 469.5,
+          "rss_per_point_kb": -10.83,
+          "graph_facts": 6710,
+          "ann_strategy": "flat"
+        },
+        {
+          "points": 9000,
+          "elapsed_s": 161.27,
+          "docs_per_s": 55.8,
+          "window_p95_ms": 24.586,
+          "rss_mb": 532.3,
+          "rss_per_point_kb": -2.04,
+          "graph_facts": 7910,
+          "ann_strategy": "flat"
+        },
+        {
+          "points": 10500,
+          "elapsed_s": 194.07,
+          "docs_per_s": 54.1,
+          "window_p95_ms": 25.981,
+          "rss_mb": 559.7,
+          "rss_per_point_kb": 0.86,
+          "graph_facts": 9122,
+          "ann_strategy": "flat"
+        },
+        {
+          "points": 12000,
+          "elapsed_s": 227.98,
+          "docs_per_s": 52.6,
+          "window_p95_ms": 27.413,
+          "rss_mb": 589.8,
+          "rss_per_point_kb": 3.26,
+          "graph_facts": 10325,
+          "ann_strategy": "flat"
+        }
+      ],
+      "rss_start_mb": 550.7,
+      "rss_end_mb": 607.6,
+      "bytes_per_point_resident": 4742,
+      "shipped_default_quota": {
+        "max_points": 100000,
+        "max_ingest_per_minute": 600,
+        "max_qps": 50.0,
+        "max_bytes": 536870912
+      },
+      "concurrent_ingest": [
+        {
+          "parallel": 1,
+          "docs": 4,
+          "docs_per_s": 38.3
+        },
+        {
+          "parallel": 8,
+          "docs": 32,
+          "docs_per_s": 73.1
+        },
+        {
+          "parallel": 32,
+          "docs": 128,
+          "docs_per_s": 75.4
+        },
+        {
+          "parallel": 128,
+          "docs": 512,
+          "docs_per_s": 67.0
+        }
+      ],
+      "graph_entities": 8925,
+      "graph_facts": 10860,
+      "wal": {
+        "lsn": 12676,
+        "appended": 12676,
+        "torn": 0,
+        "checkpoint_lsn": 0,
+        "bytes": 80373441
+      },
+      "collections": {
+        "episodic": 3663,
+        "procedural": 3027,
+        "sensor": 2991,
+        "semantic": 2995
+      }
+    },
+    "scale": {
+      "scales": [
+        {
+          "points": 1000,
+          "build_s": 14.23,
+          "build_docs_per_s": 70.3,
+          "strategy": "flat",
+          "search_ms": {
+            "n": 30,
+            "min": 0.11,
+            "p50": 0.146,
+            "p90": 0.207,
+            "p95": 0.261,
+            "p99": 0.291,
+            "max": 0.291,
+            "mean": 0.152
+          },
+          "recall_at_10": 1.0,
+          "rss_mb": 726.7,
+          "resident_bytes": 1024000
+        },
+        {
+          "points": 5000,
+          "build_s": 81.22,
+          "build_docs_per_s": 61.6,
+          "strategy": "flat",
+          "search_ms": {
+            "n": 30,
+            "min": 0.213,
+            "p50": 0.261,
+            "p90": 0.482,
+            "p95": 0.512,
+            "p99": 0.534,
+            "max": 0.534,
+            "mean": 0.302
+          },
+          "recall_at_10": 1.0,
+          "rss_mb": 930.4,
+          "resident_bytes": 5120000
+        },
+        {
+          "points": 20000,
+          "build_s": 474.06,
+          "build_docs_per_s": 42.2,
+          "strategy": "flat",
+          "search_ms": {
+            "n": 30,
+            "min": 1.289,
+            "p50": 1.451,
+            "p90": 1.801,
+            "p95": 1.842,
+            "p99": 2.204,
+            "max": 2.204,
+            "mean": 1.492
+          },
+          "recall_at_10": 1.0,
+          "rss_mb": 1556.7,
+          "resident_bytes": 20480000
+        }
+      ]
+    },
+    "concurrency": {
+      "levels": [
+        {
+          "concurrency": 1,
+          "queries": 64,
+          "errors": 0,
+          "wall_s": 2.263,
+          "qps": 28.3,
+          "latency_ms": {
+            "n": 64,
+            "min": 10.185,
+            "p50": 30.744,
+            "p90": 50.315,
+            "p95": 56.97,
+            "p99": 108.021,
+            "max": 108.021,
+            "mean": 33.768
+          },
+          "slo_level": "FULL",
+          "burn_rate": 0.0
+        },
+        {
+          "concurrency": 4,
+          "queries": 64,
+          "errors": 0,
+          "wall_s": 1.73,
+          "qps": 37.0,
+          "latency_ms": {
+            "n": 64,
+            "min": 12.841,
+            "p50": 68.456,
+            "p90": 117.397,
+            "p95": 123.879,
+            "p99": 142.895,
+            "max": 142.895,
+            "mean": 73.717
+          },
+          "slo_level": "FULL",
+          "burn_rate": 0.0
+        },
+        {
+          "concurrency": 16,
+          "queries": 64,
+          "errors": 0,
+          "wall_s": 1.19,
+          "qps": 53.8,
+          "latency_ms": {
+            "n": 64,
+            "min": 27.064,
+            "p50": 184.629,
+            "p90": 266.271,
+            "p95": 284.227,
+            "p99": 326.447,
+            "max": 326.447,
+            "mean": 180.296
+          },
+          "slo_level": "FULL",
+          "burn_rate": 0.0
+        },
+        {
+          "concurrency": 64,
+          "queries": 256,
+          "errors": 0,
+          "wall_s": 5.409,
+          "qps": 47.3,
+          "latency_ms": {
+            "n": 256,
+            "min": 20.194,
+            "p50": 660.529,
+            "p90": 1124.971,
+            "p95": 1213.839,
+            "p99": 1285.732,
+            "max": 1306.912,
+            "mean": 656.248
+          },
+          "slo_level": "FULL",
+          "burn_rate": 0.0
+        },
+        {
+          "concurrency": 256,
+          "queries": 1024,
+          "errors": 0,
+          "wall_s": 17.68,
+          "qps": 57.9,
+          "latency_ms": {
+            "n": 1024,
+            "min": 21.415,
+            "p50": 2221.057,
+            "p90": 3485.683,
+            "p95": 3764.928,
+            "p99": 4146.903,
+            "max": 4258.196,
+            "mean": 2198.116
+          },
+          "slo_level": "FULL",
+          "burn_rate": 0.0
+        },
+        {
+          "concurrency": 1024,
+          "queries": 4096,
+          "errors": 0,
+          "wall_s": 63.532,
+          "qps": 64.5,
+          "latency_ms": {
+            "n": 4096,
+            "min": 14.481,
+            "p50": 7601.68,
+            "p90": 12453.678,
+            "p95": 13025.76,
+            "p99": 13620.449,
+            "max": 14038.877,
+            "mean": 7519.298
+          },
+          "slo_level": "FULL",
+          "burn_rate": 0.0
+        }
+      ],
+      "corpus": 2000
     }
   }
 }
