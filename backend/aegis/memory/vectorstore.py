@@ -144,6 +144,15 @@ class NativeStore:
     def close(self) -> None:
         """No external handles to release for the internal store."""
 
+    def migrate_pending(self) -> list[dict[str, Any]]:
+        """Perform every deferred index rebuild; returns what it did."""
+        done = []
+        for name, index in self.indexes.items():
+            result = index.migrate_pending()
+            if result:
+                done.append({"collection": name, **result})
+        return done
+
     def index_report(self) -> dict[str, Any]:
         return {"cost_model": self.cost.as_dict(),
                 "collections": {name: ix.snapshot() for name, ix in self.indexes.items()}}

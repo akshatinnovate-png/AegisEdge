@@ -1,0 +1,38 @@
+{
+  "label": "after",
+  "append": [
+    {
+      "n": 2000,
+      "append_s": 0.015,
+      "us_per_insert": 7.62,
+      "inserts_per_s": 131277
+    },
+    {
+      "n": 8000,
+      "append_s": 0.067,
+      "us_per_insert": 8.39,
+      "inserts_per_s": 119260
+    },
+    {
+      "n": 32000,
+      "append_s": 0.267,
+      "us_per_insert": 8.35,
+      "inserts_per_s": 119797
+    }
+  ],
+  "append_scaling_factor": 1.1,
+  "quadratic": false,
+  "crossing": {
+    "points": 6000,
+    "worst_single_write_ms": 2.74,
+    "total_write_s": 0.05,
+    "strategy_after_writes": "hnsw",
+    "deferred": "Strategy.HNSW",
+    "migration": {
+      "to": "hnsw",
+      "points": 6000,
+      "seconds": 67.731
+    },
+    "migration_s": 67.731
+  }
+}

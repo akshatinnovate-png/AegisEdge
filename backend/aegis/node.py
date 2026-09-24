@@ -230,8 +230,18 @@ class EdgeNode:
             except (RuntimeError, TimeoutError):
                 continue          # shed under pressure: a query matters more
 
-    async def _compact_once(self) -> dict[str, float]:
-        return self.store.compact().as_dict()
+    async def _compact_once(self) -> dict[str, Any]:
+        report = self.store.compact().as_dict()
+        # Index rebuilds the write path deferred happen here, in the
+        # maintenance lane, where the scheduler is allowed to shed them.
+        migrations = getattr(self.store.store, "migrate_pending", lambda: [])()
+        for migration in migrations:
+            self.bus.publish(
+                "memory", "index_migrated", **migration,
+                message=(f"index for <b>{migration['collection']}</b> rebuilt as "
+                         f"<b>{migration['to']}</b> · {migration['points']:,} points "
+                         f"in {migration['seconds']:.1f}s"))
+        return {**report, "migrations": migrations}
 
     async def _mesh_loop(self) -> None:
         while True:

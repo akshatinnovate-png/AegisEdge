@@ -20,6 +20,8 @@ from typing import Iterable
 
 import numpy as np
 
+from .growable import GrowableMatrix
+
 
 @dataclass(slots=True)
 class HnswParams:
@@ -59,12 +61,17 @@ class HnswStats:
 class HnswIndex:
     """Cosine-space HNSW over unit vectors (distance = 1 - dot)."""
 
+    @property
+    def vectors(self) -> np.ndarray:
+        """Graph vectors as a contiguous view; slots are stable for the node's life."""
+        return self.rows.view
+
     def __init__(self, dim: int, params: HnswParams | None = None) -> None:
         self.dim = dim
         self._building = False
         self.p = params or HnswParams()
         self._rng = random.Random(self.p.seed)
-        self.vectors: np.ndarray = np.zeros((0, dim), dtype=np.float32)
+        self.rows = GrowableMatrix(dim)
         self.ids: list[str] = []
         self.slot: dict[str, int] = {}
         self.deleted: set[int] = set()
@@ -107,11 +114,9 @@ class HnswIndex:
         if point_id in self.slot:
             self.remove(point_id)
 
-        slot = len(self.ids)
+        slot = self.rows.append(vector)
         self.ids.append(point_id)
         self.slot[point_id] = slot
-        self.vectors = (np.vstack([self.vectors, vector]) if len(self.vectors)
-                        else vector.reshape(1, -1).copy())
         level = self._assign_level()
         self.levels.append(level)
         self.graph.append([set() for _ in range(level + 1)])

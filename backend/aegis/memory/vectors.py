@@ -15,14 +15,20 @@ from pathlib import Path
 
 import numpy as np
 
+from .growable import GrowableMatrix
+
 
 class VectorStorage:
     GROWTH = 4096
 
+    @property
+    def resident(self) -> np.ndarray:
+        return self.rows.view
+
     def __init__(self, dim: int, path: Path | None = None) -> None:
         self.dim = dim
         self.path = Path(path) if path else None
-        self.resident: np.ndarray = np.zeros((0, dim), dtype=np.float32)
+        self.rows = GrowableMatrix(dim)
         self.row_of: dict[str, int] = {}
         self.ids: list[str] = []
         self.free_rows: list[int] = []
@@ -45,11 +51,9 @@ class VectorStorage:
             return row
         if self.free_rows:
             row = self.free_rows.pop()
-            self.resident[row] = vector
+            self.rows[row] = vector
         else:
-            row = len(self.resident)
-            self.resident = (np.vstack([self.resident, vector]) if len(self.resident)
-                             else vector.reshape(1, -1).copy())
+            row = self.rows.append(vector)
         self.row_of[point_id] = row
         self.ids.append(point_id)
         self.cold_row_of.pop(point_id, None)
@@ -87,7 +91,7 @@ class VectorStorage:
         row = self.row_of.pop(point_id, None)
         if row is not None:
             self.free_rows.append(row)                # reuse the slot, don't reshuffle
-            self.resident[row] = 0.0
+            self.rows[row] = 0.0
         cold = self.cold_row_of.pop(point_id, None)
         if point_id in self.ids:
             self.ids.remove(point_id)
@@ -128,7 +132,7 @@ class VectorStorage:
         self.cold_row_of[point_id] = cold_row
         self.row_of.pop(point_id, None)
         self.free_rows.append(row)
-        self.resident[row] = 0.0
+        self.rows[row] = 0.0
         self.evictions += 1
         return True
 
@@ -166,4 +170,5 @@ class VectorStorage:
             "page_ins": self.page_ins,
             "evictions": self.evictions,
             "free_rows": len(self.free_rows),
+            "buffer": self.rows.snapshot(),
         }

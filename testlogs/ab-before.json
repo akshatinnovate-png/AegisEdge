@@ -1,0 +1,34 @@
+{
+  "label": "before",
+  "append": [
+    {
+      "n": 2000,
+      "append_s": 0.219,
+      "us_per_insert": 109.64,
+      "inserts_per_s": 9120
+    },
+    {
+      "n": 8000,
+      "append_s": 4.698,
+      "us_per_insert": 587.27,
+      "inserts_per_s": 1703
+    },
+    {
+      "n": 32000,
+      "append_s": 107.762,
+      "us_per_insert": 3367.57,
+      "inserts_per_s": 297
+    }
+  ],
+  "append_scaling_factor": 30.71,
+  "quadratic": true,
+  "crossing": {
+    "points": 6000,
+    "worst_single_write_ms": 30769.86,
+    "total_write_s": 74.36,
+    "strategy_after_writes": "hnsw",
+    "deferred": "None",
+    "migration": null,
+    "migration_s": 0.0
+  }
+}

@@ -15,9 +15,11 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 import numpy as np
 
+from .growable import GrowableMatrix
 from .hnsw import HnswIndex, HnswParams
 from .pq import IvfPqIndex, PqParams
 
@@ -100,12 +102,16 @@ class AdaptiveVectorIndex:
         self.strategy = Strategy.FLAT
         self.ids: list[str] = []
         self.pos: dict[str, int] = {}
-        self.matrix = np.zeros((0, dim), dtype=np.float32)
+        self.rows = GrowableMatrix(dim)
         self.hnsw: HnswIndex | None = None
         self.ivf: IvfPqIndex | None = None
         self.migrations: list[tuple[float, str, int]] = []
         self.searches = 0
         self.exact_searches = 0
+        # Migration is *decided* on the write path and *performed* off it.
+        self.pending_strategy: Strategy | None = None
+        self.deferred_migrations = 0
+        self.last_migration_s = 0.0
 
     # -- writes -----------------------------------------------------------
 
@@ -114,12 +120,10 @@ class AdaptiveVectorIndex:
         norm = float(np.linalg.norm(vector)) or 1.0
         vector = vector / norm
         if point_id in self.pos:
-            self.matrix[self.pos[point_id]] = vector
+            self.rows[self.pos[point_id]] = vector
         else:
-            self.pos[point_id] = len(self.ids)
+            self.pos[point_id] = self.rows.append(vector)
             self.ids.append(point_id)
-            self.matrix = (np.vstack([self.matrix, vector]) if len(self.matrix)
-                           else vector.reshape(1, -1).copy())
         if self.hnsw is not None:
             self.hnsw.add(point_id, vector)
         if self.ivf is not None and self.ivf.trained:
@@ -130,11 +134,14 @@ class AdaptiveVectorIndex:
         index = self.pos.pop(point_id, None)
         if index is None:
             return False
-        self.ids.pop(index)
-        self.matrix = np.delete(self.matrix, index, axis=0)
-        for pid, position in self.pos.items():
-            if position > index:
-                self.pos[pid] = position - 1
+        # Swap-with-last keeps removal O(1); only the row that moved needs its
+        # bookkeeping repointed, rather than every row after the hole.
+        moved = self.rows.swap_remove(index)
+        if moved is not None:
+            moved_id = self.ids[moved]
+            self.ids[index] = moved_id
+            self.pos[moved_id] = index
+        self.ids.pop()
         if self.hnsw is not None:
             self.hnsw.remove(point_id)
         if self.ivf is not None:
@@ -143,10 +150,43 @@ class AdaptiveVectorIndex:
 
     # -- strategy ---------------------------------------------------------
 
+    @property
+    def matrix(self) -> np.ndarray:
+        """The populated rows as a contiguous view — still one BLAS call."""
+        return self.rows.view
+
     def _maybe_migrate(self, memory_pressure: float = 0.0) -> None:
+        """Decide, on the write path. Do not build, on the write path.
+
+        Building an HNSW graph for a corpus that has just crossed the crossover
+        takes minutes in pure Python, and doing it inline stalls every write
+        behind it — a node that quietly stops accepting data for four minutes
+        because it got popular is worse than one that stays on the slower
+        strategy a little longer. The decision is recorded here and the rebuild
+        runs in the maintenance lane, where the scheduler can shed it.
+        """
         desired = self.cost.choose(len(self.ids), memory_pressure)
-        if desired is self.strategy:
+        if desired is self.strategy or desired is self.pending_strategy:
             return
+        self.pending_strategy = desired
+        self.deferred_migrations += 1
+
+    def migrate_pending(self) -> dict[str, Any] | None:
+        """Perform a deferred migration. Called from the maintenance lane."""
+        desired = self.pending_strategy
+        if desired is None or desired is self.strategy:
+            self.pending_strategy = None
+            return None
+        started = time.perf_counter()
+        points = len(self.ids)
+        self._build(desired)
+        elapsed = time.perf_counter() - started
+        self.pending_strategy = None
+        self.last_migration_s = elapsed
+        return {"to": self.strategy.value, "points": points,
+                "seconds": round(elapsed, 3)}
+
+    def _build(self, desired: Strategy) -> None:
         if desired is Strategy.HNSW:
             self.hnsw = HnswIndex(self.dim, HnswParams())
             for point_id, vector in zip(self.ids, self.matrix):
@@ -167,7 +207,8 @@ class AdaptiveVectorIndex:
         self.strategy = desired
 
     def force(self, strategy: Strategy) -> None:
-        """Override for benchmarking and for the recall harness."""
+        """Build a strategy synchronously — benchmarks and the recall harness."""
+        self.pending_strategy = None
         self.strategy = Strategy.FLAT
         self.hnsw = self.ivf = None
         if strategy is Strategy.HNSW:
@@ -232,8 +273,12 @@ class AdaptiveVectorIndex:
         out: dict[str, object] = {
             "collection": self.name, "strategy": self.strategy.value, "points": len(self.ids),
             "searches": self.searches, "exact_searches": self.exact_searches,
+            "pending_strategy": self.pending_strategy.value if self.pending_strategy else None,
+            "deferred_migrations": self.deferred_migrations,
+            "last_migration_s": round(self.last_migration_s, 3),
             "migrations": [{"at": t, "to": s, "points": n} for t, s, n in self.migrations[-5:]],
-            "resident_bytes": int(self.matrix.nbytes),
+            "resident_bytes": self.rows.nbytes,
+            "buffer": self.rows.snapshot(),
         }
         if self.hnsw is not None:
             out["hnsw"] = self.hnsw.snapshot()

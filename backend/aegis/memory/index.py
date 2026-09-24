@@ -155,6 +155,10 @@ class CollectionIndex:
 
     # -- reads ------------------------------------------------------------
 
+    def migrate_pending(self) -> dict[str, Any] | None:
+        """Run any index rebuild the write path deferred."""
+        return self.ann.migrate_pending()
+
     def plan(self, spec: Filter, k: int) -> QueryPlan:
         plan = self.planner.plan(spec, len(self), k,
                                  ann_available=self.ann.strategy is not Strategy.FLAT)
