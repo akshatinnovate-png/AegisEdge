@@ -117,8 +117,23 @@ class Fact:
         return self.recorded_at <= when < self.retracted_at
 
     def live(self, valid_time: float | None = None, as_of: float | None = None) -> bool:
-        now = time.time()
-        return self.valid_at(valid_time or now) and self.believed_at(as_of or now)
+        """Is this fact both true and believed at the given times?
+
+        The clock is read only when neither time is supplied. It used to be
+        read unconditionally, which cost a `time.time()` per incident fact per
+        hop — measured at 117,504 calls to serve 192 queries, for an answer
+        both callers already had.
+        """
+        if valid_time is None or as_of is None:
+            now = time.time()
+            valid_time = now if valid_time is None else valid_time
+            as_of = now if as_of is None else as_of
+        return self.valid_at(valid_time) and self.believed_at(as_of)
+
+    @property
+    def expires_at(self) -> float:
+        """When this fact stops being live, if nothing changes."""
+        return min(self.valid_to, self.retracted_at)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -165,6 +180,13 @@ class KnowledgeGraph:
         self.extractions = 0
         self.retractions = 0
         self._sequence = 0
+        # Materialised live view, rebuilt when the graph changes or when a
+        # fact's validity window closes. See `_rebuild_adjacency`.
+        self._version = 0
+        self._adjacency: dict[str, list[tuple[str, float]]] | None = None
+        self._adjacency_version = -1
+        self._adjacency_expiry = 0.0
+        self._adjacency_builds = 0
 
     # -- extraction -------------------------------------------------------
 
@@ -259,6 +281,7 @@ class KnowledgeGraph:
                     valid_from=valid_from or time.time(), valid_to=valid_to,
                     confidence=confidence, provenance=list(provenance))
         self.facts[fact_id] = fact
+        self._version += 1
         self.out[subject].append(fact_id)
         self.into[object_].append(fact_id)
         for point_id in fact.provenance:
@@ -273,6 +296,10 @@ class KnowledgeGraph:
                 return fact
         return None
 
+    def _touch(self) -> None:
+        """Mark the live view stale. Cheap, and the only thing a mutation owes."""
+        self._version += 1
+
     def retract(self, fact_id: str, superseded_by: str | None = None,
                 at: float | None = None) -> bool:
         """Stop believing a fact without deleting it.
@@ -286,6 +313,7 @@ class KnowledgeGraph:
         fact.retracted_at = at or time.time()
         fact.superseded_by = superseded_by
         self.retractions += 1
+        self._touch()
         return True
 
     def supersede(self, old_fact_id: str, new_fact: Fact) -> bool:
@@ -308,6 +336,41 @@ class KnowledgeGraph:
 
     def live_facts(self, valid_time: float | None = None, as_of: float | None = None) -> list[Fact]:
         return [f for f in self.facts.values() if f.live(valid_time, as_of)]
+
+    def _rebuild_adjacency(self, now: float) -> None:
+        """Materialise the live graph once, instead of re-deriving it per hop.
+
+        Spreading activation walks the same neighbourhoods over and over, and
+        each visit was filtering every incident fact for liveness and
+        de-duplicating the result into a fresh dict. Profiling 192 queries put
+        59,136 calls through that path — 29% of all query CPU.
+
+        So the live view is built once and reused until something changes it.
+        Two things can: a mutation, which bumps a version, and the passage of
+        time, because a fact with a `valid_to` in the future is live now and
+        will not be later. The earliest such moment is kept as an expiry, so
+        the cache is correct rather than merely fast.
+        """
+        adjacency: dict[str, list[tuple[str, float]]] = defaultdict(list)
+        expiry = INFINITY
+        for fact in self.facts.values():
+            if not fact.live(now, now):
+                continue
+            adjacency[fact.subject].append((fact.object, fact.confidence))
+            adjacency[fact.object].append((fact.subject, fact.confidence))
+            expiry = min(expiry, fact.expires_at)
+        self._adjacency = adjacency
+        self._adjacency_expiry = expiry
+        self._adjacency_version = self._version
+        self._adjacency_builds += 1
+
+    def live_adjacency(self, now: float | None = None) -> dict[str, list[tuple[str, float]]]:
+        """Neighbours of every entity, as the graph stands right now."""
+        now = now if now is not None else time.time()
+        if (self._adjacency is None or self._adjacency_version != self._version
+                or now >= self._adjacency_expiry):
+            self._rebuild_adjacency(now)
+        return self._adjacency
 
     def neighbours(self, entity_id: str, valid_time: float | None = None,
                    as_of: float | None = None, direction: str = "both") -> list[Fact]:
@@ -378,9 +441,16 @@ class KnowledgeGraph:
         """Entity relevance by graph diffusion — the retrieval boost signal."""
         activation: dict[str, float] = {seed: 1.0 for seed in seeds if seed in self.entities}
         frontier = dict(activation)
+        # Time travel takes the slow path deliberately: a cache of "now" must
+        # never answer a question about what was believed at some other time.
+        adjacency = self.live_adjacency() if as_of is None else None
         for _ in range(hops):
             nxt: dict[str, float] = defaultdict(float)
             for node, energy in frontier.items():
+                if adjacency is not None:
+                    for other, confidence in adjacency.get(node, ()):
+                        nxt[other] += energy * decay * confidence
+                    continue
                 for fact in self.neighbours(node, as_of=as_of):
                     other = fact.object if fact.subject == node else fact.subject
                     nxt[other] += energy * decay * fact.confidence

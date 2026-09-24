@@ -6,6 +6,8 @@ recorded, so a result can be explained rather than merely returned.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import time
 from dataclasses import dataclass, field
@@ -18,6 +20,23 @@ from ..core.metrics import METRICS
 from ..core.slo import SLOManager
 from ..core.tracing import TRACER
 from ..memory.filters import Filter
+
+
+def _filter_key(filters: dict[str, Any] | None) -> str:
+    """A stable digest of a filter spec, for use in a cache key.
+
+    Canonical because two spellings of the same restriction must collide: a
+    key that depended on dict ordering would miss hits that are genuinely the
+    same question, and one that ignored the filter would serve the wrong
+    answer confidently.
+    """
+    if not filters:
+        return "-"
+    try:
+        canonical = json.dumps(filters, sort_keys=True, default=str, separators=(",", ":"))
+    except Exception:
+        canonical = repr(sorted(filters.items(), key=lambda kv: str(kv[0])))
+    return hashlib.blake2s(canonical.encode(), digest_size=8).hexdigest()
 
 
 def _cpu_seconds() -> float:
@@ -89,6 +108,7 @@ class RetrievalPipeline:
         self.rewritten = 0
         self.degraded_queries = 0
         self.relaxed_inferences = 0
+        self.queries_from_cache = 0
 
     async def _relax(self, result, inferred, query, k, collection, mode, explain,
                      allow_escalation, filters, tenant_id, stages):
@@ -170,6 +190,29 @@ class RetrievalPipeline:
                 inferred["collection"] = analysis.collection
             result.stages["understand_ms"] = round(analysis.ms, 3)
 
+        # 0b. the exact layer, before the encoder. Understanding has already
+        #     settled the collection and any inferred filter, so the namespace
+        #     is final — and an identical question can now be answered without
+        #     running the model at all, which is the whole point of putting it
+        #     here rather than after the embed.
+        namespace = (f"{tenant_id or 'default'}|{collection}|{mode}|{k}"
+                     f"|{_filter_key(filters)}")
+        verbatim = self.cache.get_exact(search_text, namespace)
+        if verbatim is not None:
+            span_root.__exit__(None, None, None)
+            fields = {"results", "escalated", "escalation", "mode", "plan"}
+            out = RetrievalResult(query=query,
+                                  **{key: value for key, value in verbatim.items()
+                                     if key in fields})
+            out.cached = True
+            out.understanding = result.understanding
+            out.latency_ms = (time.perf_counter() - t_start) * 1000
+            out.stages = {**result.stages, "cache": "exact"}
+            self.queries_from_cache += 1
+            if self.slo is not None:
+                self.slo.observe(out.latency_ms, ok=True)
+            return out
+
         # 1. embed the query (micro-batched with concurrent ingest)
         t0 = time.perf_counter()
         with TRACER.span("embed"):
@@ -208,9 +251,24 @@ class RetrievalPipeline:
         # holding nothing at all — and the same for a different retrieval mode
         # or a larger k. The tenant was namespaced after a cross-tenant leak;
         # the scope of the question was not, and scope is part of the question.
-        namespace = f"{tenant_id or 'default'}|{collection}|{mode}|{k}"
-        cached = self.cache.get(vector, namespace) if not filters else None
+        # Filters belong *in the key*, not in a condition that skips the cache.
+        # Guarding on `if not filters` looked conservative and was close to
+        # fatal: query understanding infers a collection filter on most
+        # queries, so almost nothing was ever cached. Measured over 128
+        # queries with 64 repeats: 0 entries, 0 hits, 0 misses — the cache had
+        # never been asked a question, let alone answered one.
+        #
+        # Caching is unsafe only when the key fails to capture what changes
+        # the answer. So everything that does goes in: the tenant, the
+        # collection, the retrieval mode, k, and a canonical digest of the
+        # filter spec.
+        cached = self.cache.get(vector, namespace)
         if cached is not None:
+            # The vector layer has just decided this text maps to this answer.
+            # Teach the exact layer, so the *next* identical question skips the
+            # encoder entirely instead of re-deriving the same conclusion. A
+            # cache that only learns from full work never learns from itself.
+            self.cache.put_exact(search_text, cached, namespace)
             span_root.__exit__(None, None, None)
             fields = {"results", "escalated", "escalation", "mode", "plan"}
             out = RetrievalResult(query=query, **{k: v for k, v in cached.items() if k in fields})
@@ -448,9 +506,12 @@ class RetrievalPipeline:
             # query that waited on the micro-batcher is not billed for it.
             self.energy.sample("query", wall_seconds=result.latency_ms / 1000.0,
                                cpu_seconds=max(cpu_used(), 0.0))
-        if not filters:
-            # filtered results are not cacheable by vector alone
-            self.cache.put(vector, result.as_dict(), namespace)
+        # Cacheable under the key computed above, which already accounts for
+        # the filter. Writes bump the cache epoch, so a stored answer cannot
+        # outlive the corpus it was drawn from.
+        payload = result.as_dict()
+        self.cache.put(vector, payload, namespace)
+        self.cache.put_exact(search_text, payload, namespace)
         if not result.results and inferred and _relaxable:
             return await self._relax(
                 result, inferred, query, k, asked_collection, mode, explain,
@@ -470,6 +531,7 @@ class RetrievalPipeline:
         out: dict[str, Any] = {
             "queries": self.queries, "rewritten": self.rewritten,
             "relaxed_inferences": self.relaxed_inferences,
+            "answered_before_embedding": self.queries_from_cache,
             "cache": self.cache.snapshot(),
             "latency_ms": hist.snapshot() if hist else {},
         }

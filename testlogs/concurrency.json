@@ -1,0 +1,67 @@
+{
+  "repeated": [
+    {
+      "concurrency": 1,
+      "qps": 99.8,
+      "p50": 9.26,
+      "p99": 15.0
+    },
+    {
+      "concurrency": 16,
+      "qps": 6110.1,
+      "p50": 0.14,
+      "p99": 0.24
+    },
+    {
+      "concurrency": 64,
+      "qps": 6516.8,
+      "p50": 0.13,
+      "p99": 0.27
+    },
+    {
+      "concurrency": 256,
+      "qps": 6175.9,
+      "p50": 0.13,
+      "p99": 0.31
+    }
+  ],
+  "unique": [
+    {
+      "concurrency": 1,
+      "qps": 99.7,
+      "p50": 9.36,
+      "p99": 13.73
+    },
+    {
+      "concurrency": 16,
+      "qps": 667.3,
+      "p50": 16.37,
+      "p99": 25.63
+    },
+    {
+      "concurrency": 64,
+      "qps": 1650.8,
+      "p50": 22.11,
+      "p99": 26.41
+    },
+    {
+      "concurrency": 256,
+      "qps": 1598.5,
+      "p50": 74.13,
+      "p99": 170.25
+    }
+  ],
+  "cache": {
+    "entries": 65,
+    "hits": 2759,
+    "misses": 65,
+    "hit_rate": 0.977,
+    "epoch": 300,
+    "namespaces": 1,
+    "cross_namespace_blocks": 0,
+    "exact_entries": 964,
+    "exact_hits": 1348,
+    "exact_misses": 1476
+  },
+  "note": "`repeated` draws from a pool of 64 questions, which is what a dashboard or a shift of operators actually sends. `unique` never asks the same question twice and is the worst case a cache can face."
+}

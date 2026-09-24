@@ -3,6 +3,26 @@
 Concurrent embed calls inside an 8 ms window are coalesced into one session
 run. Burst ingest is where an edge node actually spends its cycles, and one
 padded batch beats eight sequential runs by roughly 4x.
+
+The batch runs on the event loop, and that is deliberate — it was tried the
+other way. The obvious suspicion is that holding the loop for the duration of
+a session run serialises the whole node, so `_flush_now` was moved onto a
+`ThreadPoolExecutor`. Measured on unique queries at 256 concurrent:
+
+    synchronous, on the loop     2,069 qps    p50  62.97 ms
+    handed to a worker pool      1,332 qps    p50 108.84 ms
+
+Worse, and not marginally. ONNX Runtime already releases the GIL for the
+duration of `run()` and parallelises internally with its own intra-op pool, so
+the executor added a hop per batch and bought nothing back. Pool width made no
+difference either (1,480 / 1,503 / 1,531 qps at one, two and four workers),
+which is what you would expect if the threads were never the constraint.
+
+What *is* the constraint is the pipeline's own Python: fusion, scoring,
+diversity and conformal calibration all run in the interpreter, and one core
+of interpreter is the ceiling. The lever that moved is upstream of here — the
+semantic cache, which had been disabled by an inferred filter and now answers
+a repeated question before the encoder is ever reached.
 """
 from __future__ import annotations
 

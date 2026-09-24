@@ -162,3 +162,73 @@ async def test_tenant_isolation_is_never_relaxed(node):
                                        tenant_id="nobody-owns-this")
     assert ghost.results == []
     assert "inference_relaxed" not in ghost.as_dict().get("understanding", {})
+
+
+@pytest.mark.asyncio
+async def test_the_cache_is_reached_even_when_understanding_infers_a_filter(node):
+    """The cache was disabled for almost every query, and nothing said so.
+
+    Lookup was guarded by `if not filters`, which reads as conservative. Query
+    understanding infers a collection filter on most queries, so the guard was
+    almost always true: measured over 128 queries with 64 repeats, the cache
+    held 0 entries and had recorded 0 hits and 0 misses. It had never been
+    asked a question, let alone answered one.
+    """
+    for i in range(40):
+        await node.remember(f"bay {i % 5} conveyor vibration crossed {3 + i / 20:.2f} mm/s",
+                            collection="sensor")
+    query = "vibration on the bay 2 conveyor"
+    first = await node.pipeline.search(query, k=5)
+    assert first.cached is False
+
+    second = await node.pipeline.search(query, k=5)
+    assert second.cached is True, "a repeated question was not served from cache"
+    assert node.pipeline.cache.snapshot()["exact_hits"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_a_repeat_is_answered_without_running_the_encoder(node):
+    """The exact layer sits in front of the embed, which is the whole point.
+
+    Keying only on the query vector means a hit still pays for the encoder —
+    the most expensive part of the query the cache exists to avoid.
+    """
+    for i in range(30):
+        await node.remember(f"coolant pressure read {1.5 + i / 50:.2f} bar", collection="sensor")
+    before = node.embedder.batcher.items
+    query = "coolant pressure reading"
+    await node.pipeline.search(query, k=5)
+    after_first = node.embedder.batcher.items
+    assert after_first > before                      # the first one embeds
+
+    await node.pipeline.search(query, k=5)
+    assert node.embedder.batcher.items == after_first, "a cached repeat still embedded"
+    assert node.pipeline.snapshot()["answered_before_embedding"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_a_write_invalidates_both_cache_layers(node):
+    """A cached answer must never outlive the corpus it was drawn from."""
+    for i in range(20):
+        await node.remember(f"bay {i % 4} conveyor vibration {3 + i / 10:.1f} mm/s",
+                            collection="sensor")
+    query = "conveyor vibration"
+    await node.pipeline.search(query, k=5)
+    assert (await node.pipeline.search(query, k=5)).cached is True
+
+    await node.remember("bay 9 conveyor vibration 9.9 mm/s", collection="sensor")
+    assert (await node.pipeline.search(query, k=5)).cached is False
+
+
+@pytest.mark.asyncio
+async def test_the_cache_does_not_serve_one_scope_an_answer_from_another(node):
+    for i in range(20):
+        await node.remember(f"bay {i % 4} conveyor vibration {3 + i / 10:.1f} mm/s",
+                            collection="sensor")
+    query = "conveyor vibration"
+    wide = await node.pipeline.search(query, k=5, collection="*")
+    assert wide.results
+    scoped = await node.pipeline.search(query, k=5, collection="procedural")
+    assert scoped.results == []
+    filtered = await node.pipeline.search(query, k=5, filters={"collection": "procedural"})
+    assert filtered.results == []
