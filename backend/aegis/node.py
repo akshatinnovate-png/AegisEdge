@@ -99,6 +99,7 @@ class EdgeNode:
         self._corpus_sample: list[str] = []
         self._corpus_sample_cap = 4000
         self._last_space_review = 0.0
+        self.closed = False
         self.conformal = ConformalPredictor(alpha=self.settings.conformal_alpha)
         self.diversity = MaximalMarginalRelevance()
         self.adapter = RetrievalAdapter(self.settings.memory.dim,
@@ -218,8 +219,22 @@ class EdgeNode:
         either handle open blocks its own replacement from starting. Closing
         is therefore part of the restart contract, not a tidiness nicety.
         """
+        self.ready = False
+        self.closed = True
         self.store.close()
         for owner in (self.transport, getattr(self, "mesh_link", None)):
+            # Prefer the owner's own close(), which marks it unavailable as
+            # well as releasing the handle. A background cycle still in flight
+            # then sees a link that is down — something every path here already
+            # knows how to survive — instead of a bare RuntimeError raised into
+            # a task nobody is awaiting.
+            own = getattr(owner, "close", None)
+            if callable(own):
+                try:
+                    own()
+                    continue
+                except Exception:
+                    pass
             closer = getattr(getattr(owner, "client", None), "close", None)
             try:
                 if closer is not None:

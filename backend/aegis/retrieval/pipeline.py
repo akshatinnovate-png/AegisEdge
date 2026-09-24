@@ -350,6 +350,16 @@ class RetrievalPipeline:
         result.trace = root.as_dict()
         METRICS.observe("retrieval.query_ms", result.latency_ms)
         METRICS.incr("retrieval.queries")
+        # Report to the SLO manager here, where *every* query passes, rather
+        # than at the HTTP layer where only some do. Observing in the
+        # transport left the degradation ladder blind to the WebSocket path,
+        # the agent, the mesh and every internal retrieval: a sustained
+        # overload measured p99 at 1,850 ms against a 150 ms target while the
+        # burn rate sat at exactly 0.0 and the ladder never left FULL, because
+        # its latency window was empty. A controller cannot shed load it
+        # cannot see.
+        if self.slo is not None:
+            self.slo.observe(result.latency_ms, ok=True)
         if not filters:
             # filtered results are not cacheable by vector alone
             self.cache.put(vector, result.as_dict(), namespace)

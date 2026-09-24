@@ -37,9 +37,14 @@ async def search(body: SearchRequest, node: EdgeNode = Depends(get_node),
         ok = False
         raise
     finally:
-        # Every query feeds the error budget, including the ones that failed —
-        # an SLO computed only from successes is not an SLO.
-        node.slo.observe((time.perf_counter() - started) * 1000, ok)
+        # Only failures are reported here. A query that completed was already
+        # reported by the pipeline, which sees every caller rather than only
+        # the ones arriving over HTTP; observing it again would count it twice
+        # and halve the apparent breach rate. A query that raised never
+        # reached that point, and an SLO computed only from successes is not
+        # an SLO — so the transport still owns the failures.
+        if not ok:
+            node.slo.observe((time.perf_counter() - started) * 1000, False)
 
 
 @router.post("/ask")
@@ -54,4 +59,5 @@ async def ask(body: AskRequest, node: EdgeNode = Depends(get_node),
         ok = False
         raise
     finally:
-        node.slo.observe((time.perf_counter() - started) * 1000, ok)
+        if not ok:                       # successes are reported by the pipeline
+            node.slo.observe((time.perf_counter() - started) * 1000, False)

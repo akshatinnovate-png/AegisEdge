@@ -62,7 +62,28 @@ class LoopbackCloud:
     def partition(self, on: bool = True) -> None:
         self.partitioned = on
 
+    def close(self) -> None:
+        """Release the handle and remember that it is gone.
+
+        Without the flag, a reconcile cycle already in flight when the node
+        shut down reached a closed client and raised a bare RuntimeError out
+        of a background task, where nothing was waiting to catch it — the
+        soak phase produced a stream of "Future exception was never
+        retrieved". A closed handle to the cloud mirror is not a crash, it is
+        the link being unavailable, which is the one condition this whole
+        subsystem is built to survive.
+        """
+        self.closed = True
+        closer = getattr(self.client, "close", None)
+        if closer is not None:
+            try:
+                closer()
+            except Exception:
+                pass
+
     async def _hop(self) -> None:
+        if getattr(self, "closed", False):
+            raise LinkUnavailable("cloud transport closed")
         if self.partitioned:
             raise LinkUnavailable("network partition")
         jitter = random.uniform(0.6, 1.5)
@@ -263,6 +284,7 @@ class QdrantCloudTransport:
 
         self.dim = dim
         self.url = url
+        self.closed = False
         self.client = (QdrantClient(url=url, api_key=api_key, timeout=10) if url
                        else QdrantClient(path=str(Path(path or ".aegis/cloud"))))
         self.name = url or f"qdrant-local://{path}"
@@ -287,7 +309,28 @@ class QdrantCloudTransport:
     def partition(self, on: bool = True) -> None:
         self.partitioned = on
 
+    def close(self) -> None:
+        """Release the handle and remember that it is gone.
+
+        Without the flag, a reconcile cycle already in flight when the node
+        shut down reached a closed client and raised a bare RuntimeError out
+        of a background task, where nothing was waiting to catch it — the
+        soak phase produced a stream of "Future exception was never
+        retrieved". A closed handle to the cloud mirror is not a crash, it is
+        the link being unavailable, which is the one condition this whole
+        subsystem is built to survive.
+        """
+        self.closed = True
+        closer = getattr(self.client, "close", None)
+        if closer is not None:
+            try:
+                closer()
+            except Exception:
+                pass
+
     async def _hop(self) -> None:
+        if getattr(self, "closed", False):
+            raise LinkUnavailable("cloud transport closed")
         if self.partitioned:
             raise LinkUnavailable("network partition")
         if self.latency_ms:
@@ -368,10 +411,16 @@ class QdrantCloudTransport:
                 self.tree.set(op.point_id, op.hlc)
             accepted.append(op.op_id)
 
-        if op_batch:
-            self.client.upsert(collection_name=self.OPLOG, points=op_batch)
-        if point_batch:
-            self.client.upsert(collection_name=self.POINTS, points=point_batch)
+        try:
+            if op_batch:
+                self.client.upsert(collection_name=self.OPLOG, points=op_batch)
+            if point_batch:
+                self.client.upsert(collection_name=self.POINTS, points=point_batch)
+        except RuntimeError as exc:
+            # close() landing between the guard above and this call.
+            if "closed" not in str(exc).lower():
+                raise
+            raise LinkUnavailable("cloud transport closed mid-push") from exc
         self.received += len(accepted)
         return {"accepted": accepted, "rejected": rejected, "server_cursor": self._seq}
 

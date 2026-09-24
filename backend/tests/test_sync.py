@@ -132,3 +132,28 @@ async def test_a_single_dropped_probe_does_not_declare_an_outage(node):
     await node.oracle.probe_once()
     node.transport.partition(False)
     assert node.oracle.state is not LinkState.OFFLINE      # slow to condemn the link
+
+
+def test_closed_transport_reports_the_link_down_not_a_runtime_error():
+    """Shutdown must look like an outage, not a crash.
+
+    A reconcile cycle in flight when the node closed reached a released
+    Qdrant handle and raised a bare RuntimeError out of a background task,
+    producing a stream of "Future exception was never retrieved" in the soak
+    phase. A closed handle to the cloud mirror is the link being unavailable,
+    which every path in this subsystem already knows how to survive.
+    """
+    import asyncio
+
+    from aegis.core.errors import LinkUnavailable
+    from aegis.sync.transport import QdrantCloudTransport
+
+    transport = QdrantCloudTransport(dim=8, path=None)
+    transport.close()
+    assert transport.closed
+
+    with pytest.raises(LinkUnavailable):
+        asyncio.get_event_loop_policy().new_event_loop().run_until_complete(
+            transport.push([]))
+
+    transport.close()          # idempotent: shutting down twice is not an error

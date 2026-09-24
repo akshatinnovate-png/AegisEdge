@@ -263,6 +263,675 @@
           "resident_bytes": 20480000
         }
       ]
+    },
+    "concurrency": {
+      "levels": [
+        {
+          "concurrency": 1,
+          "queries": 64,
+          "errors": 0,
+          "wall_s": 2.12,
+          "qps": 30.2,
+          "latency_ms": {
+            "n": 64,
+            "min": 9.775,
+            "p50": 29.369,
+            "p90": 44.588,
+            "p95": 45.812,
+            "p99": 90.114,
+            "max": 90.114,
+            "mean": 30.812
+          },
+          "slo_level": "FULL",
+          "burn_rate": 0.0
+        },
+        {
+          "concurrency": 4,
+          "queries": 64,
+          "errors": 0,
+          "wall_s": 1.911,
+          "qps": 33.5,
+          "latency_ms": {
+            "n": 64,
+            "min": 15.887,
+            "p50": 85.572,
+            "p90": 117.274,
+            "p95": 124.67,
+            "p99": 138.198,
+            "max": 138.198,
+            "mean": 77.945
+          },
+          "slo_level": "FULL",
+          "burn_rate": 0.0
+        },
+        {
+          "concurrency": 16,
+          "queries": 64,
+          "errors": 0,
+          "wall_s": 1.145,
+          "qps": 55.9,
+          "latency_ms": {
+            "n": 64,
+            "min": 27.135,
+            "p50": 156.2,
+            "p90": 235.774,
+            "p95": 250.408,
+            "p99": 280.538,
+            "max": 280.538,
+            "mean": 151.18
+          },
+          "slo_level": "FULL",
+          "burn_rate": 0.0
+        },
+        {
+          "concurrency": 64,
+          "queries": 256,
+          "errors": 0,
+          "wall_s": 5.015,
+          "qps": 51.1,
+          "latency_ms": {
+            "n": 256,
+            "min": 19.77,
+            "p50": 579.405,
+            "p90": 1022.574,
+            "p95": 1153.507,
+            "p99": 1406.861,
+            "max": 1451.384,
+            "mean": 594.193
+          },
+          "slo_level": "FULL",
+          "burn_rate": 0.0
+        },
+        {
+          "concurrency": 256,
+          "queries": 1024,
+          "errors": 0,
+          "wall_s": 18.34,
+          "qps": 55.8,
+          "latency_ms": {
+            "n": 1024,
+            "min": 16.247,
+            "p50": 2334.225,
+            "p90": 3639.009,
+            "p95": 3955.597,
+            "p99": 4456.308,
+            "max": 4609.449,
+            "mean": 2287.642
+          },
+          "slo_level": "FULL",
+          "burn_rate": 0.0
+        },
+        {
+          "concurrency": 1024,
+          "queries": 4096,
+          "errors": 0,
+          "wall_s": 68.726,
+          "qps": 59.6,
+          "latency_ms": {
+            "n": 4096,
+            "min": 15.46,
+            "p50": 8176.739,
+            "p90": 13271.185,
+            "p95": 14160.467,
+            "p99": 14891.579,
+            "max": 15291.756,
+            "mean": 8155.914
+          },
+          "slo_level": "FULL",
+          "burn_rate": 0.0
+        }
+      ],
+      "corpus": 2000,
+      "ladder": {
+        "held_s": 45.0,
+        "concurrency": 64,
+        "evaluate_interval_s": 5.0,
+        "queries_served": 2688,
+        "errors": 0,
+        "samples": [
+          {
+            "t_s": 5.5,
+            "level": "FULL",
+            "burn_rate": 0.0,
+            "pressure": 0.0,
+            "p99_ms": 896.13,
+            "disabled": []
+          },
+          {
+            "t_s": 11.1,
+            "level": "FULL",
+            "burn_rate": 0.0,
+            "pressure": 0.0,
+            "p99_ms": 1050.73,
+            "disabled": []
+          },
+          {
+            "t_s": 16.7,
+            "level": "FULL",
+            "burn_rate": 0.0,
+            "pressure": 0.0,
+            "p99_ms": 1750.24,
+            "disabled": []
+          },
+          {
+            "t_s": 22.8,
+            "level": "FULL",
+            "burn_rate": 0.0,
+            "pressure": 0.0,
+            "p99_ms": 1045.26,
+            "disabled": []
+          },
+          {
+            "t_s": 28.4,
+            "level": "FULL",
+            "burn_rate": 0.0,
+            "pressure": 0.0,
+            "p99_ms": 1005.68,
+            "disabled": []
+          },
+          {
+            "t_s": 33.7,
+            "level": "FULL",
+            "burn_rate": 0.0,
+            "pressure": 0.0,
+            "p99_ms": 1016.76,
+            "disabled": []
+          },
+          {
+            "t_s": 38.8,
+            "level": "FULL",
+            "burn_rate": 0.0,
+            "pressure": 0.0,
+            "p99_ms": 923.46,
+            "disabled": []
+          },
+          {
+            "t_s": 45.1,
+            "level": "FULL",
+            "burn_rate": 0.0,
+            "pressure": 0.0,
+            "p99_ms": 1854.78,
+            "disabled": []
+          }
+        ],
+        "levels_reached": [
+          "FULL"
+        ],
+        "seconds_to_first_shed": null,
+        "final_level": "FULL",
+        "features_disabled": [],
+        "p99_first_ms": 973.43,
+        "p99_last_ms": 1389.12,
+        "p99_change_pct": 42.7
+      }
+    },
+    "adversarial": {
+      "cases": [
+        {
+          "case": "empty string",
+          "outcome": "accepted",
+          "detail": "MemoryPoint",
+          "ms": 83.74
+        },
+        {
+          "case": "single space",
+          "outcome": "accepted",
+          "detail": "MemoryPoint",
+          "ms": 13.64
+        },
+        {
+          "case": "1 MB single token",
+          "outcome": "accepted",
+          "detail": "MemoryPoint",
+          "ms": 962.54
+        },
+        {
+          "case": "100k words",
+          "outcome": "accepted",
+          "detail": "MemoryPoint",
+          "ms": 1084.44
+        },
+        {
+          "case": "null bytes",
+          "outcome": "accepted",
+          "detail": "MemoryPoint",
+          "ms": 148.05
+        },
+        {
+          "case": "all control chars",
+          "outcome": "accepted",
+          "detail": "MemoryPoint",
+          "ms": 13.99
+        },
+        {
+          "case": "4-byte emoji storm",
+          "outcome": "accepted",
+          "detail": "MemoryPoint",
+          "ms": 33.48
+        },
+        {
+          "case": "RTL + zero width",
+          "outcome": "accepted",
+          "detail": "MemoryPoint",
+          "ms": 29.45
+        },
+        {
+          "case": "surrogate-ish unicode",
+          "outcome": "accepted",
+          "detail": "MemoryPoint",
+          "ms": 16.45
+        },
+        {
+          "case": "SQL-ish injection",
+          "outcome": "accepted",
+          "detail": "MemoryPoint",
+          "ms": 15.47
+        },
+        {
+          "case": "prompt injection",
+          "outcome": "accepted",
+          "detail": "MemoryPoint",
+          "ms": 14.13
+        },
+        {
+          "case": "path traversal",
+          "outcome": "accepted",
+          "detail": "MemoryPoint",
+          "ms": 13.59
+        },
+        {
+          "case": "json bomb text",
+          "outcome": "accepted",
+          "detail": "MemoryPoint",
+          "ms": 116.07
+        },
+        {
+          "case": "deep filter nesting",
+          "outcome": "accepted",
+          "detail": "RetrievalResult",
+          "ms": 10.14
+        },
+        {
+          "case": "nan filter",
+          "outcome": "accepted",
+          "detail": "RetrievalResult",
+          "ms": 9.71
+        },
+        {
+          "case": "huge k",
+          "outcome": "accepted",
+          "detail": "RetrievalResult",
+          "ms": 2088.3
+        },
+        {
+          "case": "empty query",
+          "outcome": "accepted",
+          "detail": "RetrievalResult",
+          "ms": 153.08
+        },
+        {
+          "case": "query of 1M chars",
+          "outcome": "accepted",
+          "detail": "RetrievalResult",
+          "ms": 30120.03
+        },
+        {
+          "case": "unknown collection",
+          "outcome": "accepted",
+          "detail": "RetrievalResult",
+          "ms": 140.48
+        },
+        {
+          "case": "unknown tenant",
+          "outcome": "accepted",
+          "detail": "RetrievalResult",
+          "ms": 9.09
+        },
+        {
+          "case": "negative ttl payload",
+          "outcome": "accepted",
+          "detail": "MemoryPoint",
+          "ms": 15.76
+        },
+        {
+          "case": "payload with self-ref",
+          "outcome": "accepted",
+          "detail": "MemoryPoint",
+          "ms": 15.07
+        }
+      ],
+      "survived": {
+        "fsck_clean": true,
+        "search_works": true,
+        "audit_chain_intact": true
+      },
+      "timeouts": 0
+    },
+    "faults": {
+      "faults_injected": [
+        "link_drop",
+        "packet_loss",
+        "latency_spike",
+        "clock_skew",
+        "disk_full",
+        "thermal_spike",
+        "corrupt_wal",
+        "partition",
+        "corrupt_segment",
+        "memory_pressure",
+        "query_storm",
+        "peer_churn"
+      ],
+      "wall_s": 3.87,
+      "queries_answered": 190,
+      "queries_failed": 0,
+      "latency_ms": {
+        "n": 200,
+        "min": 8.435,
+        "p50": 14.773,
+        "p90": 16.708,
+        "p95": 17.335,
+        "p99": 138.723,
+        "max": 168.498,
+        "mean": 16.15
+      },
+      "slo_level_after": "FULL",
+      "audit_chain_intact": true,
+      "points_resident": 400,
+      "wal_torn": 1,
+      "subsystems_alive": 11,
+      "subsystems_total": 11
+    },
+    "soak": {
+      "seconds": 150.0,
+      "ingested": 2420,
+      "queried": 2420,
+      "samples": [
+        {
+          "t_s": 3.3,
+          "rss_mb": 2032.1,
+          "points": 20,
+          "graph_facts": 24,
+          "wal_bytes": 125924,
+          "cache_entries": 0,
+          "reranker_cache": 40
+        },
+        {
+          "t_s": 6.4,
+          "rss_mb": 2032.4,
+          "points": 80,
+          "graph_facts": 102,
+          "wal_bytes": 505003,
+          "cache_entries": 0,
+          "reranker_cache": 153
+        },
+        {
+          "t_s": 11.5,
+          "rss_mb": 2035.4,
+          "points": 200,
+          "graph_facts": 263,
+          "wal_bytes": 1264171,
+          "cache_entries": 0,
+          "reranker_cache": 373
+        },
+        {
+          "t_s": 16.4,
+          "rss_mb": 2042.1,
+          "points": 320,
+          "graph_facts": 405,
+          "wal_bytes": 2023157,
+          "cache_entries": 0,
+          "reranker_cache": 598
+        },
+        {
+          "t_s": 21.3,
+          "rss_mb": 2051.8,
+          "points": 440,
+          "graph_facts": 536,
+          "wal_bytes": 2781844,
+          "cache_entries": 0,
+          "reranker_cache": 816
+        },
+        {
+          "t_s": 26.9,
+          "rss_mb": 2061.3,
+          "points": 560,
+          "graph_facts": 667,
+          "wal_bytes": 3540313,
+          "cache_entries": 0,
+          "reranker_cache": 1024
+        },
+        {
+          "t_s": 31.3,
+          "rss_mb": 2081.6,
+          "points": 640,
+          "graph_facts": 757,
+          "wal_bytes": 4046354,
+          "cache_entries": 0,
+          "reranker_cache": 1180
+        },
+        {
+          "t_s": 36.8,
+          "rss_mb": 2091.2,
+          "points": 760,
+          "graph_facts": 890,
+          "wal_bytes": 4805628,
+          "cache_entries": 0,
+          "reranker_cache": 1395
+        },
+        {
+          "t_s": 41.2,
+          "rss_mb": 2097.6,
+          "points": 840,
+          "graph_facts": 981,
+          "wal_bytes": 5311721,
+          "cache_entries": 0,
+          "reranker_cache": 1532
+        },
+        {
+          "t_s": 46.6,
+          "rss_mb": 2107.4,
+          "points": 960,
+          "graph_facts": 1105,
+          "wal_bytes": 6070932,
+          "cache_entries": 0,
+          "reranker_cache": 1747
+        },
+        {
+          "t_s": 51.6,
+          "rss_mb": 2117.5,
+          "points": 1060,
+          "graph_facts": 1200,
+          "wal_bytes": 6703668,
+          "cache_entries": 0,
+          "reranker_cache": 1919
+        },
+        {
+          "t_s": 56.7,
+          "rss_mb": 2126.3,
+          "points": 1160,
+          "graph_facts": 1303,
+          "wal_bytes": 7336502,
+          "cache_entries": 0,
+          "reranker_cache": 2048
+        },
+        {
+          "t_s": 61.8,
+          "rss_mb": 2130.0,
+          "points": 1260,
+          "graph_facts": 1411,
+          "wal_bytes": 7969714,
+          "cache_entries": 0,
+          "reranker_cache": 2048
+        },
+        {
+          "t_s": 66.5,
+          "rss_mb": 2133.7,
+          "points": 1340,
+          "graph_facts": 1492,
+          "wal_bytes": 8475966,
+          "cache_entries": 0,
+          "reranker_cache": 2048
+        },
+        {
+          "t_s": 72.1,
+          "rss_mb": 2136.8,
+          "points": 1440,
+          "graph_facts": 1594,
+          "wal_bytes": 9108714,
+          "cache_entries": 0,
+          "reranker_cache": 2048
+        },
+        {
+          "t_s": 76.6,
+          "rss_mb": 2140.2,
+          "points": 1500,
+          "graph_facts": 1651,
+          "wal_bytes": 9488544,
+          "cache_entries": 0,
+          "reranker_cache": 2048
+        },
+        {
+          "t_s": 81.9,
+          "rss_mb": 2142.7,
+          "points": 1580,
+          "graph_facts": 1724,
+          "wal_bytes": 9994456,
+          "cache_entries": 0,
+          "reranker_cache": 2048
+        },
+        {
+          "t_s": 86.2,
+          "rss_mb": 2144.5,
+          "points": 1640,
+          "graph_facts": 1791,
+          "wal_bytes": 10374502,
+          "cache_entries": 0,
+          "reranker_cache": 2048
+        },
+        {
+          "t_s": 91.9,
+          "rss_mb": 2147.6,
+          "points": 1720,
+          "graph_facts": 1859,
+          "wal_bytes": 10881056,
+          "cache_entries": 0,
+          "reranker_cache": 2048
+        },
+        {
+          "t_s": 97.0,
+          "rss_mb": 2150.2,
+          "points": 1800,
+          "graph_facts": 1938,
+          "wal_bytes": 11387412,
+          "cache_entries": 0,
+          "reranker_cache": 2048
+        },
+        {
+          "t_s": 101.9,
+          "rss_mb": 2152.2,
+          "points": 1840,
+          "graph_facts": 1979,
+          "wal_bytes": 11640685,
+          "cache_entries": 0,
+          "reranker_cache": 2048
+        },
+        {
+          "t_s": 107.0,
+          "rss_mb": 2154.3,
+          "points": 1900,
+          "graph_facts": 2036,
+          "wal_bytes": 12020385,
+          "cache_entries": 0,
+          "reranker_cache": 2048
+        },
+        {
+          "t_s": 111.8,
+          "rss_mb": 2155.6,
+          "points": 1960,
+          "graph_facts": 2091,
+          "wal_bytes": 12400126,
+          "cache_entries": 0,
+          "reranker_cache": 2048
+        },
+        {
+          "t_s": 117.3,
+          "rss_mb": 2157.5,
+          "points": 2020,
+          "graph_facts": 2146,
+          "wal_bytes": 12779669,
+          "cache_entries": 0,
+          "reranker_cache": 2048
+        },
+        {
+          "t_s": 121.7,
+          "rss_mb": 2168.3,
+          "points": 2080,
+          "graph_facts": 2203,
+          "wal_bytes": 13159118,
+          "cache_entries": 0,
+          "reranker_cache": 2048
+        },
+        {
+          "t_s": 127.3,
+          "rss_mb": 2169.3,
+          "points": 2140,
+          "graph_facts": 2261,
+          "wal_bytes": 13539003,
+          "cache_entries": 0,
+          "reranker_cache": 2048
+        },
+        {
+          "t_s": 131.7,
+          "rss_mb": 2170.6,
+          "points": 2200,
+          "graph_facts": 2308,
+          "wal_bytes": 13918563,
+          "cache_entries": 0,
+          "reranker_cache": 2048
+        },
+        {
+          "t_s": 136.7,
+          "rss_mb": 2172.2,
+          "points": 2260,
+          "graph_facts": 2360,
+          "wal_bytes": 14298207,
+          "cache_entries": 0,
+          "reranker_cache": 2048
+        },
+        {
+          "t_s": 141.6,
+          "rss_mb": 2175.8,
+          "points": 2300,
+          "graph_facts": 2394,
+          "wal_bytes": 14551324,
+          "cache_entries": 0,
+          "reranker_cache": 2048
+        },
+        {
+          "t_s": 146.8,
+          "rss_mb": 2177.4,
+          "points": 2360,
+          "graph_facts": 2447,
+          "wal_bytes": 14931013,
+          "cache_entries": 0,
+          "reranker_cache": 2048
+        },
+        {
+          "t_s": 151.8,
+          "rss_mb": 2178.5,
+          "points": 2420,
+          "graph_facts": 2499,
+          "wal_bytes": 15310908,
+          "cache_entries": 0,
+          "reranker_cache": 2048
+        }
+      ],
+      "rss_baseline_mb": 2031.8,
+      "rss_final_mb": 2178.5,
+      "bytes_per_point": 60620,
+      "rss_slope_mb_per_s_tail": 0.265,
+      "ops_per_s": 32.3
     }
   }
 }
