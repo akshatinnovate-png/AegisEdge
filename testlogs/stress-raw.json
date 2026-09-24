@@ -4,7 +4,7 @@
     "machine": "x86_64",
     "cpus": 4,
     "platform": "Linux-6.18.44-fc-v37-x86_64-with-glibc2.39",
-    "started_at": 1790242710.836117,
+    "started_at": 1790244720.1611464,
     "ram_total_mb": 16878,
     "cpu_model": "Intel(R) Xeon(R) Processor @ 2.80GHz"
   },
@@ -13,195 +13,50 @@
       "batches": [
         {
           "batch": 1,
-          "docs_per_s": 8980,
-          "us_per_doc": 111.36,
-          "runs": 17819
+          "docs_per_s": 7694,
+          "us_per_doc": 129.96,
+          "runs": 15267
         },
         {
           "batch": 8,
-          "docs_per_s": 17917,
-          "us_per_doc": 55.81,
-          "runs": 4467
+          "docs_per_s": 15434,
+          "us_per_doc": 64.79,
+          "runs": 3849
         },
         {
           "batch": 32,
-          "docs_per_s": 26052,
-          "us_per_doc": 38.39,
-          "runs": 1627
+          "docs_per_s": 21182,
+          "us_per_doc": 47.21,
+          "runs": 1322
         },
         {
           "batch": 128,
-          "docs_per_s": 31178,
-          "us_per_doc": 32.07,
-          "runs": 487
+          "docs_per_s": 31088,
+          "us_per_doc": 32.17,
+          "runs": 486
         },
         {
           "batch": 512,
-          "docs_per_s": 28196,
-          "us_per_doc": 35.47,
-          "runs": 111
+          "docs_per_s": 29168,
+          "us_per_doc": 34.28,
+          "runs": 114
         },
         {
           "batch": 2048,
-          "docs_per_s": 27541,
-          "us_per_doc": 36.31,
-          "runs": 27
+          "docs_per_s": 25589,
+          "us_per_doc": 39.08,
+          "runs": 25
         }
       ],
       "peak": {
         "batch": 128,
-        "docs_per_s": 31178,
-        "us_per_doc": 32.07,
-        "runs": 487
+        "docs_per_s": 31088,
+        "us_per_doc": 32.17,
+        "runs": 486
       },
-      "embeddings_per_ms": 31.2,
-      "tokenizer_tokens_per_s": 1099564,
+      "embeddings_per_ms": 31.1,
+      "tokenizer_tokens_per_s": 1238945,
       "note": "single process, no GPU; batch>512 shows cache pressure not compute gain"
-    },
-    "ingest": {
-      "target": 20000,
-      "ingested": 20000,
-      "failures": 0,
-      "wall_s": 428.58,
-      "sustained_docs_per_s": 46.7,
-      "latency_ms": {
-        "n": 20000,
-        "min": 11.998,
-        "p50": 20.824,
-        "p90": 26.392,
-        "p95": 28.518,
-        "p99": 41.772,
-        "max": 420.707,
-        "mean": 21.398
-      },
-      "checkpoints": [
-        {
-          "points": 2500,
-          "elapsed_s": 37.32,
-          "docs_per_s": 67.0,
-          "window_p95_ms": 17.642,
-          "rss_mb": 370.5,
-          "rss_per_point_kb": -69.88,
-          "graph_facts": 2607,
-          "ann_strategy": "flat"
-        },
-        {
-          "points": 5000,
-          "elapsed_s": 80.6,
-          "docs_per_s": 62.0,
-          "window_p95_ms": 20.463,
-          "rss_mb": 419.5,
-          "rss_per_point_kb": -25.14,
-          "graph_facts": 4685,
-          "ann_strategy": "flat"
-        },
-        {
-          "points": 7500,
-          "elapsed_s": 127.83,
-          "docs_per_s": 58.7,
-          "window_p95_ms": 22.669,
-          "rss_mb": 464.0,
-          "rss_per_point_kb": -10.83,
-          "graph_facts": 6710,
-          "ann_strategy": "flat"
-        },
-        {
-          "points": 10000,
-          "elapsed_s": 180.38,
-          "docs_per_s": 55.4,
-          "window_p95_ms": 24.789,
-          "rss_mb": 548.3,
-          "rss_per_point_kb": 0.31,
-          "graph_facts": 8719,
-          "ann_strategy": "flat"
-        },
-        {
-          "points": 12500,
-          "elapsed_s": 236.1,
-          "docs_per_s": 52.9,
-          "window_p95_ms": 26.642,
-          "rss_mb": 595.1,
-          "rss_per_point_kb": 3.99,
-          "graph_facts": 10721,
-          "ann_strategy": "flat"
-        },
-        {
-          "points": 15000,
-          "elapsed_s": 295.06,
-          "docs_per_s": 50.8,
-          "window_p95_ms": 28.323,
-          "rss_mb": 648.1,
-          "rss_per_point_kb": 6.86,
-          "graph_facts": 12718,
-          "ann_strategy": "flat"
-        },
-        {
-          "points": 17500,
-          "elapsed_s": 360.42,
-          "docs_per_s": 48.6,
-          "window_p95_ms": 32.496,
-          "rss_mb": 768.0,
-          "rss_per_point_kb": 12.73,
-          "graph_facts": 14740,
-          "ann_strategy": "flat"
-        },
-        {
-          "points": 20000,
-          "elapsed_s": 428.58,
-          "docs_per_s": 46.7,
-          "window_p95_ms": 33.098,
-          "rss_mb": 828.2,
-          "rss_per_point_kb": 14.15,
-          "graph_facts": 16716,
-          "ann_strategy": "flat"
-        }
-      ],
-      "rss_start_mb": 545.2,
-      "rss_end_mb": 845.4,
-      "bytes_per_point_resident": 15010,
-      "shipped_default_quota": {
-        "max_points": 100000,
-        "max_ingest_per_minute": 600,
-        "max_qps": 50.0,
-        "max_bytes": 536870912
-      },
-      "concurrent_ingest": [
-        {
-          "parallel": 1,
-          "docs": 4,
-          "docs_per_s": 23.5
-        },
-        {
-          "parallel": 8,
-          "docs": 32,
-          "docs_per_s": 51.7
-        },
-        {
-          "parallel": 32,
-          "docs": 128,
-          "docs_per_s": 50.0
-        },
-        {
-          "parallel": 128,
-          "docs": 512,
-          "docs_per_s": 61.0
-        }
-      ],
-      "graph_entities": 13378,
-      "graph_facts": 17268,
-      "wal": {
-        "lsn": 20676,
-        "appended": 20676,
-        "torn": 0,
-        "checkpoint_lsn": 0,
-        "bytes": 131137062
-      },
-      "collections": {
-        "episodic": 5663,
-        "procedural": 5065,
-        "sensor": 4975,
-        "semantic": 4973
-      }
     }
   }
 }
