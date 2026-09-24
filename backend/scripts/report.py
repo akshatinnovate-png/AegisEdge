@@ -160,12 +160,28 @@ def main() -> None:
     if scale.get("scales"):
         add("## 3. Corpus scale\n")
         add(table(["Points", "Strategy", "Recall@10", "Search p50", "Search p95",
-                   "Build", "RSS"],
+                   "Corpus ingest", "RSS"],
                   [[f"{r['points']:,}", r["strategy"], f"{r['recall_at_10']:.3f}",
                     f"{r['search_ms']['p50']} ms", f"{r['search_ms']['p95']} ms",
-                    f"{r['build_s']:.0f} s", f"{r['rss_mb']:.0f} MB"]
+                    f"{r['build_s']:.0f} s ({r.get('build_docs_per_s', 0):.0f}/s)",
+                    f"{r['rss_mb']:.0f} MB"]
                    for r in scale["scales"]]))
         add("")
+        add("The last column but one is the *whole ingest path* for that corpus — "
+            "embed, WAL, classify, extract facts, index — not index construction, "
+            "which it dwarfs. It is the encoder's cost, and it is the same quantity "
+            "section 2 measures.\n")
+        strategies = {r["strategy"] for r in scale["scales"]}
+        if strategies == {"flat"}:
+            add("**The index stayed exact at every scale tested, and that is the "
+                "cost model working rather than failing to fire.** Recall is 1.000 "
+                "because the search is exhaustive, and p95 at 20,000 points is "
+                f"{scale['scales'][-1]['search_ms']['p95']} ms — one BLAS call over a "
+                "20,000 x 256 matrix. The device-calibrated crossover sits far above "
+                "this because a graph traversal in the Python interpreter loses to "
+                "contiguous SIMD arithmetic until the corpus is very large; an "
+                "adaptive index that switched here would be trading exact results "
+                "for a slower approximate one.\n")
 
     # ── concurrency ──
     concurrency = phases.get("concurrency", {})

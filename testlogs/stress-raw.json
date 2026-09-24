@@ -202,6 +202,67 @@
         "sensor": 2991,
         "semantic": 2995
       }
+    },
+    "scale": {
+      "scales": [
+        {
+          "points": 1000,
+          "build_s": 13.8,
+          "build_docs_per_s": 72.5,
+          "strategy": "flat",
+          "search_ms": {
+            "n": 30,
+            "min": 0.12,
+            "p50": 0.178,
+            "p90": 0.271,
+            "p95": 0.281,
+            "p99": 0.324,
+            "max": 0.324,
+            "mean": 0.179
+          },
+          "recall_at_10": 1.0,
+          "rss_mb": 727.1,
+          "resident_bytes": 1024000
+        },
+        {
+          "points": 5000,
+          "build_s": 81.14,
+          "build_docs_per_s": 61.6,
+          "strategy": "flat",
+          "search_ms": {
+            "n": 30,
+            "min": 0.221,
+            "p50": 0.278,
+            "p90": 0.522,
+            "p95": 0.857,
+            "p99": 3.792,
+            "max": 3.792,
+            "mean": 0.427
+          },
+          "recall_at_10": 1.0,
+          "rss_mb": 933.4,
+          "resident_bytes": 5120000
+        },
+        {
+          "points": 20000,
+          "build_s": 466.66,
+          "build_docs_per_s": 42.9,
+          "strategy": "flat",
+          "search_ms": {
+            "n": 30,
+            "min": 1.167,
+            "p50": 1.326,
+            "p90": 1.769,
+            "p95": 1.796,
+            "p99": 2.294,
+            "max": 2.294,
+            "mean": 1.407
+          },
+          "recall_at_10": 1.0,
+          "rss_mb": 1552.7,
+          "resident_bytes": 20480000
+        }
+      ]
     }
   }
 }

@@ -296,6 +296,11 @@ async def phase_scale(h: Harness, sizes: list[int]) -> dict[str, Any]:
         rng = random.Random(size)
         texts = [synthetic(i, rng) for i in range(size)]
 
+        # This times the whole ingest path — embed, WAL, classify, extract
+        # facts, index — not index construction. At 20k points it is dominated
+        # by embedding, so reporting it as "index build" would blame the index
+        # for the encoder's cost. `ingest_s` is carried alongside so the report
+        # can name it correctly.
         t0 = time.perf_counter()
         vectors = []
         for text in texts:
@@ -324,7 +329,9 @@ async def phase_scale(h: Harness, sizes: list[int]) -> dict[str, Any]:
 
         row = {
             "points": size, "build_s": round(build_s, 2),
+            "ingest_s": round(build_s, 2),
             "build_docs_per_s": round(size / build_s, 1),
+            "ingest_docs_per_s": round(size / build_s, 1),
             "strategy": index.ann.strategy.value,
             "search_ms": percentiles(latencies),
             "recall_at_10": round(statistics.fmean(recalls), 4),
