@@ -37,6 +37,23 @@ class SyncClass(str, Enum):
     REDACTED = "sync_after_redaction"
     FULL = "sync_full"
 
+    @property
+    def restriction(self) -> int:
+        """How tightly this class is held. Higher is more restrictive."""
+        return {"sync_full": 0, "sync_after_redaction": 1,
+                "sync_metadata_only": 2, "local_only": 3}[self.value]
+
+    @classmethod
+    def strictest(cls, *classes: "SyncClass") -> "SyncClass":
+        """The most restrictive of several claims about one memory.
+
+        A memory crossing devices carries its handling class with it, and the
+        receiver must never relax it. Where the sender's class and the
+        receiver's own policy disagree, the tighter one wins — that is the only
+        direction in which being wrong is safe.
+        """
+        return max(classes, key=lambda c: c.restriction)
+
 
 @dataclass(slots=True)
 class MemoryPoint:

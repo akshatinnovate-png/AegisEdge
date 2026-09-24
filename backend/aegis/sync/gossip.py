@@ -73,6 +73,11 @@ class MeshLink:
     def reachable(self, a: str, b: str) -> bool:
         return tuple(sorted((a, b))) not in self.partitions
 
+    def snapshot(self) -> dict[str, Any]:
+        return {"transport": "memory", "nodes": sorted(self.nodes),
+                "offline": False, "messages": self.messages, "dropped": self.dropped,
+                "partitions": ["|".join(p) for p in self.partitions]}
+
     async def call(self, sender: str, target: str, method: str, payload: dict[str, Any]) -> dict[str, Any]:
         self.messages += 1
         if target not in self.nodes or not self.reachable(sender, target):
@@ -119,6 +124,13 @@ class GossipAgent:
 
     def add_peer(self, node_id: str, endpoint: str = "") -> Peer:
         peer = self.peers.setdefault(node_id, Peer(node_id, endpoint))
+        if endpoint and not peer.endpoint:
+            peer.endpoint = endpoint
+        # An in-process link resolves a peer by name; an HTTP one needs to be
+        # told where it lives. Membership is the only place that knows.
+        register = getattr(self.link, "register", None)
+        if callable(register) and peer.endpoint:
+            register(node_id, peer.endpoint)
         return peer
 
     def _sample(self, count: int) -> list[Peer]:
@@ -345,4 +357,9 @@ class GossipAgent:
             "pulled": self.ops_pulled, "pushed": self.ops_pushed,
             "withheld_by_policy": self.withheld, "bytes_saved": self.bytes_saved,
             "causal": self.causal.snapshot(), "codec": self.codec.snapshot(),
+            # The transport's own state, so a caller can tell a quiet mesh from
+            # a pulled radio. Without it the two are indistinguishable from
+            # outside, and anything rendering the link has to guess.
+            "link": (self.link.snapshot() if hasattr(self.link, "snapshot")
+                     else {"transport": type(self.link).__name__}),
         }

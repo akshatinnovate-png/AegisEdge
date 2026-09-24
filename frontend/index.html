@@ -9,8 +9,9 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Archivo:wght@400;600;800;900&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="styles.css" />
+<link rel="stylesheet" href="use.css" />
 </head>
-<body>
+<body data-mode="console">
 
 <!-- ─────────────────────── COLD BOOT ─────────────────────── -->
 <div class="boot" id="boot">
@@ -52,6 +53,10 @@
 <header class="top">
   <div class="top__mark">AEGIS<span>EDGE</span></div>
   <div class="top__meta" id="topMeta">NODE · <span id="nodeId">edge-00</span></div>
+  <div class="mode-switch">
+    <button data-mode="use" aria-pressed="false">USE IT</button>
+    <button data-mode="console" aria-pressed="true">INSPECT IT</button>
+  </div>
   <div class="link" id="linkPill" data-state="offline">
     <span class="link__dot"></span>
     <span class="link__label" id="linkLabel">OFFLINE</span>
@@ -63,6 +68,7 @@
 <div class="rail rail--right" aria-hidden="true" id="railRight">SYNC CURSOR · IDLE</div>
 
 <main class="page" id="page">
+
 
   <!-- ── HERO: deliberately off-grid ── -->
   <section class="hero">
@@ -90,6 +96,73 @@
     <aside class="hero__note hero__note--b">
       <em>02</em> the link comes back in <b id="reconnMs">—</b> ms, cursor intact
     </aside>
+  </section>
+
+
+  <!-- ── USE MODE — the product, not the dashboard ── -->
+  <section id="use">
+    <div class="console__head">
+      <h2>FIELD</h2>
+      <div style="display:flex;gap:14px;align-items:center">
+        <span style="font:400 10px/1 var(--mono);letter-spacing:.14em;color:var(--dim)">
+          WORKING AS <b id="activeDevice" style="color:var(--orange)">DEVICE A</b></span>
+        <button class="btn btn--ghost" id="usePeer">PAIR DEVICES</button>
+        <button class="btn btn--ghost" id="useReconcile">RECONCILE</button>
+      </div>
+    </div>
+
+    <div class="devices" id="devices"></div>
+
+    <div class="field">
+      <div>
+        <div class="tabs">
+          <button data-pane="capture" aria-selected="true">CAPTURE</button>
+          <button data-pane="ask" aria-selected="false">ASK</button>
+          <button data-pane="recall" aria-selected="false">RECALL</button>
+        </div>
+
+        <div class="pane" id="pane-capture" data-open="true">
+          <div class="compose">
+            <textarea id="useText" placeholder="What did you just see on the floor?
+e.g. bay 3 conveyor vibration crossed 4.2 mm/s at 02:14, bearing signature matches March"></textarea>
+            <div class="compose__bar">
+              <select id="useCollection">
+                <option value="episodic">episodic — what happened</option>
+                <option value="sensor">sensor — a reading</option>
+                <option value="semantic">semantic — a rule that holds</option>
+                <option value="procedural">procedural — how to do it</option>
+              </select>
+              <button class="btn" id="useSave">REMEMBER</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="pane" id="pane-ask" data-open="false">
+          <div class="compose__bar">
+            <input id="useAsk" placeholder="Ask the device something it might know"
+              style="flex:1;background:rgba(0,0,0,.45);border:1px solid var(--line);
+              color:var(--ink);font:400 13px/1 var(--mono);padding:13px 15px;outline:none" />
+            <button class="btn" id="useAskGo">ASK</button>
+          </div>
+          <div id="useAnswer"></div>
+        </div>
+
+        <div class="pane" id="pane-recall" data-open="false">
+          <div class="compose__bar">
+            <input id="useFind" placeholder="Search local memory — misspell it, it will cope"
+              style="flex:1;background:rgba(0,0,0,.45);border:1px solid var(--line);
+              color:var(--ink);font:400 13px/1 var(--mono);padding:13px 15px;outline:none" />
+            <button class="btn" id="useFindGo">FIND</button>
+          </div>
+          <div class="hits" id="useHits"></div>
+        </div>
+      </div>
+
+      <aside class="tracerail">
+        <div class="trace__head">WHAT THE NODE JUST DID</div>
+        <div class="trace__body" id="traceBody"></div>
+      </aside>
+    </div>
   </section>
 
   <!-- ── LIVE CONSOLE ── -->
@@ -172,5 +245,6 @@
 </main>
 
 <script src="app.js"></script>
+<script src="use.js"></script>
 </body>
 </html>

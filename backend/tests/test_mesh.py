@@ -229,3 +229,61 @@ def test_rumour_path_preserves_causal_order():
     assert agents["edge-b"].causal.snapshot()["pending"] == 1
     asyncio.run(agents["edge-a"].rumour(first))
     assert {first.op_id, second.op_id} <= set(stores["edge-b"])
+
+
+def test_a_handling_class_survives_the_trip_between_devices():
+    """A receiver cannot honour a restriction it was never told about.
+
+    `_egress_body` never sent `sync_class` and `_materialize` hard-coded it to
+    FULL, so a memory marked for redaction at its origin arrived on the next
+    device freely shareable — and every decision that device then made about
+    it, including what to pass on a third hop, rested on a class the memory
+    never had.
+    """
+    from aegis.memory.schema import SyncClass
+
+    assert SyncClass.strictest(SyncClass.FULL, SyncClass.REDACTED) is SyncClass.REDACTED
+    assert SyncClass.strictest(SyncClass.REDACTED, SyncClass.LOCAL_ONLY) is SyncClass.LOCAL_ONLY
+    assert SyncClass.strictest(SyncClass.FULL, SyncClass.FULL) is SyncClass.FULL
+    # Ordering must be total and in the safe direction.
+    ordered = sorted(SyncClass, key=lambda c: c.restriction)
+    assert ordered[0] is SyncClass.FULL and ordered[-1] is SyncClass.LOCAL_ONLY
+
+
+def test_http_mesh_link_reports_an_offline_radio_as_unreachable():
+    """Offline is a normal state, not an exception to be surprised by."""
+    import asyncio
+
+    from aegis.sync.meshlink import HttpMeshLink
+
+    link = HttpMeshLink()
+    link.register("device-B", "http://127.0.0.1:59999")
+    link.set_offline(True)
+
+    async def attempt():
+        with pytest.raises(ConnectionError):
+            await link.call("device-A", "device-B", "ping", {})
+        link.set_offline(False)
+        # Still unreachable, but for a transport reason rather than the radio.
+        with pytest.raises(ConnectionError):
+            await link.call("device-A", "device-B", "ping", {})
+        await link.close()
+
+    asyncio.run(attempt())
+    assert link.snapshot()["transport"] == "http"
+    assert link.dropped == 2
+
+
+def test_http_mesh_link_refuses_an_unknown_peer():
+    import asyncio
+
+    from aegis.sync.meshlink import HttpMeshLink
+
+    link = HttpMeshLink()
+
+    async def attempt():
+        with pytest.raises(ConnectionError):
+            await link.call("device-A", "nobody", "ping", {})
+        await link.close()
+
+    asyncio.run(attempt())

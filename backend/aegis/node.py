@@ -51,6 +51,7 @@ from .retrieval.query_understanding import QueryUnderstanding
 from .sync.crdt import Operation
 from .sync.engine import SyncEngine
 from .sync.gossip import GossipAgent, MeshLink
+from .sync.meshlink import HttpMeshLink
 from .sync.oracle import ConnectivityOracle
 from .sync.transport import build_transport
 
@@ -128,7 +129,11 @@ class EdgeNode:
         )
 
         # -- mesh (device-to-device, works with no cloud at all)
-        self.mesh_link = MeshLink()
+        # In-process by default, which is what the tests and a simulated fleet
+        # need. Set AEGIS_MESH_TRANSPORT=http and two real nodes gossip
+        # directly, with no coordinator and no cloud in the middle.
+        self.mesh_link = (HttpMeshLink() if self.settings.mesh_transport == "http"
+                          else MeshLink())
         self.mesh = GossipAgent(
             self.settings.node_id, self.mesh_link, self.bus,
             op_source=lambda: list(self.sync.oplog.ops),

@@ -44,6 +44,56 @@ ladder and actually dropping the link.
 | ![Offline](testlogs/images/05-offline-still-serving.png) | ![Reconnected](testlogs/images/06-reconnected.png) |
 | **Link down, still serving.** `OFFLINE`, sync `HOLDING`, and a query answered in **16.4 ms** from local memory. The event stream shows the ladder releasing itself: *"override released — evidence does not justify shedding"*. | **Reconnected.** Queued operations replay, divergence closes, and the restricted memory stays on the device — `held on device · local_only`. |
 
+
+### 1.1 USE mode — two real devices, one truth
+
+The console answers *is it working*. It never answers *what is it for*, so
+there is now a second mode that does, reached from **USE IT** in the header.
+
+| | |
+|---|---|
+| ![Capture](testlogs/images/07-use-capture.png) | ![Ask](testlogs/images/08-use-ask.png) |
+| **Capture.** Write what you just saw. The rail on the right shows what the node did with it — the id it assigned, the tier it placed it in, what the classifier made of it, and which policy rule decided whether it may ever leave. | **Ask.** A cited answer at **99% confidence in 16.5 ms, answered locally**. Every claim points at the memory it came from, and when conformal calibration puts the answer below its coverage threshold the node says it does not know instead. |
+| ![Offline](testlogs/images/09-use-offline.png) | ![Reconciled](testlogs/images/10-use-reconciled.png) |
+| **Radio pulled.** Device A's mesh link is off. It keeps capturing and keeps answering — local memory is authoritative, and the write queues. | **Reconciled.** The radio comes back and anti-entropy moves exactly the operations the other side was missing: `A → device-B ↑1`. |
+
+**The two devices are two real node processes**, not two tabs against one
+backend. They discover each other by endpoint, gossip directly, and reconcile
+over IBLT digests with **no cloud and no coordinator in between** — which is
+the part of the problem statement that is easiest to claim and hardest to
+show. `MeshLink` was always an in-process dispatch table with a docstring
+promising a real transport would swap in behind it; `aegis/sync/meshlink.py`
+is that transport, and nothing above it changed, because the seam
+(`call(sender, target, method, payload)`) was already an RPC with the wire
+left out. The peer on the other end receives it on
+`POST /api/v1/mesh/exchange` and hands it straight to its own `GossipAgent`,
+so both sides run one implementation of anti-entropy, causal delivery and
+policy filtering rather than two that have to be kept in step.
+
+**Every action shows its own machinery.** That is the point of the split: a
+memory saved on the left produces, on the right, the policy rule that judged
+it and the handling class it was given; a search produces the per-stage
+timings — understand, embed, plan, dense, sparse, fuse, rerank — and says so
+when it repaired your spelling against the local vocabulary, or when an
+inferred narrowing matched nothing and was dropped rather than allowed to
+return an empty page.
+
+Run both devices:
+
+```bash
+cd backend
+AEGIS_DATA_DIR=/tmp/devA AEGIS_NODE_ID=device-A AEGIS_MESH_TRANSPORT=http \
+  uvicorn aegis.main:app --port 8201 &
+AEGIS_DATA_DIR=/tmp/devB AEGIS_NODE_ID=device-B AEGIS_MESH_TRANSPORT=http \
+  uvicorn aegis.main:app --port 8202 &
+cd ../frontend && python3 -m http.server 5173
+```
+
+Then open `http://localhost:5173`, choose **USE IT**, and press **PAIR
+DEVICES**. The console's own endpoint is still `window.AEGIS_API`; the pair is
+`window.AEGIS_DEVICES`.
+
+
 ---
 
 ## 2. Measured, not claimed
@@ -639,6 +689,8 @@ local simulation when the backend is absent.
 | `GET` | `/api/v1/audit` | Hash-chained audit entries + chain verification |
 | `GET` | `/api/v1/metrics` | Prometheus exposition (`/metrics/json` for the raw snapshot) |
 | `GET` | `/api/v1/sync/conflicts` | Conflict records and the human review queue |
+| `POST` | `/api/v1/mesh/exchange` | The receiving half of the mesh, when the peer is another device |
+| `POST` | `/api/v1/mesh/offline` | Pull this device's radio, or put it back |
 | `GET` | `/api/v1/space` | The embedding space: pooling, fitted geometry, lexicon, gate history |
 | `GET` | `/api/v1/space/anisotropy` | Measured conditioning of the stored vectors |
 | `POST` | `/api/v1/space/evaluate` | Score candidate spaces against the shipped one — measures, never arms |
@@ -770,6 +822,9 @@ Point it at a live backend:
 - [x] Corpus-fitted embedding geometry — streaming covariance, Ledoit–Wolf shrinkage, rank-limited whitening
 - [x] Adaptation gate — paraphrase probes from the node's own memories, paired-bootstrap significance
 - [x] Index strategy bake-off (`scripts/strategy_bakeoff.py`) — cost model corrected against it
+- [x] USE mode — the product beside its own machinery, with the causal link between them
+- [x] Mesh over HTTP — two real node processes gossiping directly, no cloud, no coordinator
+- [x] Handling class travels with a memory; a receiver can no longer relax it
 - [ ] Multi-modal named vector spaces (schema supports them; encoders pending)
 - [ ] Mesh convergence past 36/50 peers in six waves — under investigation
 - [ ] Soak phase cannot yet separate a leak from legitimate corpus growth

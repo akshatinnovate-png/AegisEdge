@@ -127,6 +127,10 @@ class SyncEngine:
             "created_at": point.created_at, "confidence": point.confidence,
             "sensitivity": point.sensitivity.value, "model_version": point.model_version,
             "device_id": point.device_id, "redacted": redacted,
+            # The handling class travels with the memory. Without it the
+            # receiver cannot honour a restriction it was never told about,
+            # and re-labels everything it accepts as freely shareable.
+            "sync_class": point.sync_class.value,
         }
 
     # -- the cycle ---------------------------------------------------------
@@ -289,7 +293,16 @@ class SyncEngine:
             sparse={int(k): float(v) for k, v in (body.get("sparse") or {}).items()},
             payload=body.get("payload", {}), confidence=float(body.get("confidence", 0.9)),
             sensitivity=Sensitivity(body.get("sensitivity", "internal")),
-            sync_class=SyncClass.FULL, model_version=body.get("model_version", ""),
+            # Never less restrictive than the sender said. Hard-coding FULL
+            # here meant a memory marked for redaction at its origin arrived
+            # freely shareable, so the next hop made its decisions on a class
+            # the memory never had. Older peers omit the field; absent it, the
+            # sender's own egress rules already applied, so FULL is the right
+            # floor and the local policy may still tighten it.
+            sync_class=SyncClass.strictest(
+                SyncClass(body.get("sync_class", SyncClass.FULL.value)),
+                SyncClass.FULL),
+            model_version=body.get("model_version", ""),
             device_id=body.get("device_id", op.device_id), hlc=op.hlc,
             source="fleet", created_at=body.get("created_at", time.time()),
         )

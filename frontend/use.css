@@ -1,0 +1,118 @@
+/* ============================================================
+   USE mode — the product, not the dashboard.
+   The console answers "is it working". This answers "what is it
+   for", and puts the machinery next to the action that caused it
+   so neither has to be taken on trust.
+   ============================================================ */
+
+.mode-switch{display:flex;gap:0;border:1px solid var(--line);border-radius:2px;overflow:hidden}
+.mode-switch button{background:transparent;border:0;color:var(--dim);font:600 11px/1 var(--mono);
+  letter-spacing:.18em;padding:9px 16px;cursor:pointer;transition:.18s}
+.mode-switch button[aria-pressed="true"]{background:var(--orange);color:#0a0705}
+.mode-switch button:hover:not([aria-pressed="true"]){color:var(--ink)}
+
+#use{display:none}
+body[data-mode="use"] #use{display:block}
+/* USE mode is the product. The pitch and the dashboard both step aside:
+   somebody holding the thing does not need to be sold it. */
+body[data-mode="use"] #console,
+body[data-mode="use"] .hero{display:none}
+body[data-mode="use"] #use{padding-top:28px}  /* clear the sticky top bar */
+
+.field{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:22px;align-items:start}
+@media (max-width:1100px){.field{grid-template-columns:minmax(0,1fr)}}
+
+/* ── devices ─────────────────────────────────────────── */
+.devices{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:22px}
+@media (max-width:720px){.devices{grid-template-columns:1fr}}
+.device{border:1px solid var(--line);padding:14px 16px;position:relative;background:
+  linear-gradient(180deg,rgba(255,122,26,.045),transparent 70%)}
+.device[data-active="true"]{border-color:var(--orange)}
+.device[data-active="true"]::before{content:"";position:absolute;inset:-1px auto auto -1px;
+  width:26px;height:2px;background:var(--orange)}
+.device__top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.device__name{font:800 13px/1 var(--display);letter-spacing:.12em}
+.device__id{font:400 10px/1 var(--mono);color:var(--dim);letter-spacing:.1em}
+.device__row{display:flex;justify-content:space-between;font:400 11px/1.9 var(--mono);color:var(--dim)}
+.device__row b{color:var(--ink);font-weight:500}
+.device__actions{display:flex;gap:8px;margin-top:10px}
+.device__actions button{flex:1;background:transparent;border:1px solid var(--line);color:var(--dim);
+  font:500 10px/1 var(--mono);letter-spacing:.12em;padding:8px;cursor:pointer;transition:.18s}
+.device__actions button:hover{border-color:var(--orange);color:var(--orange)}
+
+/* the plug-pull */
+.radio{display:flex;align-items:center;gap:9px;cursor:pointer;user-select:none}
+.radio input{position:absolute;opacity:0;pointer-events:none}
+.radio__track{width:40px;height:20px;border:1px solid var(--line);border-radius:11px;
+  position:relative;transition:.22s;background:rgba(0,0,0,.4)}
+.radio__track::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;
+  border-radius:50%;background:var(--dim);transition:.22s}
+.radio input:checked + .radio__track{border-color:var(--orange);background:rgba(255,122,26,.16)}
+.radio input:checked + .radio__track::after{left:22px;background:var(--orange);
+  box-shadow:0 0 10px rgba(255,122,26,.7)}
+.radio__label{font:500 10px/1 var(--mono);letter-spacing:.12em;color:var(--dim)}
+.radio input:checked ~ .radio__label{color:var(--orange)}
+
+/* ── the working surface ─────────────────────────────── */
+.tabs{display:flex;gap:2px;margin-bottom:14px;border-bottom:1px solid var(--line)}
+.tabs button{background:transparent;border:0;border-bottom:2px solid transparent;color:var(--dim);
+  font:600 11px/1 var(--mono);letter-spacing:.16em;padding:11px 16px;cursor:pointer;transition:.18s}
+.tabs button[aria-selected="true"]{color:var(--orange);border-bottom-color:var(--orange)}
+.pane{display:none}.pane[data-open="true"]{display:block}
+
+.compose textarea{width:100%;min-height:104px;background:rgba(0,0,0,.45);border:1px solid var(--line);
+  color:var(--ink);font:400 13px/1.7 var(--mono);padding:13px 15px;resize:vertical;outline:none}
+.compose textarea:focus{border-color:var(--orange)}
+.compose__bar{display:flex;gap:10px;margin-top:10px;flex-wrap:wrap}
+.compose select{background:rgba(0,0,0,.45);border:1px solid var(--line);color:var(--ink);
+  font:400 11px/1 var(--mono);padding:10px 12px;outline:none;letter-spacing:.08em}
+.btn{background:var(--orange);border:0;color:#0a0705;font:700 11px/1 var(--mono);letter-spacing:.16em;
+  padding:11px 22px;cursor:pointer;transition:.18s}
+.btn:hover{filter:brightness(1.12)}
+.btn--ghost{background:transparent;border:1px solid var(--line);color:var(--dim)}
+.btn--ghost:hover{border-color:var(--orange);color:var(--orange)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+
+.answer{border-left:2px solid var(--orange);padding:14px 16px;background:rgba(255,122,26,.05);
+  margin-top:16px}
+.answer__text{font:400 14px/1.75 var(--mono);color:var(--ink)}
+.answer__meta{display:flex;gap:18px;margin-top:11px;font:400 10px/1 var(--mono);
+  letter-spacing:.1em;color:var(--dim);flex-wrap:wrap}
+.answer--abstain{border-left-color:var(--warn,#d8a03a);background:rgba(216,160,58,.06)}
+.cite{border-left:1px solid var(--line);padding:9px 13px;margin-top:9px}
+.cite__head{display:flex;justify-content:space-between;font:400 9.5px/1 var(--mono);
+  letter-spacing:.12em;color:var(--dim)}
+.cite__text{font:400 12px/1.65 var(--mono);color:var(--ink);margin-top:6px}
+
+.hits{margin-top:8px}
+.hit{border-left:2px solid var(--line);padding:10px 14px;margin-top:9px;cursor:pointer;transition:.18s}
+.hit:hover{border-left-color:var(--orange);background:rgba(255,122,26,.04)}
+.hit__head{display:flex;justify-content:space-between;gap:12px;font:400 9.5px/1 var(--mono);
+  letter-spacing:.12em;color:var(--dim)}
+.hit__text{font:400 12.5px/1.65 var(--mono);color:var(--ink);margin-top:6px}
+
+/* ── the rail: what the machine just did ─────────────── */
+.tracerail{border:1px solid var(--line);padding:0;position:sticky;top:18px}
+.trace__head{padding:12px 15px;border-bottom:1px solid var(--line);
+  font:600 10px/1 var(--mono);letter-spacing:.2em;color:var(--orange)}
+.trace__body{max-height:74vh;overflow:auto}
+.trace__empty{padding:22px 15px;font:400 11px/1.8 var(--mono);color:var(--dim)}
+.step{padding:12px 15px;border-bottom:1px solid rgba(255,255,255,.05)}
+.step__what{font:600 10px/1 var(--mono);letter-spacing:.14em;color:var(--orange);margin-bottom:8px}
+.step__row{display:flex;justify-content:space-between;gap:12px;font:400 11px/1.9 var(--mono);color:var(--dim)}
+.step__row b{color:var(--ink);font-weight:500;text-align:right;word-break:break-word}
+.step__note{font:400 10.5px/1.7 var(--mono);color:var(--dim);margin-top:8px;
+  border-left:1px solid var(--line);padding-left:9px}
+.step__note em{color:var(--orange);font-style:normal}
+
+/* per-stage pipeline bars */
+.stage{display:grid;grid-template-columns:78px 1fr 52px;gap:8px;align-items:center;
+  font:400 10px/1 var(--mono);color:var(--dim);margin-top:5px}
+.stage__bar{height:4px;background:rgba(255,255,255,.06)}
+.stage__fill{height:100%;background:var(--orange)}
+.stage__ms{text-align:right;color:var(--ink)}
+
+.badge{display:inline-block;padding:3px 7px;border:1px solid var(--line);font:500 9px/1.3 var(--mono);
+  letter-spacing:.1em;color:var(--dim)}
+.badge--hold{border-color:var(--orange);color:var(--orange)}
+.badge--ok{border-color:#3f7d52;color:#6fbf85}

@@ -92,6 +92,10 @@ class Settings:
     telemetry_interval_s: float = field(default_factory=lambda: _env("telemetry_interval_s", 2.0))
     scheduler_concurrency: int = field(default_factory=lambda: _env("scheduler_concurrency", 3))
     mesh_enabled: bool = field(default_factory=lambda: _env("mesh_enabled", True))
+    # "memory" — peers are in-process (tests, simulated fleets).
+    # "http"   — peers are other node processes, reached directly.
+    mesh_transport: str = field(default_factory=lambda: _env("mesh_transport", "memory"))
+    node_endpoint: str = field(default_factory=lambda: _env("node_endpoint", ""))
     mesh_interval_s: float = field(default_factory=lambda: _env("mesh_interval_s", 15.0))
     archive_interval_s: float = field(default_factory=lambda: _env("archive_interval_s", 45.0))
     scrub_interval_s: float = field(default_factory=lambda: _env("scrub_interval_s", 120.0))
