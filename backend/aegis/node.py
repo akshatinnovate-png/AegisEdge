@@ -11,6 +11,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from .chaos.faults import ChaosController
 from .config import Settings, get_settings
 from .core.bus import EventBus
@@ -92,6 +94,11 @@ class EdgeNode:
         )
         self.triton = TritonClient(url=None)
         self.understanding = QueryUnderstanding()
+        # A bounded window of recent text, kept so the adaptation gate has a
+        # corpus to build its probe task from without re-reading the store.
+        self._corpus_sample: list[str] = []
+        self._corpus_sample_cap = 4000
+        self._last_space_review = 0.0
         self.conformal = ConformalPredictor(alpha=self.settings.conformal_alpha)
         self.diversity = MaximalMarginalRelevance()
         self.adapter = RetrievalAdapter(self.settings.memory.dim,
@@ -241,7 +248,37 @@ class EdgeNode:
                 message=(f"index for <b>{migration['collection']}</b> rebuilt as "
                          f"<b>{migration['to']}</b> · {migration['points']:,} points "
                          f"in {migration['seconds']:.1f}s"))
-        return {**report, "migrations": migrations}
+        adaptation = await self._reassess_space()
+        return {**report, "migrations": migrations,
+                **({"adaptation": adaptation} if adaptation else {})}
+
+    async def _reassess_space(self) -> dict[str, Any] | None:
+        """Ask whether this device's embedding space could be a better one.
+
+        Runs at most once per `space_review_interval_s`, on the maintenance
+        lane, over text already in the store. It only ever *recommends*:
+        arming a transform changes the dimension of every vector, so the
+        migration is the renewal engine's job and a human's call, not a
+        side effect of a compaction tick.
+        """
+        interval = self.settings.space_review_interval_s
+        if interval <= 0 or len(self._corpus_sample) < self.embedder.gate.min_documents:
+            return None
+        now = time.time()
+        if now - self._last_space_review < interval:
+            return None
+        self._last_space_review = now
+        self.embedder.observe(self._corpus_sample[-2000:])
+        report = await asyncio.to_thread(
+            self.embedder.self_evaluate, list(self._corpus_sample), 300, False)
+        decision = report.get("decision")
+        if decision and decision.get("adopted"):
+            self.bus.publish(
+                "inference", "space_recommendation", **decision,
+                message=(f"a corpus-fitted embedding space beat the shipped one by "
+                         f"<b>{decision['delta']:+.4f}</b> MRR on "
+                         f"{decision['probes']} probes — migration required to adopt"))
+        return report
 
     async def _mesh_loop(self) -> None:
         while True:
@@ -322,6 +359,15 @@ class EdgeNode:
                                         source=source, tenant_id=tenant_id)
         op = self.sync.record_local(point)
         self.understanding.observe(text)                  # vocabulary + co-occurrence
+        # Corpus statistics for the on-device adaptations. Both are O(1)-ish
+        # here — a counter bump and a rank-1 update — and the expensive parts
+        # (eigendecomposition, the probe evaluation) run on the maintenance
+        # lane where the scheduler can shed them.
+        self._corpus_sample.append(text)
+        if len(self._corpus_sample) > self._corpus_sample_cap:
+            del self._corpus_sample[: len(self._corpus_sample) - self._corpus_sample_cap]
+        if point.dense:
+            self.embedder.observe_vectors(np.asarray(point.dense, dtype=np.float32))
         if op is not None and self.settings.mesh_enabled:
             self.mesh.note_local(op)
         self.pipeline.cache.invalidate()

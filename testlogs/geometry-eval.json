@@ -1,0 +1,511 @@
+{
+  "model": "l2_supercat_256",
+  "dim": 256,
+  "documents": 6000,
+  "queries": 500,
+  "paraphrase_keep": 0.55,
+  "configurations": [
+    {
+      "name": "raw (as shipped)",
+      "geometry": {
+        "measurable": true,
+        "sampled": 2048,
+        "dim": 256,
+        "mean_random_pair_cosine": 0.2801,
+        "top1_variance_share": 0.0701,
+        "top10_variance_share": 0.4874,
+        "effective_rank": 35.1,
+        "effective_rank_ratio": 0.1372,
+        "condition_number": 50801942528.0,
+        "verdict": "strongly anisotropic \u2014 cosine is dominated by a common component"
+      },
+      "retrieval": {
+        "recall_at_1": 0.448,
+        "mrr_at_10": 0.5569
+      },
+      "quantization": {
+        "rabitq_recall_top1k": 0.725,
+        "signbit_recall_top1k": 0.5933,
+        "rabitq_recall_top2k": 0.93,
+        "signbit_recall_top2k": 0.7967,
+        "rabitq_recall_top6k": 0.9967,
+        "signbit_recall_top6k": 0.9383,
+        "adaptive_shortlist_mean": 250.6,
+        "adaptive_shortlist_share": 0.0418,
+        "bytes_per_vector": 40
+      }
+    },
+    {
+      "name": "whitened drop=0 energy=0.95",
+      "version": {
+        "id": "eb5d7694842a36fa",
+        "fitted_at": 1790243884.2233236,
+        "samples": 6000,
+        "in_dim": 256,
+        "out_dim": 37,
+        "dropped_components": 0,
+        "shrinkage": 0.0053,
+        "energy_retained": 0.9511
+      },
+      "rank": 37,
+      "geometry": {
+        "measurable": true,
+        "sampled": 2048,
+        "dim": 37,
+        "mean_random_pair_cosine": 0.0039,
+        "top1_variance_share": 0.0345,
+        "top10_variance_share": 0.315,
+        "effective_rank": 36.7,
+        "effective_rank_ratio": 0.9913,
+        "condition_number": 1.7,
+        "verdict": "isotropic \u2014 whitening has little left to recover"
+      },
+      "retrieval": {
+        "recall_at_1": 0.428,
+        "mrr_at_10": 0.5369
+      },
+      "quantization": {
+        "rabitq_recall_top1k": 0.445,
+        "signbit_recall_top1k": 0.3217,
+        "rabitq_recall_top2k": 0.64,
+        "signbit_recall_top2k": 0.4683,
+        "rabitq_recall_top6k": 0.89,
+        "signbit_recall_top6k": 0.6967,
+        "adaptive_shortlist_mean": 1775.5,
+        "adaptive_shortlist_share": 0.2959,
+        "bytes_per_vector": 13
+      },
+      "nested_ladder": [
+        {
+          "dims": 8,
+          "energy_retained": 0.4108,
+          "bytes_per_vector": 32,
+          "compression": 32.0
+        },
+        {
+          "dims": 16,
+          "energy_retained": 0.6572,
+          "bytes_per_vector": 64,
+          "compression": 16.0
+        },
+        {
+          "dims": 32,
+          "energy_retained": 0.911,
+          "bytes_per_vector": 128,
+          "compression": 8.0
+        }
+      ]
+    },
+    {
+      "name": "whitened drop=1 energy=0.95",
+      "version": {
+        "id": "3c221fdb55854170",
+        "fitted_at": 1790243884.703341,
+        "samples": 6000,
+        "in_dim": 256,
+        "out_dim": 255,
+        "dropped_components": 1,
+        "shrinkage": 0.0053,
+        "energy_retained": 0.9289
+      },
+      "rank": 255,
+      "geometry": {
+        "measurable": true,
+        "sampled": 2048,
+        "dim": 255,
+        "mean_random_pair_cosine": 0.0018,
+        "top1_variance_share": 0.0273,
+        "top10_variance_share": 0.2471,
+        "effective_rank": 48.5,
+        "effective_rank_ratio": 0.19,
+        "condition_number": 27330846720.0,
+        "verdict": "strongly anisotropic \u2014 cosine is dominated by a common component"
+      },
+      "retrieval": {
+        "recall_at_1": 0.476,
+        "mrr_at_10": 0.5836
+      },
+      "quantization": {
+        "rabitq_recall_top1k": 0.045,
+        "signbit_recall_top1k": 0.0517,
+        "rabitq_recall_top2k": 0.0883,
+        "signbit_recall_top2k": 0.0883,
+        "rabitq_recall_top6k": 0.1583,
+        "signbit_recall_top6k": 0.18,
+        "adaptive_shortlist_mean": 5786.5,
+        "adaptive_shortlist_share": 0.9644,
+        "bytes_per_vector": 40
+      },
+      "nested_ladder": [
+        {
+          "dims": 8,
+          "energy_retained": 0.377,
+          "bytes_per_vector": 32,
+          "compression": 32.0
+        },
+        {
+          "dims": 16,
+          "energy_retained": 0.609,
+          "bytes_per_vector": 64,
+          "compression": 16.0
+        },
+        {
+          "dims": 32,
+          "energy_retained": 0.8498,
+          "bytes_per_vector": 128,
+          "compression": 8.0
+        },
+        {
+          "dims": 64,
+          "energy_retained": 0.925,
+          "bytes_per_vector": 256,
+          "compression": 4.0
+        },
+        {
+          "dims": 128,
+          "energy_retained": 0.9263,
+          "bytes_per_vector": 512,
+          "compression": 2.0
+        },
+        {
+          "dims": 192,
+          "energy_retained": 0.9276,
+          "bytes_per_vector": 768,
+          "compression": 1.33
+        }
+      ]
+    },
+    {
+      "name": "whitened drop=2 energy=0.95",
+      "version": {
+        "id": "d58ab4aabe029494",
+        "fitted_at": 1790243886.3727353,
+        "samples": 6000,
+        "in_dim": 256,
+        "out_dim": 254,
+        "dropped_components": 2,
+        "shrinkage": 0.0053,
+        "energy_retained": 0.8697
+      },
+      "rank": 254,
+      "geometry": {
+        "measurable": true,
+        "sampled": 2048,
+        "dim": 254,
+        "mean_random_pair_cosine": 0.0017,
+        "top1_variance_share": 0.0278,
+        "top10_variance_share": 0.2519,
+        "effective_rank": 47.5,
+        "effective_rank_ratio": 0.1869,
+        "condition_number": 27816445952.0,
+        "verdict": "strongly anisotropic \u2014 cosine is dominated by a common component"
+      },
+      "retrieval": {
+        "recall_at_1": 0.466,
+        "mrr_at_10": 0.5763
+      },
+      "quantization": {
+        "rabitq_recall_top1k": 0.0467,
+        "signbit_recall_top1k": 0.0383,
+        "rabitq_recall_top2k": 0.0833,
+        "signbit_recall_top2k": 0.0833,
+        "rabitq_recall_top6k": 0.15,
+        "signbit_recall_top6k": 0.17,
+        "adaptive_shortlist_mean": 5808.8,
+        "adaptive_shortlist_share": 0.9681,
+        "bytes_per_vector": 40
+      },
+      "nested_ladder": [
+        {
+          "dims": 8,
+          "energy_retained": 0.3537,
+          "bytes_per_vector": 32,
+          "compression": 32.0
+        },
+        {
+          "dims": 16,
+          "energy_retained": 0.5718,
+          "bytes_per_vector": 64,
+          "compression": 16.0
+        },
+        {
+          "dims": 32,
+          "energy_retained": 0.7991,
+          "bytes_per_vector": 128,
+          "compression": 8.0
+        },
+        {
+          "dims": 64,
+          "energy_retained": 0.8658,
+          "bytes_per_vector": 256,
+          "compression": 4.0
+        },
+        {
+          "dims": 128,
+          "energy_retained": 0.8671,
+          "bytes_per_vector": 512,
+          "compression": 2.0
+        },
+        {
+          "dims": 192,
+          "energy_retained": 0.8684,
+          "bytes_per_vector": 768,
+          "compression": 1.33
+        }
+      ]
+    },
+    {
+      "name": "whitened drop=0 energy=0.99",
+      "version": {
+        "id": "ef9dd29ada6a6170",
+        "fitted_at": 1790243887.740698,
+        "samples": 6000,
+        "in_dim": 256,
+        "out_dim": 46,
+        "dropped_components": 0,
+        "shrinkage": 0.0053,
+        "energy_retained": 0.9901
+      },
+      "rank": 46,
+      "geometry": {
+        "measurable": true,
+        "sampled": 2048,
+        "dim": 46,
+        "mean_random_pair_cosine": 0.0037,
+        "top1_variance_share": 0.0283,
+        "top10_variance_share": 0.2613,
+        "effective_rank": 45.5,
+        "effective_rank_ratio": 0.9893,
+        "condition_number": 1.8,
+        "verdict": "isotropic \u2014 whitening has little left to recover"
+      },
+      "retrieval": {
+        "recall_at_1": 0.488,
+        "mrr_at_10": 0.6059
+      },
+      "quantization": {
+        "rabitq_recall_top1k": 0.4867,
+        "signbit_recall_top1k": 0.3317,
+        "rabitq_recall_top2k": 0.69,
+        "signbit_recall_top2k": 0.4583,
+        "rabitq_recall_top6k": 0.8933,
+        "signbit_recall_top6k": 0.675,
+        "adaptive_shortlist_mean": 1727.6,
+        "adaptive_shortlist_share": 0.2879,
+        "bytes_per_vector": 14
+      },
+      "nested_ladder": [
+        {
+          "dims": 8,
+          "energy_retained": 0.4108,
+          "bytes_per_vector": 32,
+          "compression": 32.0
+        },
+        {
+          "dims": 16,
+          "energy_retained": 0.6572,
+          "bytes_per_vector": 64,
+          "compression": 16.0
+        },
+        {
+          "dims": 32,
+          "energy_retained": 0.911,
+          "bytes_per_vector": 128,
+          "compression": 8.0
+        }
+      ]
+    },
+    {
+      "name": "whitened drop=1 energy=0.99",
+      "version": {
+        "id": "3c221fdb55854170",
+        "fitted_at": 1790243888.2304776,
+        "samples": 6000,
+        "in_dim": 256,
+        "out_dim": 255,
+        "dropped_components": 1,
+        "shrinkage": 0.0053,
+        "energy_retained": 0.9289
+      },
+      "rank": 255,
+      "geometry": {
+        "measurable": true,
+        "sampled": 2048,
+        "dim": 255,
+        "mean_random_pair_cosine": 0.0018,
+        "top1_variance_share": 0.0273,
+        "top10_variance_share": 0.2471,
+        "effective_rank": 48.5,
+        "effective_rank_ratio": 0.19,
+        "condition_number": 27330846720.0,
+        "verdict": "strongly anisotropic \u2014 cosine is dominated by a common component"
+      },
+      "retrieval": {
+        "recall_at_1": 0.476,
+        "mrr_at_10": 0.5836
+      },
+      "quantization": {
+        "rabitq_recall_top1k": 0.045,
+        "signbit_recall_top1k": 0.0517,
+        "rabitq_recall_top2k": 0.0883,
+        "signbit_recall_top2k": 0.0883,
+        "rabitq_recall_top6k": 0.1583,
+        "signbit_recall_top6k": 0.18,
+        "adaptive_shortlist_mean": 5786.5,
+        "adaptive_shortlist_share": 0.9644,
+        "bytes_per_vector": 40
+      },
+      "nested_ladder": [
+        {
+          "dims": 8,
+          "energy_retained": 0.377,
+          "bytes_per_vector": 32,
+          "compression": 32.0
+        },
+        {
+          "dims": 16,
+          "energy_retained": 0.609,
+          "bytes_per_vector": 64,
+          "compression": 16.0
+        },
+        {
+          "dims": 32,
+          "energy_retained": 0.8498,
+          "bytes_per_vector": 128,
+          "compression": 8.0
+        },
+        {
+          "dims": 64,
+          "energy_retained": 0.925,
+          "bytes_per_vector": 256,
+          "compression": 4.0
+        },
+        {
+          "dims": 128,
+          "energy_retained": 0.9263,
+          "bytes_per_vector": 512,
+          "compression": 2.0
+        },
+        {
+          "dims": 192,
+          "energy_retained": 0.9276,
+          "bytes_per_vector": 768,
+          "compression": 1.33
+        }
+      ]
+    },
+    {
+      "name": "whitened drop=0 energy=0.9",
+      "version": {
+        "id": "0693e6a366363815",
+        "fitted_at": 1790243889.7082205,
+        "samples": 6000,
+        "in_dim": 256,
+        "out_dim": 31,
+        "dropped_components": 0,
+        "shrinkage": 0.0053,
+        "energy_retained": 0.9001
+      },
+      "rank": 31,
+      "geometry": {
+        "measurable": true,
+        "sampled": 2048,
+        "dim": 31,
+        "mean_random_pair_cosine": 0.0048,
+        "top1_variance_share": 0.0413,
+        "top10_variance_share": 0.3703,
+        "effective_rank": 30.8,
+        "effective_rank_ratio": 0.9925,
+        "condition_number": 1.6,
+        "verdict": "isotropic \u2014 whitening has little left to recover"
+      },
+      "retrieval": {
+        "recall_at_1": 0.358,
+        "mrr_at_10": 0.466
+      },
+      "quantization": {
+        "rabitq_recall_top1k": 0.445,
+        "signbit_recall_top1k": 0.3117,
+        "rabitq_recall_top2k": 0.6483,
+        "signbit_recall_top2k": 0.4567,
+        "rabitq_recall_top6k": 0.9133,
+        "signbit_recall_top6k": 0.6667,
+        "adaptive_shortlist_mean": 1933.4,
+        "adaptive_shortlist_share": 0.3222,
+        "bytes_per_vector": 12
+      },
+      "nested_ladder": [
+        {
+          "dims": 8,
+          "energy_retained": 0.4108,
+          "bytes_per_vector": 32,
+          "compression": 32.0
+        },
+        {
+          "dims": 16,
+          "energy_retained": 0.6572,
+          "bytes_per_vector": 64,
+          "compression": 16.0
+        }
+      ]
+    },
+    {
+      "name": "whitened drop=1 energy=0.8",
+      "version": {
+        "id": "48ad5dceeba8f788",
+        "fitted_at": 1790243890.1579442,
+        "samples": 6000,
+        "in_dim": 256,
+        "out_dim": 28,
+        "dropped_components": 1,
+        "shrinkage": 0.0053,
+        "energy_retained": 0.8055
+      },
+      "rank": 28,
+      "geometry": {
+        "measurable": true,
+        "sampled": 2048,
+        "dim": 28,
+        "mean_random_pair_cosine": 0.0048,
+        "top1_variance_share": 0.0451,
+        "top10_variance_share": 0.4045,
+        "effective_rank": 27.8,
+        "effective_rank_ratio": 0.9931,
+        "condition_number": 1.5,
+        "verdict": "isotropic \u2014 whitening has little left to recover"
+      },
+      "retrieval": {
+        "recall_at_1": 0.344,
+        "mrr_at_10": 0.4467
+      },
+      "quantization": {
+        "rabitq_recall_top1k": 0.4533,
+        "signbit_recall_top1k": 0.2867,
+        "rabitq_recall_top2k": 0.67,
+        "signbit_recall_top2k": 0.4317,
+        "rabitq_recall_top6k": 0.8867,
+        "signbit_recall_top6k": 0.65,
+        "adaptive_shortlist_mean": 2232.9,
+        "adaptive_shortlist_share": 0.3722,
+        "bytes_per_vector": 12
+      },
+      "nested_ladder": [
+        {
+          "dims": 8,
+          "energy_retained": 0.377,
+          "bytes_per_vector": 32,
+          "compression": 32.0
+        },
+        {
+          "dims": 16,
+          "energy_retained": 0.609,
+          "bytes_per_vector": 64,
+          "compression": 16.0
+        }
+      ]
+    }
+  ],
+  "best": "whitened drop=0 energy=0.99",
+  "mrr_lift_over_raw": 0.049,
+  "verdict": "adopt: whitened drop=0 energy=0.99"
+}

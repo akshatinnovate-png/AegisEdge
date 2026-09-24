@@ -128,6 +128,13 @@ class OnnxSession:
         self.active_provider = self.session.get_providers()[0]
         self.runs = 0
         self.tokens_seen = 0
+        # Optional token weighting. The pooling graph computes
+        # sum(embeddings * mask) / sum(mask), so handing it real-valued
+        # weights in place of the 0/1 mask turns its masked mean into a
+        # weighted mean — Smooth Inverse Frequency pooling, exactly, with no
+        # change to the graph and no second artefact to keep in step.
+        self.weighting: Any | None = None
+        self.weighted_runs = 0
 
     # -- inference --------------------------------------------------------
 
@@ -137,7 +144,12 @@ class OnnxSession:
             return np.zeros((0, self.dim), dtype=np.float32)
         ids, mask = self.tokenizer.encode(texts)
         self.runs += 1
-        self.tokens_seen += int(mask.sum())
+        self.tokens_seen += int((mask > 0).sum())
+        if self.weighting is not None:
+            weights = self.weighting.weights(ids, mask)
+            if weights is not None and weights.shape == mask.shape:
+                mask = weights.astype(np.float32, copy=False)
+                self.weighted_runs += 1
         return self.session.run(None, {"input_ids": ids, "attention_mask": mask})[0]
 
     def token_embeddings(self, text: str) -> tuple[np.ndarray, list[str]]:
@@ -158,6 +170,8 @@ class OnnxSession:
             "graph": str(self.model_path), "optimized_cache": self._cache.exists(),
             "dim": self.dim, "vocab": self.tokenizer.vocab,
             "runs": self.runs, "tokens": self.tokens_seen,
+            "pooling": "sif-weighted" if self.weighting is not None else "masked mean",
+            "weighted_runs": self.weighted_runs,
         }
 
 

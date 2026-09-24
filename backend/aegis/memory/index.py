@@ -23,7 +23,8 @@ import numpy as np
 from .ann import AdaptiveVectorIndex, CostModel, Strategy
 from .filters import Filter, PayloadIndex
 from .planner import PlanKind, QueryPlan, QueryPlanner
-from .quantize import BinaryQuantizer, ScalarQuantizer
+from .quantize import ScalarQuantizer
+from .rabitq import ColdCodebook, RaBitQ, adaptive_shortlist
 from .schema import Tier
 from .vectors import VectorStorage
 
@@ -91,9 +92,15 @@ class CollectionIndex:
 
         self.tier_of: dict[str, Tier] = {}
         self.warm_codes: dict[str, tuple[np.ndarray, float]] = {}
-        self.cold_codes: dict[str, np.ndarray] = {}
+        # Cold codes are RaBitQ: packed bits plus the two scalars that make
+        # them an estimate rather than a proxy. Eight bytes per vector buys
+        # an error bound, and the bound is what sets the rescoring depth.
+        self.rabitq = RaBitQ(dim)
+        self.cold_codes = ColdCodebook(self.rabitq)
         self.rescored = 0
         self.cold_scans = 0
+        self.bounded_shortlists = 0
+        self.budget_capped = 0
         self.last_plan: QueryPlan | None = None
 
     # -- writes -----------------------------------------------------------
@@ -118,12 +125,15 @@ class CollectionIndex:
 
     def _encode_for(self, point_id: str, vector: np.ndarray, tier: Tier) -> None:
         self.warm_codes.pop(point_id, None)
-        self.cold_codes.pop(point_id, None)
+        self.cold_codes.pop(point_id)
         if tier is Tier.WARM:
             codes, scales = ScalarQuantizer.encode(vector.reshape(1, -1))
             self.warm_codes[point_id] = (codes[0], float(scales[0][0]))
         elif tier is Tier.COLD:
-            self.cold_codes[point_id] = BinaryQuantizer.encode(vector.reshape(1, -1))[0]
+            # The centroid tracks the corpus; a vector encoded against a stale
+            # one is still decodable, only less sharp, which `centroid_drift`
+            # reports so the maintenance lane can re-encode when it matters.
+            self.cold_codes.put(point_id, vector)
 
     def move(self, point_id: str, tier: Tier) -> bool:
         current = self.tier_of.get(point_id)
@@ -147,7 +157,7 @@ class CollectionIndex:
     def remove(self, point_id: str) -> None:
         self.tier_of.pop(point_id, None)
         self.warm_codes.pop(point_id, None)
-        self.cold_codes.pop(point_id, None)
+        self.cold_codes.pop(point_id)
         self.ann.remove(point_id)
         self.sparse.remove(point_id)
         self.payload.drop(point_id)
@@ -189,16 +199,40 @@ class CollectionIndex:
         return out
 
     def _search_cold(self, query: np.ndarray, k: int, allow: set[str] | None,
-                     oversample: int = 6) -> list[tuple[str, float]]:
-        """Scan 1-bit codes in RAM, then page in only the shortlist to rescore."""
-        ids = [p for p in self.cold_codes if allow is None or p in allow]
+                     budget: int | None = None) -> list[tuple[str, float]]:
+        """Scan 1-bit codes in RAM, then page in only what the bound cannot rule out.
+
+        The old shape of this was a fixed 6x over-fetch: scan, take the best
+        6k by an unbounded proxy score, rescore those. Six was a guess, and a
+        guess is the wrong thing to put between a query and its answer.
+
+        RaBitQ gives every candidate an unbiased estimate and a two-sided
+        error bound, so the shortlist is derived instead: the k-th largest
+        lower bound is a score the true top-k provably reaches, and anything
+        whose upper bound falls short of it cannot belong there and is never
+        fetched from disk. Easy queries collapse to a handful of reads;
+        ambiguous ones widen on their own, up to the budget the caller allows.
+        """
+        if len(self.cold_codes) == 0:
+            return []
+        if allow is None:
+            ids, codes = self.cold_codes.ids(), self.cold_codes.codes()
+        else:
+            ids, codes = self.cold_codes.subset(allow)
         if not ids:
             return []
         self.cold_scans += 1
-        codes = np.vstack([self.cold_codes[p] for p in ids])
-        approximate = BinaryQuantizer.similarity(
-            np.packbits(query > 0).reshape(1, -1), codes, self.dim)
-        shortlist = np.argsort(-approximate)[: min(len(ids), max(k * oversample, k))]
+        estimate, bound = self.rabitq.estimate(self.rabitq.prepare(query), codes)
+
+        ceiling = budget if budget is not None else max(k * 32, 256)
+        shortlist = adaptive_shortlist(estimate, bound, k, budget=ceiling)
+        self.bounded_shortlists += 1
+        if shortlist.size >= ceiling:
+            # The bound stopped being informative and the latency budget took
+            # over. Recorded, because a guarantee that silently lapsed is
+            # worse than never having claimed one.
+            self.budget_capped += 1
+
         wanted = [ids[i] for i in shortlist]
         vectors = self.storage.gather(wanted)               # the only disk touch
         exact = vectors @ query
@@ -227,13 +261,17 @@ class CollectionIndex:
 
     def snapshot(self) -> dict[str, Any]:
         counts = self.counts()
-        code_bytes = (len(self.warm_codes) * (self.dim + 4)) + (len(self.cold_codes) * self.dim // 8)
+        code_bytes = ((len(self.warm_codes) * (self.dim + 4))
+                      + self.cold_codes.nbytes)
         return {
             "collection": self.name, "points": len(self), "tiers": counts,
             "ann": self.ann.snapshot(), "sparse": self.sparse.snapshot(),
             "storage": self.storage.snapshot(), "payload": self.payload.snapshot(),
             "planner": {"plans": self.planner.plans, "by_kind": dict(self.planner.by_kind)},
             "code_bytes": code_bytes, "rescored": self.rescored, "cold_scans": self.cold_scans,
+            "cold_codec": self.rabitq.snapshot(),
+            "bounded_shortlists": self.bounded_shortlists,
+            "budget_capped": self.budget_capped,
             "last_plan": self.last_plan.as_dict() if self.last_plan else None,
         }
 

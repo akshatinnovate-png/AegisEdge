@@ -20,12 +20,14 @@ import numpy as np
 
 
 class GrowableMatrix:
-    __slots__ = ("dim", "_buffer", "_rows", "growth", "reallocations", "appends")
+    __slots__ = ("dim", "dtype", "_buffer", "_rows", "growth", "reallocations", "appends")
 
-    def __init__(self, dim: int, capacity: int = 1024, growth: float = 2.0) -> None:
+    def __init__(self, dim: int, capacity: int = 1024, growth: float = 2.0,
+                 dtype: np.dtype | type = np.float32) -> None:
         self.dim = dim
+        self.dtype = np.dtype(dtype)
         self.growth = growth
-        self._buffer = np.zeros((max(capacity, 1), dim), dtype=np.float32)
+        self._buffer = np.zeros((max(capacity, 1), dim), dtype=self.dtype)
         self._rows = 0
         self.reallocations = 0
         self.appends = 0
@@ -58,7 +60,7 @@ class GrowableMatrix:
         capacity = self.capacity
         while capacity < needed:
             capacity = max(int(capacity * self.growth), capacity + 1)
-        grown = np.zeros((capacity, self.dim), dtype=np.float32)
+        grown = np.zeros((capacity, self.dim), dtype=self.dtype)
         grown[: self._rows] = self.view
         self._buffer = grown
         self.reallocations += 1

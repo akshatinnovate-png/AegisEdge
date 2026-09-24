@@ -99,6 +99,10 @@ class Settings:
     slo_latency_ms: float = field(default_factory=lambda: _env("slo_latency_ms", 150.0))
     slo_success: float = field(default_factory=lambda: _env("slo_success", 0.995))
     conformal_alpha: float = field(default_factory=lambda: _env("conformal_alpha", 0.1))
+    # How often the node re-measures whether a corpus-fitted embedding space
+    # would beat the shipped one. Zero switches the review off entirely.
+    space_review_interval_s: float = field(
+        default_factory=lambda: _env("space_review_interval_s", 900.0))
     require_auth: bool = field(default_factory=lambda: _env("require_auth", False))
 
     memory: MemoryConfig = field(default_factory=MemoryConfig)

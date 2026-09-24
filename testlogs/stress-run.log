@@ -31,3 +31,8 @@
 
 [38;5;208m[1m[3] CORPUS SCALE — recall and latency as the index changes strategy[0m
 [2m──────────────────────────────────────────────────────────────────────────[0m
+    1,000 points                         [1mflat    recall 1.000  p95    0.23 ms  build   14.7s  rss 965 MB[0m
+    5,000 points                         [1mflat    recall 1.000  p95    0.46 ms  build   79.9s  rss 1159 MB[0m
+   20,000 points                         [1mflat    recall 1.000  p95    3.81 ms  build  478.5s  rss 1780 MB[0m
+/home/user/AegisEdge/backend/aegis/memory/vectorstore.py:257: UserWarning: Local mode is not recommended for collections with more than 20,000 points. Current collection contains 20001 points. Consider using Qdrant in Docker or Qdrant Cloud for better performance with large datasets.
+  self.client.upsert(
