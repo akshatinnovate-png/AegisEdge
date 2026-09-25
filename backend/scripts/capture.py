@@ -169,6 +169,35 @@ async function post(page, path, body) {
   await page.waitForTimeout(1500);
   await page.screenshot({ path: '%(out)s/06-reconnected.png' });
 
+  // PROVE IT's sixth card: the attacks, run against this very node. Captured
+  // after the refusals so the panel shows a verdict rather than its resting
+  // text — a screenshot of an unpressed button proves nothing.
+  await page.evaluate(() => document.querySelector('.mode-switch button[data-mode="prove"]')?.click());
+  await page.waitForTimeout(1200);
+  // Wait for the outcome rather than guessing a delay. The first attempt used
+  // a fixed 1200 ms and caught the panel mid-request, showing "sending..." —
+  // a screenshot of a spinner, which proves exactly nothing.
+  for (const kind of ['honest', 'tamper']) {
+    await page.click(`[data-attack="${kind}"]`);
+    await page.waitForFunction(
+      () => {
+        const v = document.getElementById('atkVerdict');
+        return v && !v.className.includes('verdict--wait');
+      },
+      undefined,
+      { timeout: 15000 });
+    await page.waitForTimeout(400);
+  }
+  // And wait for the node's own counters to arrive, so the panel is not
+  // captured with five dashes beside a verdict that claims something happened.
+  await page.waitForFunction(
+    () => document.getElementById('atkForged')?.textContent.trim() !== '\u2014',
+    undefined,
+    { timeout: 15000 }).catch(() => {});
+  await page.evaluate(() => document.getElementById('atkVerdict')?.scrollIntoView({ block: 'center' }));
+  await page.waitForTimeout(600);
+  await page.screenshot({ path: '%(out)s/07-a-peer-that-lies.png' });
+
   console.log(JSON.stringify({ errors }));
   await b.close();
 })();

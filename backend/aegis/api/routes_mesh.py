@@ -81,3 +81,101 @@ async def round_now(peers: int = 2, node: EdgeNode = Depends(get_node)) -> dict:
     if not node.mesh.peers:
         raise HTTPException(status_code=409, detail="no peers known to this node")
     return {"rounds": await node.mesh.round(peers), "mesh": node.mesh.snapshot()}
+
+
+class AttackRequest(BaseModel):
+    """Mount one of the attacks the simulator mounts, against this live node."""
+
+    kind: str = Field(description="tamper | impersonate | unsigned | honest")
+
+
+@router.post("/attack")
+async def attack(body: AttackRequest, node: EdgeNode = Depends(get_node)) -> dict:
+    """Try to get a forged operation into this node, and report what happened.
+
+    The deterministic simulator in `aegis/sim/` runs these against a simulated
+    fleet, which is where they were found. This route runs the same four cases
+    against the process actually serving this request, so the claim can be
+    checked without taking anybody's word for the simulation — including mine.
+
+    Nothing here is staged: each case builds a real `Operation`, encodes it with
+    the real wire codec and hands it to the real `GossipAgent.handle`, which is
+    the same entry point a peer device reaches over `/mesh/exchange`. The only
+    thing the route knows that a peer does not is the attacker's key, and it
+    uses it exactly as an attacker would — to sign in its own name while
+    claiming somebody else's.
+    """
+    from ..sync.crdt import OpKind, Operation
+    from ..sync.identity import DeviceIdentity
+
+    mesh = node.mesh
+    if mesh.identity is None:
+        raise HTTPException(status_code=409, detail="this node is not signing operations")
+
+    # The probe identities are created once per process and reused.
+    #
+    # Generating a fresh victim key on every request made the *second* call
+    # fail — the node had already learned a key for that name and refused the
+    # new one, which is trust-on-first-use doing precisely its job. Keeping
+    # them stable is what an actual pair of devices would do; regenerating them
+    # would be asking the node to accept an identity takeover in order to
+    # demonstrate that it refuses identity takeovers.
+    probes = getattr(node, "_attack_probes", None)
+    if probes is None:
+        probes = {"attacker": DeviceIdentity("edge-attacker"),
+                  "victim": DeviceIdentity("edge-victim")}
+        node._attack_probes = probes
+    attacker, author = probes["attacker"], probes["victim"]
+    mesh.identity.learn("edge-victim", author.public_key_b64)
+
+    original = Operation(kind=OpKind.UPSERT, point_id="attack-probe",
+                         device_id="edge-victim",
+                         body={"text": "dispatch the crew to grid 14",
+                               "sensitivity": "internal"})
+    original.sig = author.sign(original.as_dict())
+
+    if body.kind == "honest":
+        candidate, story = original, "an ordinary operation, signed by the device that wrote it"
+    elif body.kind == "tamper":
+        candidate = Operation.from_dict({**original.as_dict(),
+                                         "body": {**original.body,
+                                                  "text": "dispatch the crew to grid 41"}})
+        candidate.sig = original.sig          # the relay cannot re-sign; it reuses
+        story = "a relay forwarding somebody else's operation with the body rewritten"
+    elif body.kind == "impersonate":
+        candidate = Operation.from_dict({**original.as_dict(), "op_id": "",
+                                         "body": {"text": "stand down",
+                                                  "sensitivity": "internal"}})
+        candidate.op_id = original.op_id + "X"
+        candidate.sig = attacker.sign(candidate.as_dict())    # its own key, another's name
+        story = "an operation written in another device's name, signed with the attacker's key"
+    elif body.kind == "unsigned":
+        candidate = Operation.from_dict({**original.as_dict(), "sig": ""})
+        story = "an operation carrying no signature at all"
+    else:
+        raise HTTPException(status_code=400, detail=f"unknown attack {body.kind!r}")
+
+    before = {"forged": mesh.refused_forged, "policy": mesh.refused_inbound,
+              "verified": mesh.verified_ops}
+    mesh.known.pop(candidate.op_id, None)
+    frame = mesh.codec.encode([candidate.as_dict()])
+    result = await mesh.handle("edge-attacker", "push",
+                               {"frame": frame, "keys": {"edge-attacker":
+                                                         attacker.public_key_b64}})
+    accepted = bool(result.get("accepted"))
+    mesh.known.pop(candidate.op_id, None)
+
+    expected_accept = body.kind == "honest"
+    return {
+        "attack": body.kind,
+        "what_it_did": story,
+        "accepted": accepted,
+        "expected": "accepted" if expected_accept else "refused",
+        "correct": accepted == expected_accept,
+        "refused_as_forged": mesh.refused_forged - before["forged"],
+        "refused_by_policy": mesh.refused_inbound - before["policy"],
+        "verified": mesh.verified_ops - before["verified"],
+        "note": ("Run against the live node, through the same handler a peer device "
+                 "reaches. The honest case is here so a refusal of the other three "
+                 "cannot be a node that simply refuses everything."),
+    }

@@ -316,6 +316,43 @@ e.g. bay 3 conveyor vibration crossed 4.2 mm/s at 02:14, bearing signature match
         <div id="ttDiff"></div>
       </div>
     </div>
+
+    <div class="proof">
+      <div class="proof__head">
+        <span class="proof__title">06 · A PEER THAT LIES</span>
+        <span class="proof__claim">A CRDT merges what it is given, which assumes every
+          peer is honest — an odd thing to assume about a mesh of field devices, where one
+          lost handset is one dishonest peer. Mount the attacks against this node and
+          watch what it does with them.</span>
+      </div>
+      <div class="proof__body">
+        <div class="grid2">
+          <div>
+            <div class="faults" style="margin-top:0">
+              <button data-attack="honest">send an honest operation</button>
+              <button data-attack="tamper">rewrite it in flight</button>
+              <button data-attack="impersonate">write in another device's name</button>
+              <button data-attack="unsigned">send it unsigned</button>
+            </div>
+            <div class="kv" style="margin-top:14px">
+              <span>this device</span><b id="atkDevice">—</b>
+              <span>keys known</span><b id="atkKeys">—</b>
+              <span>operations verified</span><b id="atkVerified">—</b>
+              <span>refused as forged</span><b id="atkForged">—</b>
+              <span>refused by policy</span><b id="atkPolicy">—</b>
+            </div>
+          </div>
+          <div>
+            <div class="verdict verdict--wait" id="atkVerdict">
+              Each button builds a real operation, encodes it with the real wire codec and
+              hands it to the same handler a peer device reaches over the mesh. The honest
+              one is the control: a node that refused everything would pass the other three
+              for the wrong reason.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </section>
 
   <!-- ── LIVE CONSOLE ── -->

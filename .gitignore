@@ -14,3 +14,4 @@ models/
 # Transient: the stress harness rewrites this on every run. The durable
 # artefacts are testlogs/stress-raw.json and testlogs/STRESS-REPORT.md.
 testlogs/stress-run.log
+testlogs/images/_shots.js

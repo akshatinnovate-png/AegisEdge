@@ -222,3 +222,29 @@ def test_an_unsigned_mesh_still_accepts_the_attack():
     frame = agents["edge-00"].codec.encode([altered.as_dict()])
     asyncio.run(agents["edge-01"].handle("edge-00", "push", {"frame": frame}))
     assert stores["edge-01"][op.op_id].body["text"] == "dispatch to grid 41"
+
+
+# -- the live node ---------------------------------------------------------
+
+def test_the_attack_route_runs_the_attacks_against_the_running_node():
+    """PROVE IT's sixth card, asserted rather than demonstrated.
+
+    The honest case is the control: a node that refused everything would pass
+    the other three for the wrong reason.
+    """
+    from fastapi.testclient import TestClient
+
+    from aegis.main import app
+
+    with TestClient(app) as client:
+        outcomes = {}
+        for kind in ("honest", "tamper", "impersonate", "unsigned"):
+            response = client.post("/api/v1/mesh/attack", json={"kind": kind})
+            assert response.status_code == 200, response.text
+            outcomes[kind] = response.json()
+
+    assert outcomes["honest"]["accepted"] is True
+    for kind in ("tamper", "impersonate", "unsigned"):
+        assert outcomes[kind]["accepted"] is False, outcomes[kind]
+        assert outcomes[kind]["refused_as_forged"] == 1, outcomes[kind]
+    assert all(o["correct"] for o in outcomes.values())

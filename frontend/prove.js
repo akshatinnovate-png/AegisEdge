@@ -288,6 +288,60 @@ async function refreshTimeline() {
 
 /* ── wiring ─────────────────────────────────────────────── */
 
+
+/* ── 6. a peer that lies ─────────────────────────────────── */
+
+const ATTACK_LABEL = {
+  honest: "an honest operation",
+  tamper: "an operation rewritten in flight",
+  impersonate: "an operation written in another device's name",
+  unsigned: "an unsigned operation",
+};
+
+async function refreshMeshIdentity() {
+  try {
+    const mesh = await api("/mesh/status");
+    const id = mesh.identity || {};
+    P("atkDevice").textContent = id.device_id || "—";
+    P("atkKeys").textContent = (id.known_devices || []).length || "—";
+    P("atkVerified").textContent = mesh.verified_ops ?? "—";
+    P("atkForged").textContent = mesh.refused_forged ?? "—";
+    P("atkPolicy").textContent = mesh.refused_inbound ?? "—";
+  } catch {
+    ["atkDevice", "atkKeys", "atkVerified", "atkForged", "atkPolicy"]
+      .forEach((k) => { P(k).textContent = "—"; });
+  }
+}
+
+async function mountAttack(kind) {
+  const box = P("atkVerdict");
+  box.className = "verdict verdict--wait";
+  box.innerHTML = `sending ${ATTACK_LABEL[kind]}…`;
+  try {
+    const r = await api("/mesh/attack", { kind });
+    await refreshMeshIdentity();
+    // "Correct" is the node behaving as claimed, which for the honest case
+    // means accepting. Reporting "refused = good" would make a node that
+    // refuses everything look perfect.
+    const good = r.correct;
+    box.className = `verdict verdict--${good ? "ok" : "bad"}`;
+    box.innerHTML = good
+      ? (r.accepted
+        ? `<b>Accepted</b>, and it should be — ${r.what_it_did}. This is the control: ` +
+          `the refusals below only mean something next to an acceptance here.`
+        : `<b>Refused.</b> ${r.what_it_did[0].toUpperCase()}${r.what_it_did.slice(1)}. ` +
+          `The relay cannot produce the author's signature over content the author ` +
+          `never wrote, so the node has something to check rather than somebody's word ` +
+          `to take. Counted as a forgery, not dropped quietly.`)
+      : `<b>Wrong outcome.</b> Expected this to be ${r.expected} and it was ` +
+        `${r.accepted ? "accepted" : "refused"}. That is a real defect, and it is on ` +
+        `screen rather than in a log.`;
+  } catch (err) {
+    box.className = "verdict verdict--bad";
+    box.textContent = err.message;
+  }
+}
+
 function mountProve() {
   P("durKill").addEventListener("click", killNode);
   P("durFsck").addEventListener("click", runFsck);
@@ -304,6 +358,8 @@ function mountProve() {
       } catch (err) { P("sloReason").textContent = err.message; }
     }));
   P("ttSlider").addEventListener("input", refreshTimeline);
+  document.querySelectorAll("[data-attack]").forEach((b) =>
+    b.addEventListener("click", () => mountAttack(b.dataset.attack)));
 
   setInterval(() => {
     if (document.body.dataset.mode !== "prove") return;
@@ -311,7 +367,7 @@ function mountProve() {
   }, 1000);
   setInterval(() => {
     if (document.body.dataset.mode !== "prove") return;
-    refreshDurability();
+    refreshDurability(); refreshMeshIdentity();
   }, 4000);
 }
 
@@ -320,6 +376,6 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll('.mode-switch button[data-mode="prove"]').forEach((b) =>
     b.addEventListener("click", () => {
       refreshDurability(); refreshEnergy(); refreshProvenance();
-      refreshLoad(); refreshTimeline();
+      refreshLoad(); refreshTimeline(); refreshMeshIdentity();
     }));
 });

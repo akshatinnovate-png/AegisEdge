@@ -636,6 +636,34 @@ A slider over the last 72 hours: what this device believed then, and what it has
 learned or retracted since. The bitemporal graph has been in the system all
 along and nothing had ever surfaced it.
 
+### A peer that lies
+
+![A peer that lies](testlogs/images/07-a-peer-that-lies.png)
+
+Four buttons, four attacks, run against the node serving the page. Each one
+builds a real `Operation`, encodes it with the real wire codec and hands it to
+the same `GossipAgent.handle` a peer device reaches over `/mesh/exchange` —
+nothing is staged, and the only thing the route knows that a peer does not is
+the attacker's own key, which it uses exactly as an attacker would.
+
+| Button | What it sends | What should happen |
+|---|---|---|
+| send an honest operation | signed by the device that wrote it | **accepted** |
+| rewrite it in flight | somebody else's operation, body changed, original signature kept | refused |
+| write in another device's name | the attacker's signature under the victim's `device_id` | refused |
+| send it unsigned | no signature at all | refused |
+
+The honest case is on the card for a reason: it is the control. A node that
+refused everything would pass the other three for entirely the wrong reason,
+and a panel that only ever shows refusals cannot tell the difference. The card
+reports the node behaving *as claimed*, which for the first button means
+accepting — and if an outcome is ever wrong, it says "wrong outcome" on screen
+rather than in a log.
+
+The counters beside it are the node's own: operations verified, refused as
+forged, refused by policy on arrival. They are read from `/api/v1/mesh/status`,
+the same endpoint anything else would use.
+
 ---
 
 ## 5. System shape
@@ -1050,6 +1078,7 @@ local simulation when the backend is absent.
 | `GET` | `/api/v1/sync/conflicts` | Conflict records and the human review queue |
 | `POST` | `/api/v1/mesh/exchange` | The receiving half of the mesh, when the peer is another device |
 | `POST` | `/api/v1/mesh/offline` | Pull this device's radio, or put it back |
+| `POST` | `/api/v1/mesh/attack` | Mount one of four operations — honest, tampered, impersonated, unsigned — against this node through the same handler a peer reaches, and report what it did with it. The honest case is the control |
 | `POST` | `/api/v1/chaos/kill` | Send this node SIGKILL; refused without a supervisor |
 | `GET` | `/api/v1/integrity/recovery` | What the last boot recovered, and what it could not |
 | `GET` | `/api/v1/energy` | Joules per operation, and answers per 1% of battery |
@@ -1198,7 +1227,7 @@ Point it at a live backend:
 - [x] USE mode — the product beside its own machinery, with the causal link between them
 - [x] Mesh over HTTP — two real node processes gossiping directly, no cloud, no coordinator
 - [x] Handling class travels with a memory; a receiver can no longer relax it
-- [x] PROVE IT mode — durability, degradation, energy, provenance and time travel, each falsifiable from the browser
+- [x] PROVE IT mode — durability, degradation, energy, provenance, time travel and a lying peer, each falsifiable from the browser
 - [x] Supervised process with a browser-triggered SIGKILL and an honest recovery verdict
 - [x] Energy accounting with a measured/modelled source ladder
 - [x] Runtime provenance receipt over source, weights and compiled graphs
@@ -1234,7 +1263,7 @@ raw results in [`testlogs/stress-raw.json`](testlogs/stress-raw.json) by
 | [`testlogs/ab-before.json`](testlogs/ab-before.json) · [`ab-after.json`](testlogs/ab-after.json) | The quadratic-append regression, measured either side of the fix |
 | [`testlogs/geometry-eval.json`](testlogs/geometry-eval.json) | The embedding-space sweep: anisotropy, whitening configurations, quantization recall |
 | [`testlogs/strategy-bakeoff.json`](testlogs/strategy-bakeoff.json) | Flat vs HNSW vs IVF-PQ forced onto the same corpus |
-| [`testlogs/images/`](testlogs/images/) | The six frames above, captured against a live node |
+| [`testlogs/images/`](testlogs/images/) | The frames above, captured against a live node |
 | [`testlogs/simulation.json`](testlogs/simulation.json) · [`.txt`](testlogs/simulation.txt) | The deterministic sweep, signed build — executions, fleet-days, and any counterexample with its shrunk history |
 | [`testlogs/simulation_unsigned.json`](testlogs/simulation_unsigned.json) · [`.txt`](testlogs/simulation_unsigned.txt) | The control: the same simulator with signatures off, so "the attack no longer fires" can be read against a run where it does |
 
