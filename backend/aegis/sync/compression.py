@@ -74,34 +74,66 @@ class CodecStats:
                 "skipped_compression": self.skipped_compression}
 
 
+_ABSENT = object()
+
+
 class WireCodec:
     """Encodes a batch of operations for transmission."""
 
     MIN_COMPRESS_BYTES = 256
 
+    # Fields worth eliding: low-cardinality labels that repeat across every
+    # operation in a batch. `sensitivity` is on this list, which is why the
+    # bug below mattered as much as it did.
+    DELTA_FIELDS = ("collection", "sensitivity", "model_version", "device_id")
+
     def __init__(self, level: int = 6) -> None:
         self.level = level
         self.stats = CodecStats()
-        self.dictionary: dict[str, Any] = {}
+        self.elided = 0
 
     def encode(self, ops: list[dict[str, Any]]) -> dict[str, Any]:
         raw = json.dumps(ops, separators=(",", ":"), default=str).encode("utf-8")
 
+        # The delta context is rebuilt for every frame and never survives one.
+        #
+        # It used to live on the encoder and persist across calls, while the
+        # decoder started from nothing on each frame. The result was silent
+        # data loss: the first operation carrying `sensitivity: restricted`
+        # sent the label, every later one sent a hole, and the receiver — with
+        # no context to fill the hole from — stored the operation with no
+        # sensitivity label at all.
+        #
+        # That is worse than a compression bug. The receiving node decides
+        # whether it may hold an operation by reading exactly that label, so an
+        # operation the policy would have refused arrived looking ordinary and
+        # was accepted. The deterministic simulator surfaced it as a signature
+        # mismatch — the body that was signed was not the body that arrived —
+        # which is the whole argument for signing the thing.
+        #
+        # Cross-frame state was never sound here anyway: this transport drops,
+        # reorders and duplicates frames, so "the value from the previous
+        # frame" is not a thing a receiver can know. A frame that carries its
+        # own context is self-describing, and the redundancy that pays for
+        # compression is within a batch, not between batches.
         shaped: list[dict[str, Any]] = []
+        context: dict[str, Any] = {}
         for op in ops:
             body = dict(op.get("body") or {})
             if body.get("dense"):
                 body["dense_q"] = quantize_vector(body.pop("dense"))     # 4x on the biggest field
-            # delta against the previous op's shared fields
-            delta = {}
-            for key in ("collection", "sensitivity", "model_version", "device_id"):
-                if key in body and self.dictionary.get(key) == body[key]:
-                    delta[key] = None                                     # unchanged: send a hole
-                elif key in body:
-                    self.dictionary[key] = body[key]
+            delta = []
+            for key in self.DELTA_FIELDS:
+                if key not in body:
+                    continue
+                if context.get(key, _ABSENT) == body[key]:
+                    delta.append(key)                                     # already in this frame
+                else:
+                    context[key] = body[key]
             for key in delta:
                 body.pop(key, None)
-            shaped.append({**op, "body": body, "_delta": sorted(delta)})
+            self.elided += len(delta)
+            shaped.append({**op, "body": body, "_delta": delta})
 
         payload = json.dumps(shaped, separators=(",", ":"), default=str).encode("utf-8")
         compressed = zlib.compress(payload, self.level) if len(payload) >= self.MIN_COMPRESS_BYTES else payload
@@ -116,19 +148,29 @@ class WireCodec:
         return {"z": used_compression, "n": len(ops), "payload": frame.hex(),
                 "raw_bytes": len(raw), "wire_bytes": len(frame)}
 
-    def decode(self, frame: dict[str, Any], dictionary: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    def decode(self, frame: dict[str, Any]) -> list[dict[str, Any]]:
+        """Reconstruct a frame using only what the frame itself carries."""
         blob = bytes.fromhex(frame["payload"])
         if frame.get("z"):
             blob = zlib.decompress(blob)
         shaped = json.loads(blob.decode("utf-8"))
-        context = dict(dictionary or {})
+        context: dict[str, Any] = {}
         out: list[dict[str, Any]] = []
         for op in shaped:
             body = dict(op.get("body") or {})
             for key in op.pop("_delta", []):
                 if key in context:
                     body[key] = context[key]
-            for key in ("collection", "sensitivity", "model_version", "device_id"):
+                else:
+                    # A hole with nothing to fill it from. Under the old
+                    # cross-frame scheme this happened constantly and passed
+                    # silently; now it cannot happen for a well-formed frame,
+                    # so if it ever does the frame is corrupt and saying so is
+                    # better than handing back an operation missing a label
+                    # that access decisions are made on.
+                    raise ValueError(
+                        f"frame elides {key!r} with no value earlier in the same frame")
+            for key in self.DELTA_FIELDS:
                 if key in body:
                     context[key] = body[key]
             if "dense_q" in body:
@@ -137,4 +179,4 @@ class WireCodec:
         return out
 
     def snapshot(self) -> dict[str, float]:
-        return self.stats.as_dict()
+        return {**self.stats.as_dict(), "fields_elided": self.elided}

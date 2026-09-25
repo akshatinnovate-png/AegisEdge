@@ -140,11 +140,17 @@ guardrail.
 
 ## 3. What the stress runs broke
 
-The point of a stress test is the things it breaks. Twelve defects, each found
+The point of a stress test is the things it breaks. Sixteen defects, each found
 by pushing until something gave way and then reading what actually happened
 rather than what was supposed to. All are fixed, with a regression test each —
-and a thirteenth finding that is still open, because not finding the cause is
+and a seventeenth finding that is still open, because not finding the cause is
 also a result.
+
+Twelve came from load. The last four came from a different instrument
+entirely — a deterministic simulator that runs the whole fleet as a pure
+function of one integer, described in §3.1. Load testing asks whether the
+system is fast. The simulator asks whether it is *right*, across orderings no
+human would think to write down.
 
 | # | Defect | What it cost |
 |---|---|---|
@@ -160,6 +166,10 @@ also a result.
 | 10 | The index cost model chose the slower, less accurate structure | it picked HNSW from 5,000 points where flat was **4.9× faster and exact** — it had timed a graph hop as one vectorised call, capturing the arithmetic and none of the interpreter cost |
 | 11 | The index calibration was not reproducible | consecutive calibrations on one machine derived crossovers between 40,000 and 110,000 points, so a node's index strategy depended on what else was running when it booted |
 | 12 | A handling class did not survive the trip between devices | a memory marked for redaction at its origin arrived on the next device freely shareable, and that device's onward decisions rested on a class it never had |
+| 13 | Egress policy was enforced on the sender only | a device that skips its own filter — buggy or compromised — pushed a never-leaves-the-device memory to every peer, and each stored it without a murmur. Found deterministically at **seed 5**, and found there every time |
+| 14 | **Operations had no integrity protection at all** | a relay could rewrite the body of somebody else's operation in flight and every downstream node accepted the altered version. **453 of 500** simulated executions found it |
+| 15 | Operation ids were drawn from the wall clock | the ids the IBLT hashes and a fetch is sorted by were not part of the seeded execution, so two sweeps over the same 500 seeds returned **454 failures, then 456** — close enough to read as noise, and a flat contradiction of the claim that a run is a pure function of its seed |
+| 16 | The wire codec silently dropped body fields | it elided a repeated field against encoder state that outlived the frame, while the decoder started empty on every frame. The second operation carrying `sensitivity: restricted` arrived with **no sensitivity label at all** — and that label is exactly what the receiving node reads to decide whether it may hold the memory |
 
 Three of these deserve more than a row.
 
@@ -207,6 +217,216 @@ filter is obeyed even when it matches nothing, and tenant isolation is
 explicitly excluded, because an empty visible set is a boundary, not a bad
 guess, and retrying wider there would turn a correct empty answer into an
 isolation breach.
+
+---
+
+## 3.1 Deterministic simulation — a seed for every bug
+
+Load testing answers "is it fast?". It cannot answer "is it correct under an
+ordering I did not think of?", because the orderings that break distributed
+systems are the rare ones, and a load test explores whichever orderings the
+operating system happens to hand it.
+
+So the whole fleet was made reproducible. `aegis/core/determinism.py` holds a
+swappable ambient environment; inside `simulated(seed)`, `determinism.now()`,
+`determinism.monotonic()`, `determinism.rng()` and `determinism.sleep()` are
+served by a virtual clock and a seeded generator. Time moves only when the
+simulation moves it, and `await sleep(3600)` advances an hour and returns
+immediately.
+
+The consequence is the point: **an entire distributed execution becomes a pure
+function of one integer.** Twelve peers, four hundred steps, partitions,
+crashes, clock skew and three Byzantine attacks — all of it replays byte for
+byte from the seed. A failure found once is a failure that can be found again,
+on any machine, forever.
+
+### The lint that keeps it true
+
+One `time.time()` left in a simulated module and a seed silently stops
+reproducing — the run still passes, it just no longer means anything. So it is
+not a convention, it is a build step:
+
+```bash
+python3 scripts/audit_determinism.py
+#   skip  aegis/sync/compression.py   (no clock or randomness in a codec)
+#   skip  aegis/sync/meshlink.py      (measures real RTT to a real peer over HTTP)
+#   skip  aegis/sync/transport.py     (network clients own their own timeouts)
+#   skip  aegis/core/determinism.py   (it *is* the environment)
+#
+#   12 simulated modules draw time and randomness from the environment.
+```
+
+It is an AST pass, not a grep, and each exemption carries the reason it is
+exempt. It also checks that a module reaching for `determinism` actually
+imports it — a rule added after two modules were converted without their
+import and the *test suite* found out rather than the linter. The failure mode
+there is a `NameError` on a clock call that only runs under load or during
+recovery, a long way from the change that caused it.
+
+The list of modules it covers was also learned the hard way. Two sweeps over
+the same 500 seeds returned **454** failures and then **456**. Two out of five
+hundred reads as noise; it was not noise. Operation ids came from
+`time.time()` and `os.urandom`, and an operation id is not cosmetic — it is
+what the IBLT hashes and what a fetch is sorted by, so reconciliation was
+drifting while every other part of the execution replayed perfectly. Ids now
+come from the environment, the per-millisecond counter is reset when a
+simulation begins, and `ids.py` is inside the lint's scope. The two sweeps now
+agree exactly: same failing seeds, same details, the same 78,249 operations
+exchanged.
+
+That is the mechanism working on itself. A simulator whose own instrument
+drifts produces numbers that look like measurements.
+
+### What the world can do
+
+`aegis/sim/world.py` draws each step from a weighted population:
+
+| Action | Weight | What it does |
+|---|---|---|
+| `write` | 34 | a device records a memory; 15% are marked never-leaves-the-device |
+| `gossip` | 30 | one anti-entropy round between two peers |
+| `partition` / `heal` | 8 / 8 | cut and restore a link |
+| `skew` | 6 | step a clock, in either direction |
+| `crash` | 5 | lose everything a device had not yet shared |
+| `duplicate` | 5 | a peer redelivers what it already sent |
+| `forge_clock` | 4 | a peer stamps an operation a century ahead so it wins every conflict — **signed honestly**, so only a bound on the clock can stop it |
+| `impersonate` | 4 | a peer writes an operation in another device's name |
+| `tamper` | 4 | a relay forwards somebody else's operation with the body rewritten |
+| `idle` | 4 | time passes and nothing happens, which is most of a real device's life |
+
+After **every** step, seven invariants are checked:
+
+| Invariant | The promise |
+|---|---|
+| `no-fabrication` | no device holds an operation no device ever wrote |
+| `policy` | a never-leaves-the-device memory is on exactly one device |
+| `origin-retains` | the device that wrote a memory still has it |
+| `no-duplicates` | redelivery never double-applies |
+| `clock-monotonic` | a device's own clock never goes backwards in its log |
+| `clock-not-poisoned` | one peer claiming the future cannot drag the fleet there |
+| `bodies-intact` | what a device reads is what the author wrote |
+
+When one breaks, the run stops and a delta-debugging shrinker takes over:
+remove one action, replay, does it still fail? What survives is the shortest
+history that still reproduces it — usually short enough to read in full.
+
+### What it found
+
+**Seed 5, immediately: egress policy was enforced on the sender only.** A
+restricted memory written on `edge-01` was sitting on `edge-03`. The sending
+side filtered correctly; the receiving side simply believed what it was handed.
+That is right for an honest peer and worth nothing against a compromised one,
+and a mesh of field devices is a population where "one handset is lost" is a
+Tuesday. The receiver now enforces its own policy on arrival, counts what it
+refuses, and says so on the event bus.
+
+**Then the one that mattered: operations had no integrity protection at all.**
+The `tamper` action — a relay forwarding an operation with the body rewritten —
+was accepted by every downstream node in **453 of 500 executions** — every one
+of them the same invariant, `bodies-intact`. The signed build runs the same
+seeds, with the same attacks still firing, and the invariant holds.
+
+```
+deterministic simulation  500 executions · 400 steps · 6 peers · unsigned (control)
+
+  FAIL seed 497 · bodies-intact · edge-02 holds 01HF7YRWDT4K5PZCZ5XH04JDGT
+                  with content that differs from what edge-04 wrote
+  ...
+  500 executions in 63.5s real time
+  operations exchanged 78,249
+  invariant failures   453 of 500 executions run
+```
+
+The control is kept runnable — `--unsigned` is a flag, not a deleted commit.
+A defence you cannot switch off is a defence you can no longer demonstrate
+works, and "the attack no longer fires" is only meaningful next to a run where
+it does.
+
+Worth being precise about why the Byzantine invariants initially found
+*nothing*: the first sweep came back clean, because the invariants were not
+watching what the attacks targeted. `clock-not-poisoned` and `bodies-intact`
+were added *because* a clean result from an adversarial run is a claim about
+the invariants, not about the system. A simulator that cannot fail is a
+simulator that cannot tell you anything.
+
+### The fix: every operation says who wrote it
+
+`aegis/sync/identity.py`. Each device holds an Ed25519 key pair, persisted
+beside its data — an identity regenerated at boot is not an identity, because
+every peer would see the key change and, correctly, refuse everything the
+device had ever said.
+
+The signature covers `op_id`, `kind`, `point_id`, `hlc`, `device_id` and
+`body`, over canonical sorted-key JSON, so two encodings of the same operation
+produce the same signature. `ts` is deliberately *outside* the signature — a
+relay may touch routing, it may not touch content — and there is a test that
+fails if anyone widens that set without meaning to.
+
+Measured on this hardware: **62 µs to sign, 129 µs to verify, 88 bytes on the
+wire.** Against an 18 ms ingest that is 0.7% — and verification happens on
+receipt, not on the query path.
+
+Key distribution is trust-on-first-use, and the limit is written down rather
+than glossed:
+
+- The first key a device presents for an identity is believed.
+- Any *later* change to that identity's key is refused, loudly, as an
+  `identity_conflict` event.
+- Keys travel with operations, so `edge-02` can verify an `edge-00` operation
+  relayed by `edge-01` without ever having met `edge-00`. Without that,
+  signing would break the partition tolerance it exists to protect.
+- **This does not defeat an attacker present at the very first contact.**
+  Closing that needs an enrolment authority, which is a deployment decision
+  rather than a library one.
+
+What it does defeat, with a regression test each: rewriting an operation in
+flight, writing in another device's name, and taking over an identity that is
+already in use.
+
+### The bug underneath the bug
+
+Turning signing on broke honest convergence — 6 operations out of 28 reaching
+their peers. The signatures were valid at rest and invalid on arrival, which
+meant something between the two was changing the operation.
+
+It was the wire codec. It elided a repeated low-cardinality field — one of
+which is `sensitivity` — against a dictionary that lived on the **encoder** and
+survived across frames, while the decoder started from an empty context on
+**every** frame. The first operation carrying `sensitivity: restricted` sent
+the label. Every later one sent a hole. Every hole was dropped.
+
+That is worse than a compression bug, because the receiving node decides
+whether it may hold an operation by reading exactly that field. An operation
+the policy would have refused arrived looking ordinary — and the receive-side
+check added at seed 5 was reading a label the compressor underneath it had
+already removed.
+
+Cross-frame state was never sound here anyway: this transport drops, reorders
+and duplicates frames, so "the value from the previous frame" is not something
+a receiver can know. The context is now rebuilt per frame and never survives
+one; a hole with nothing to fill it from raises rather than passing silently.
+Compression is barely affected, because the redundancy that pays for it is
+*within* a batch.
+
+**This is the argument for signing, stated as cleanly as it can be stated.**
+Signing did not prevent this bug. Signing *revealed* it — a silent data-loss
+path, sitting on a security control, that four hundred passing tests and nine
+phases of load testing had not touched.
+
+### Running it
+
+```bash
+cd backend
+python3 scripts/audit_determinism.py                          # the lint
+python3 scripts/simulate.py --seeds 3000 --steps 400 --peers 6 \
+        --out ../testlogs/simulation.json                     # the sweep
+python3 scripts/simulate.py --seeds 500 --unsigned --no-shrink # the control
+python3 scripts/simulate.py --replay 5                        # see one seed again
+```
+
+A clean sweep is **not a proof**, and the script says so in its own output: it
+is "no counterexample in N executions", with N printed so a reader can judge
+it. It samples the space of orderings; it does not cover it.
 
 ---
 
@@ -799,7 +1019,7 @@ local simulation when the backend is absent.
 | `GET` | `/api/v1/scheduler` | QoS lane depths, deadline misses, pressure |
 | `POST` | `/api/v1/learning/feedback` | Teach the on-device adapter from a real choice |
 | `POST` | `/api/v1/learning/round` | One secure-aggregation round |
-| `GET` | `/api/v1/mesh/status` · `POST /mesh/round` | Peer mesh membership and anti-entropy |
+| `GET` | `/api/v1/mesh/status` · `POST /mesh/round` | Peer mesh membership and anti-entropy. Carries this device's public key, the devices it has learned keys for, and its running counts of operations verified, refused as forged, and refused by policy on arrival |
 | `GET` | `/api/v1/graph/stats` · `/entities` · `POST /paths` | Knowledge graph structure and multi-hop reasoning |
 | `GET` | `/api/v1/graph/as-of` · `/diff` | Time travel: what was believed, and what changed |
 | `GET/POST` | `/api/v1/integrity/*` | fsck, scrub, archive, generations, point-in-time restore |
@@ -841,6 +1061,14 @@ normally be faked in a hackathon build, and what they are here:
 | Synthesised sensor readings | `psutil`, and **"no thermal or battery sensors on this platform"** when the platform has none |
 | Seeded demo memories at boot | The node ships **empty**; the demo and tests ingest their own corpus through the same path a device uses |
 | A frontend that invents numbers when the backend is down | `NO NODE`, every figure blanked — a stale number is indistinguishable from a live one |
+
+One clarification, since §3.1 describes a simulator. The deterministic
+simulator does not stand in for anything: it runs **the real
+`GossipAgent`, the real CRDT, the real wire codec and the real signature
+verification**, and replaces exactly two things — the wall clock and the
+random number generator. That is the whole point. A mock mesh would find bugs
+in the mock. The bugs in §3 rows 13–15 are bugs in shipped code, each with a
+regression test that fails against the code as it was.
 
 Two things this environment could not run, stated rather than papered over:
 
@@ -943,7 +1171,7 @@ Point it at a live backend:
 - [x] Triton escalation tier (client + policy; needs a live endpoint to light up)
 - [ ] Qdrant Edge wheel pinned in CI (adapter is in, falls back to the native store)
 - [x] Nine-phase stress battery (`scripts/stress.py`) — the numbers in Appendix 1 come from it
-- [x] Eight defects found under stress and fixed, regression test each · **247 tests**
+- [x] Fifteen defects found and fixed — twelve under stress, three under deterministic simulation — regression test each · **277 tests**
 - [x] RaBitQ cold tier — unbiased estimator, per-vector error bound, bound-driven rescore depth
 - [x] Corpus-fitted embedding geometry — streaming covariance, Ledoit–Wolf shrinkage, rank-limited whitening
 - [x] Adaptation gate — paraphrase probes from the node's own memories, paired-bootstrap significance
@@ -958,9 +1186,17 @@ Point it at a live backend:
 - [x] Two-layer semantic cache — 80× on a repeated question, after the old one was found dead
 - [x] Mesh converges 50/50 peers in 6 waves — the earlier 36/50 was the harness stopping a wave short, not a limit
 - [x] Steady-state soak that holds the corpus still, so growth can be attributed rather than guessed at
+- [x] **Deterministic simulation** — the whole fleet as a pure function of one seed; virtual clock, seeded generator, byte-identical replay
+- [x] AST lint (`scripts/audit_determinism.py`) that fails the build if simulated code reaches past the environment, with a reason recorded for each exemption
+- [x] Byzantine fault injection — forged clocks, impersonation, in-flight tampering — with the invariants that catch each
+- [x] Delta-debugging shrinker: a failing history reduced to the shortest sequence that still reproduces it
+- [x] Identifier generation brought inside the seeded execution, after two sweeps over the same seeds disagreed by two — verified by re-running a 500-seed sweep to an identical failure set and an identical 78,249 operations
+- [x] Ed25519 operation signing — 62 µs sign, 129 µs verify, 88 B wire; trust-on-first-use with key changes refused, and the first-contact limit written down rather than glossed
+- [x] Receive-side policy enforcement — a peer that skips its own egress filter is no longer believed
+- [x] Wire codec made frame-local after it was caught dropping the `sensitivity` label that access decisions are made on
+- [ ] **Not covered:** an attacker present at a device's *first* contact. Trust-on-first-use cannot close this; an enrolment authority can, and that is a deployment decision
 - [ ] **Open:** ~2.6 KB/query resident growth under *concurrent* load, linear over 64,000 queries. Python objects, the ONNX arena, input shapes, the encoder, the micro-batcher, instrumentation, background writes and allocator retention are each measured and ruled out; it does not reproduce when the warm-up is concurrent rather than sequential. See `soak_steady` in `backend/scripts/stress.py`
 - [ ] Multi-modal named vector spaces (schema supports them; encoders pending)
-- [ ] Mesh convergence past 36/50 peers in six waves — under investigation
 - [ ] Soak phase cannot yet separate a leak from legitimate corpus growth
 
 ---
@@ -980,6 +1216,8 @@ raw results in [`testlogs/stress-raw.json`](testlogs/stress-raw.json) by
 | [`testlogs/geometry-eval.json`](testlogs/geometry-eval.json) | The embedding-space sweep: anisotropy, whitening configurations, quantization recall |
 | [`testlogs/strategy-bakeoff.json`](testlogs/strategy-bakeoff.json) | Flat vs HNSW vs IVF-PQ forced onto the same corpus |
 | [`testlogs/images/`](testlogs/images/) | The six frames above, captured against a live node |
+| [`testlogs/simulation.json`](testlogs/simulation.json) · [`.txt`](testlogs/simulation.txt) | The deterministic sweep, signed build — executions, fleet-days, and any counterexample with its shrunk history |
+| [`testlogs/simulation_unsigned.json`](testlogs/simulation_unsigned.json) · [`.txt`](testlogs/simulation_unsigned.txt) | The control: the same simulator with signatures off, so "the attack no longer fires" can be read against a run where it does |
 
 Reproduce any of it:
 
@@ -990,6 +1228,12 @@ python3 scripts/report.py ../testlogs                      # render the report
 python3 scripts/strategy_bakeoff.py                        # index strategy bake-off
 python3 scripts/geometry_eval.py                           # embedding space sweep
 python3 scripts/capture.py --out ../testlogs/images        # the screenshots
+
+python3 scripts/audit_determinism.py                       # the determinism lint
+python3 scripts/simulate.py --seeds 3000 --steps 400 --peers 6 \
+        --out ../testlogs/simulation.json                  # the deterministic sweep
+python3 scripts/simulate.py --seeds 500 --steps 400 --peers 6 --unsigned \
+        --no-shrink --out ../testlogs/simulation_unsigned.json    # the control
 ```
 
 The harness records failures as results. Where a subsystem gave way, the number
@@ -1004,7 +1248,7 @@ run was taken, and which the fixes above landed after.
 *This is [`backend/README.md`](backend/README.md), reproduced here so the whole
 system can be read in one place. That file remains the canonical copy.*
 
-## AegisEdge — backend
+# AegisEdge — backend
 
 The edge node. FastAPI on the outside, an offline-first memory and sync
 engine on the inside.
@@ -1023,24 +1267,25 @@ python3 -m pytest tests -q                       # 247 tests
 Open `http://localhost:8000/docs` for the live OpenAPI surface, or point the
 frontend at it (it defaults to `http://localhost:8000`).
 
-### Module map
+## Module map
 
 | Path | What lives there |
 |---|---|
 | `aegis/node.py` | Composition root — every subsystem is built and supervised here |
 | `aegis/config.py` | All configuration, env-overridable (`AEGIS_*`) |
-| `aegis/core/` | HLC clock, event bus, supervisor, metrics, breaker, backoff, token bucket, QoS scheduler, span tracing, **tenancy**, **SLO ladder** |
+| `aegis/core/` | HLC clock, event bus, supervisor, metrics, breaker, backoff, token bucket, QoS scheduler, span tracing, **tenancy**, **SLO ladder**, **swappable ambient environment (virtual clock + seeded RNG)** |
 | `aegis/memory/` | Schema, WAL, quantizers, **RaBitQ cold codes + columnar codebook**, **growable matrices**, HNSW, OPQ / IVF-PQ, adaptive index + cost model, filters & payload index, query planner, memmap cold tier, **immutable segments + manifest**, **fsck/scrub/PITR**, **self-healing repair**, **bitemporal knowledge graph**, Qdrant Edge adapter, compactor, consolidation |
 | `aegis/inference/` | ONNX session + EP ladder, micro-batcher, embedder, **corpus geometry (whitening)**, **token lexicon**, **adaptation gate**, sparse encoder, reranker, classifier, thermal governor, model registry, Triton client |
 | `aegis/retrieval/` | RRF fusion, scoring, namespaced semantic cache, contradiction detection, query understanding (BK-tree, expansion, intent), late interaction (MaxSim), **conformal prediction**, **MMR diversity**, pipeline, agent |
-| `aegis/sync/` | CRDT op log, Merkle digests, **IBLT set reconciliation**, **vector clocks + causal delivery**, **P2P gossip mesh**, **wire codec**, durable queue, connectivity oracle, transports, conflict arbiter, engine |
+| `aegis/sync/` | CRDT op log, Merkle digests, **IBLT set reconciliation**, **vector clocks + causal delivery**, **P2P gossip mesh**, **Ed25519 device identity + operation signing**, **wire codec**, durable queue, connectivity oracle, transports, conflict arbiter, engine |
+| `aegis/sim/` | **Deterministic simulation** — a virtual world of N peers, weighted fault and Byzantine actions, seven invariants checked after every step |
 | `aegis/learning/` | **On-device retrieval adapter**, **differential privacy**, **federated secure aggregation** |
 | `aegis/renewal/` | Freshness sweeps, dual-space migrator, scheduler |
 | `aegis/policy/` | Policy engine, redaction vault, hash-chained audit log |
 | `aegis/chaos/` | Fault injection |
 | `aegis/api/` | Routers, schemas, WebSocket gateway |
 
-### Dependencies are not optional
+## Dependencies are not optional
 
 The node refuses to start without real weights or a real vector store. There is
 no fallback encoder and no internal store masquerading as Qdrant.
@@ -1059,7 +1304,7 @@ On first boot the node compiles `models/embedder.onnx` and
 and `models/provenance.json`, and content-addresses both graphs into the
 registry. Subsequent boots load the serialized optimized graph.
 
-### Configuration worth knowing
+## Configuration worth knowing
 
 | Variable | Effect |
 |---|---|
@@ -1069,7 +1314,7 @@ registry. Subsequent boots load the serialized optimized graph.
 | `AEGIS_REQUIRE_AUTH=1` | enforce API keys and tenant resolution on every route |
 | `AEGIS_DATA_DIR` | one node per directory — embedded Qdrant is single-writer |
 
-### Index selection
+## Index selection
 
 There is no single best index, so the node measures rather than assumes. At
 boot it microbenchmarks this machine, derives the crossover points, and places
@@ -1112,7 +1357,7 @@ the *data*, not of the algorithm:
   even at 0.995 rank correlation. The index measures the depth its corpus
   needs for the target recall instead of guessing `4k`.
 
-### Survival properties
+## Survival properties
 
 The `tests/test_survival.py` suite asserts invariants under simultaneous fault
 storms rather than happy paths:
@@ -1123,7 +1368,7 @@ storms rather than happy paths:
 - restricted memories never leave under packet loss, clock skew or partition;
 - repeated restarts converge to one state.
 
-### Things worth knowing
+## Things worth knowing
 
 - **`divergent ranges` rarely reaches zero, and that is correct.** Points the
   policy marks `local_only` are never offered to the coordinator, so those
@@ -1184,6 +1429,19 @@ storms rather than happy paths:
   operations are commutative, so anti-entropy applies a set directly; vector
   clocks guard the streaming path, where a supersede can outrun what it
   supersedes.
+- **A receiver enforces its own policy, and verifies who wrote what.** Egress
+  filtering on the sender is correct for an honest peer and worth nothing
+  against a compromised one. Every operation carries an Ed25519 signature from
+  the device that created it, and both inbound paths run through one admission
+  check. What this does not cover is stated rather than implied:
+  trust-on-first-use refuses a *change* to a known device's key, but cannot
+  defeat an attacker present at the very first contact.
+- **Correctness is tested by simulation, not only by load.** `aegis/sim/` runs
+  the real gossip agent, CRDT and codec against a virtual clock and a seeded
+  generator, so an entire distributed execution is a pure function of one
+  integer and a failure replays byte for byte. Three shipped defects were found
+  this way, including a wire codec that silently dropped the very field a
+  receiving node uses to decide whether it may hold a memory.
 
 ---
 
@@ -1195,7 +1453,8 @@ that mechanism rather than the obvious one. It is written to be read by
 somebody deciding whether to trust the system, so where a choice was made
 against the intuitive option, the reason is stated rather than implied.
 
-Eighty-eight modules, grouped as they are on disk.
+A hundred and three modules (excluding `__init__.py`), grouped as they are on
+disk.
 
 ## A3.1 Core — clocks, scheduling, budgets, isolation
 
@@ -1513,14 +1772,40 @@ delivery for everything behind it.
 
 **`sync/gossip.py`, `sync/meshlink.py`.** Epidemic anti-entropy between peers,
 preferring live peers while occasionally probing a dead one so partitions
-heal. `MeshLink` dispatches in-process for tests and simulated fleets;
+heal. Both inbound paths — push and the pull half of anti-entropy — run through
+one `_admit` check, which was not always so: the same restricted memory used to
+be refused when offered and accepted when asked for. Admission is policy *and*
+signature, enforced by the receiver on its own behalf. Egress filtering on the
+sender is correct for an honest peer and worth nothing against a compromised
+one, and a mesh of field devices is a population where a lost handset is a
+Tuesday. `MeshLink` dispatches in-process for tests and simulated fleets;
 `HttpMeshLink` carries the same RPC to another node process, which is what
 makes two real devices possible. The peer receives it on
 `POST /api/v1/mesh/exchange` and hands it to its own `GossipAgent`, so there
 is one implementation of anti-entropy rather than two to keep in step.
 
-**`sync/compression.py`.** Delta encoding against the previous operation,
-int8 vectors, then zlib — skipped when it would not pay, and the skip counted.
+**`sync/identity.py`.** An Ed25519 key pair per device, persisted beside its
+data, signing the immutable part of every operation it creates: `op_id`,
+`kind`, `point_id`, `hlc`, `device_id`, `body`, over canonical sorted-key JSON.
+`ts` sits outside the signature on purpose — a relay may touch routing, not
+content — and a test fails if that set is widened without meaning to. Keys are
+learned trust-on-first-use and any later change to a known identity's key is
+refused as an `identity_conflict`; keys travel alongside operations so a node
+can verify an author it has never met, which is what stops signing from
+breaking the partition tolerance it exists to protect. 62 µs to sign, 129 µs to
+verify, 88 bytes on the wire. The limit it does *not* close — an attacker
+present at first contact — is in the module docstring, not just here.
+
+**`sync/compression.py`.** Delta encoding against earlier operations *in the
+same frame*, int8 vectors, then zlib — skipped when it would not pay, and the
+skip counted. The frame-local part is load-bearing and was not always true: the
+elision context used to live on the encoder and outlive the frame while the
+decoder started empty on each one, so every repeat of a low-cardinality field
+was sent as a hole and dropped on arrival. One of those fields is
+`sensitivity`, which is what a receiving node reads to decide whether it may
+hold the memory at all. Cross-frame state cannot work over a transport that
+drops, reorders and duplicates frames; a frame now carries its own context, and
+a hole with nothing to fill it from raises rather than passing quietly.
 
 **`sync/queue.py`, `sync/oracle.py`.** A durable queue that survives restart,
 and a connectivity oracle with asymmetric EWMA — quick to believe the link is
@@ -1591,3 +1876,64 @@ answer its own operator, and every route behaves identically with it on.
 
 ---
 *Code Cubicle 6.0 · 3 OCT online · 11 OCT offline*
+
+## A3.8 Simulation — the fleet as a pure function
+
+**`core/determinism.py`.** The ambient environment, swappable. `Environment`
+is the real one: `time.time()`, `time.perf_counter()`, an unseeded generator.
+`VirtualEnvironment` is the simulated one, and the only way its clock moves is
+`advance()` or `skew()` — the latter allowed to go *backwards*, because devices
+do that and a simulator that cannot express it cannot find the bug. `sleep()`
+advances the clock and returns immediately, so a simulated hour costs nothing.
+`simulated(seed)` is a context manager that installs the virtual environment
+and restores the real one on exit, so a test that simulates cannot leak a
+frozen clock into the test after it.
+
+Everything downstream calls `determinism.now()`, `determinism.monotonic()`,
+`determinism.rng()` and `determinism.sleep()` rather than the stdlib. That
+indirection is the entire mechanism: it is what makes an execution replayable,
+and it costs one attribute lookup.
+
+**`core/ids.py`.** ULID-shaped identifiers, drawing their timestamp and
+randomness from the environment rather than from `time` and `os.urandom`. This
+is not stylistic: an operation id is what the IBLT hashes and what a fetch is
+sorted by, so ids outside the seeded execution make *reconciliation*
+non-deterministic while everything else replays perfectly — which presents as
+a sweep returning 454 failures and then 456. The per-millisecond counter is
+module state, so `simulated()` resets it on the way in and on the way out.
+
+**`scripts/audit_determinism.py`.** An AST pass over every simulated module,
+failing the build on a direct call to the clock or the generator, on
+`os.urandom`, and on a module that reaches for `determinism` without importing
+it. Exemptions are named with their reason — a codec has no clock, `meshlink` measures real RTT to
+a real peer, network clients own their own timeouts, and `determinism.py`
+*is* the environment. A single missed call does not fail a test; it makes a
+seed stop reproducing, silently, which is worse.
+
+**`sim/world.py`.** The world: N peers, each with a real `GossipAgent`, a real
+CRDT store and a real signing identity whose key material is derived from the
+seed so that keys replay too. Steps are drawn from a weighted population of ten
+actions — write, gossip, partition, heal, skew, crash, duplicate, idle, and
+three Byzantine ones — and seven invariants are checked after every single
+step. `replay_step` performs a recorded action *without consulting the
+generator*, which is what makes shrinking possible: re-rolling the dice for a
+replayed step would produce a different history and a different answer, leaving
+the shrinker's question unanswerable.
+
+Two details worth stating because they were both wrong first:
+
+- The `crash` action originally decided what was lost by reading the
+  simulation's shadow stores and ignoring each agent's own view. That is a bug
+  in the *model*, and the simulator's first finding was its own.
+- `check_converged` counts what honest devices wrote. Operations the world
+  knows were fabricated by an attacker are excluded, because a forgery that
+  fails to spread is the system working, and counting it read a successful
+  defence as a missing replica.
+
+**`scripts/simulate.py`.** The driver. Sweeps seeds, and on a failure runs
+delta debugging — remove one action, replay, does it still fail? — down to the
+shortest history that reproduces it. `--replay N` re-runs one seed and prints
+its history. `--unsigned` runs the control. `--no-shrink` counts failures
+without reducing each one, for a control run where the rate is the result. It
+reports fleet-days simulated and prints, in its own output, that a clean sweep
+is not a proof: it is *no counterexample in N executions*, with N stated.

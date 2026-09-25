@@ -12,6 +12,7 @@ from collections import deque
 from pathlib import Path
 from typing import Iterator
 
+from ..core import determinism
 from .crdt import Operation
 
 
@@ -51,7 +52,7 @@ class DurableOpQueue:
             return False
         self.pending.append(op)
         self.enqueued += 1
-        self._write({"state": "pending", "op_id": op.op_id, "op": op.as_dict(), "ts": time.time()})
+        self._write({"state": "pending", "op_id": op.op_id, "op": op.as_dict(), "ts": determinism.now()})
         return True
 
     def lease(self, limit: int) -> list[Operation]:
@@ -68,7 +69,7 @@ class DurableOpQueue:
         for op_id in op_ids:
             if self.inflight.pop(op_id, None) is not None:
                 self.acked.add(op_id)
-                self._write({"state": "acked", "op_id": op_id, "ts": time.time()})
+                self._write({"state": "acked", "op_id": op_id, "ts": determinism.now()})
                 count += 1
         self.replayed += count
         return count

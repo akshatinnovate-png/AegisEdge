@@ -53,6 +53,7 @@ from .retrieval.query_understanding import QueryUnderstanding
 from .sync.crdt import Operation
 from .sync.engine import SyncEngine
 from .sync.gossip import GossipAgent, MeshLink
+from .sync.identity import DeviceIdentity
 from .sync.meshlink import HttpMeshLink
 from .sync.oracle import ConnectivityOracle
 from .sync.transport import build_transport
@@ -145,11 +146,18 @@ class EdgeNode:
         # directly, with no coordinator and no cloud in the middle.
         self.mesh_link = (HttpMeshLink() if self.settings.mesh_transport == "http"
                           else MeshLink())
+        # The device's signing key lives beside its data and survives restarts.
+        # An identity that is regenerated on boot is not an identity: every
+        # peer would see the key change and — correctly — refuse everything the
+        # device had ever said.
+        self.identity = DeviceIdentity.load_or_create(
+            self.settings.node_id, Path(self.settings.data_dir) / "device_key.pem")
         self.mesh = GossipAgent(
             self.settings.node_id, self.mesh_link, self.bus,
             op_source=lambda: list(self.sync.oplog.ops),
             apply_op=self._apply_mesh_op,
             may_share=self._may_share_op,
+            identity=self.identity,
         )
 
         # -- retrieval

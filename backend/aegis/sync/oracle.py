@@ -12,6 +12,7 @@ import time
 from enum import Enum
 from typing import Awaitable, Callable
 
+from ..core import determinism
 from ..core.bus import EventBus
 from ..core.metrics import METRICS
 
@@ -39,8 +40,8 @@ class ConnectivityOracle:
         self.consecutive_ok = 0
         self.probes = 0
         self.transitions = 0
-        self.last_transition = time.time()
-        self.last_offline_at = time.time()
+        self.last_transition = determinism.now()
+        self.last_offline_at = determinism.now()
         self.reconnect_ms: float | None = None
         self._on_restore: list[Callable[[], Awaitable[None]]] = []
         self.forced_offline = False
@@ -60,14 +61,14 @@ class ConnectivityOracle:
 
     async def probe_once(self) -> LinkState:
         self.probes += 1
-        t0 = time.perf_counter()
+        t0 = determinism.monotonic()
         ok = False
         if not self.forced_offline:
             try:
                 ok = await self.transport.ping()
             except Exception:
                 ok = False
-        rtt = (time.perf_counter() - t0) * 1000.0
+        rtt = (determinism.monotonic() - t0) * 1000.0
         # Asymmetric EWMA: a completed round trip is unambiguous evidence that
         # the link works, so recovery is fast; a single timeout is not proof of
         # an outage, so degradation is slow. Symmetric smoothing would make the
@@ -94,14 +95,14 @@ class ConnectivityOracle:
             return
         previous, self.state = self.state, new_state
         self.transitions += 1
-        self.last_transition = time.time()
+        self.last_transition = determinism.now()
         METRICS.incr("link.transitions")
         if new_state is LinkState.OFFLINE:
-            self.last_offline_at = time.time()
+            self.last_offline_at = determinism.now()
             self.reconnect_ms = None
         restored = previous is LinkState.OFFLINE and new_state is not LinkState.OFFLINE
         if restored:
-            self.reconnect_ms = round((time.time() - self.last_offline_at) * 1000, 1)
+            self.reconnect_ms = round((determinism.now() - self.last_offline_at) * 1000, 1)
         self.bus.publish(
             "link", "state_changed",
             level="warn" if new_state is LinkState.OFFLINE else "ok",

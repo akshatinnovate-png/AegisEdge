@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Iterable
 
+from ..core import determinism
 from ..core.clock import HLC
 from ..core.ids import ulid
 
@@ -33,7 +34,11 @@ class Operation:
     hlc: str = ""
     device_id: str = ""
     body: dict[str, Any] = field(default_factory=dict)
-    ts: float = field(default_factory=time.time)
+    ts: float = field(default_factory=determinism.now)
+    # Ed25519 over the immutable fields, set by the authoring device. Empty
+    # on an unsigned deployment; never part of what the signature covers,
+    # for the obvious reason.
+    sig: str = ""
 
     @property
     def clock(self) -> HLC:
@@ -46,13 +51,15 @@ class Operation:
 
     def as_dict(self) -> dict[str, Any]:
         return {"op_id": self.op_id, "kind": self.kind.value, "point_id": self.point_id,
-                "hlc": self.hlc, "device_id": self.device_id, "body": self.body, "ts": self.ts}
+                "hlc": self.hlc, "device_id": self.device_id, "body": self.body,
+                "ts": self.ts, "sig": self.sig}
 
     @staticmethod
     def from_dict(d: dict[str, Any]) -> "Operation":
         return Operation(op_id=d["op_id"], kind=OpKind(d["kind"]), point_id=d["point_id"],
                          hlc=d.get("hlc", ""), device_id=d.get("device_id", ""),
-                         body=d.get("body", {}), ts=d.get("ts", time.time()))
+                         body=d.get("body", {}), ts=d.get("ts", determinism.now()),
+                         sig=d.get("sig", ""))
 
 
 class OpLog:

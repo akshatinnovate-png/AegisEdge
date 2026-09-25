@@ -23,11 +23,12 @@ frontend at it (it defaults to `http://localhost:8000`).
 |---|---|
 | `aegis/node.py` | Composition root — every subsystem is built and supervised here |
 | `aegis/config.py` | All configuration, env-overridable (`AEGIS_*`) |
-| `aegis/core/` | HLC clock, event bus, supervisor, metrics, breaker, backoff, token bucket, QoS scheduler, span tracing, **tenancy**, **SLO ladder** |
+| `aegis/core/` | HLC clock, event bus, supervisor, metrics, breaker, backoff, token bucket, QoS scheduler, span tracing, **tenancy**, **SLO ladder**, **swappable ambient environment (virtual clock + seeded RNG)** |
 | `aegis/memory/` | Schema, WAL, quantizers, **RaBitQ cold codes + columnar codebook**, **growable matrices**, HNSW, OPQ / IVF-PQ, adaptive index + cost model, filters & payload index, query planner, memmap cold tier, **immutable segments + manifest**, **fsck/scrub/PITR**, **self-healing repair**, **bitemporal knowledge graph**, Qdrant Edge adapter, compactor, consolidation |
 | `aegis/inference/` | ONNX session + EP ladder, micro-batcher, embedder, **corpus geometry (whitening)**, **token lexicon**, **adaptation gate**, sparse encoder, reranker, classifier, thermal governor, model registry, Triton client |
 | `aegis/retrieval/` | RRF fusion, scoring, namespaced semantic cache, contradiction detection, query understanding (BK-tree, expansion, intent), late interaction (MaxSim), **conformal prediction**, **MMR diversity**, pipeline, agent |
-| `aegis/sync/` | CRDT op log, Merkle digests, **IBLT set reconciliation**, **vector clocks + causal delivery**, **P2P gossip mesh**, **wire codec**, durable queue, connectivity oracle, transports, conflict arbiter, engine |
+| `aegis/sync/` | CRDT op log, Merkle digests, **IBLT set reconciliation**, **vector clocks + causal delivery**, **P2P gossip mesh**, **Ed25519 device identity + operation signing**, **wire codec**, durable queue, connectivity oracle, transports, conflict arbiter, engine |
+| `aegis/sim/` | **Deterministic simulation** — a virtual world of N peers, weighted fault and Byzantine actions, seven invariants checked after every step |
 | `aegis/learning/` | **On-device retrieval adapter**, **differential privacy**, **federated secure aggregation** |
 | `aegis/renewal/` | Freshness sweeps, dual-space migrator, scheduler |
 | `aegis/policy/` | Policy engine, redaction vault, hash-chained audit log |
@@ -178,3 +179,16 @@ storms rather than happy paths:
   operations are commutative, so anti-entropy applies a set directly; vector
   clocks guard the streaming path, where a supersede can outrun what it
   supersedes.
+- **A receiver enforces its own policy, and verifies who wrote what.** Egress
+  filtering on the sender is correct for an honest peer and worth nothing
+  against a compromised one. Every operation carries an Ed25519 signature from
+  the device that created it, and both inbound paths run through one admission
+  check. What this does not cover is stated rather than implied:
+  trust-on-first-use refuses a *change* to a known device's key, but cannot
+  defeat an attacker present at the very first contact.
+- **Correctness is tested by simulation, not only by load.** `aegis/sim/` runs
+  the real gossip agent, CRDT and codec against a virtual clock and a seeded
+  generator, so an entire distributed execution is a pure function of one
+  integer and a failure replays byte for byte. Three shipped defects were found
+  this way, including a wire codec that silently dropped the very field a
+  receiving node uses to decide whether it may hold a memory.

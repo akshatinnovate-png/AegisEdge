@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import threading
 import time
+
+from . import determinism
 from dataclasses import dataclass
 
 
@@ -42,7 +44,7 @@ class HybridClock:
 
     def now(self) -> HLC:
         with self._lock:
-            wall = int(time.time() * 1000)
+            wall = int(determinism.now() * 1000)
             if wall > self._wall:
                 self._wall, self._counter = wall, 0
             else:
@@ -52,7 +54,7 @@ class HybridClock:
     def observe(self, remote: HLC) -> HLC:
         """Merge a peer's timestamp; local time can never move backwards."""
         with self._lock:
-            wall = int(time.time() * 1000)
+            wall = int(determinism.now() * 1000)
             self.max_observed_skew_ms = max(
                 self.max_observed_skew_ms, abs(remote.wall_ms - wall)
             )

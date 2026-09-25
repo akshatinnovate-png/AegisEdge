@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Iterable
 
+from ..core import determinism
 from .crdt import Operation
 
 
@@ -137,7 +138,7 @@ class CausalBuffer:
 
     def expire(self) -> int:
         """Drop ops whose predecessors never arrived — a peer that vanished."""
-        cutoff = time.time() - self.max_hold_s
+        cutoff = determinism.now() - self.max_hold_s
         stale = [h for h in self.pending if h.received_at < cutoff]
         for held in stale:
             self.pending.remove(held)
@@ -148,5 +149,5 @@ class CausalBuffer:
         return {"node": self.node_id, "clock": self.clock.pack(), "peers": len(self.clock),
                 "pending": len(self.pending), "delivered": self.delivered,
                 "buffered": self.buffered, "released": self.released, "expired": self.expired,
-                "oldest_pending_s": round(time.time() - min((h.received_at for h in self.pending),
-                                                            default=time.time()), 2)}
+                "oldest_pending_s": round(determinism.now() - min((h.received_at for h in self.pending),
+                                                            default=determinism.now()), 2)}

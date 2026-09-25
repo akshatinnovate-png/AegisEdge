@@ -19,9 +19,12 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
+from ..core import determinism
 from ..core.bus import EventBus
 from ..core.metrics import METRICS
 from .causal import CausalBuffer, VectorClock
+from .identity import (DeviceIdentity, IdentityChanged,  # noqa: F401
+                       UnknownDevice)
 from .compression import WireCodec
 from .crdt import Operation
 from .iblt import IBLT
@@ -42,11 +45,11 @@ class Peer:
 
     @property
     def alive(self) -> bool:
-        return self.last_seen > 0 and (time.time() - self.last_seen) < 90.0
+        return self.last_seen > 0 and (determinism.now() - self.last_seen) < 90.0
 
     def as_dict(self) -> dict[str, Any]:
         return {"node_id": self.node_id, "endpoint": self.endpoint, "alive": self.alive,
-                "last_seen_s": round(time.time() - self.last_seen, 1) if self.last_seen else None,
+                "last_seen_s": round(determinism.now() - self.last_seen, 1) if self.last_seen else None,
                 "rtt_ms": round(self.rtt_ms, 1), "trust": round(self.trust, 2),
                 "rounds": self.rounds, "received": self.received, "sent": self.sent,
                 "failures": self.failures}
@@ -83,8 +86,8 @@ class MeshLink:
         if target not in self.nodes or not self.reachable(sender, target):
             self.dropped += 1
             raise ConnectionError(f"{target} unreachable from {sender}")
-        await asyncio.sleep(self.latency_ms * random.uniform(0.7, 1.4) / 1000.0)
-        if random.random() < self.loss:
+        await asyncio.sleep(self.latency_ms * determinism.rng().uniform(0.7, 1.4) / 1000.0)
+        if determinism.rng().random() < self.loss:
             self.dropped += 1
             raise ConnectionError("packet lost")
         return await self.nodes[target].handle(sender, method, payload)
@@ -99,13 +102,19 @@ class GossipAgent:
     def __init__(self, node_id: str, link: MeshLink, bus: EventBus,
                  op_source: Callable[[], list[Operation]],
                  apply_op: Callable[[Operation], Awaitable[None]],
-                 may_share: Callable[[Operation], bool] | None = None) -> None:
+                 may_share: Callable[[Operation], bool] | None = None,
+                 identity: "DeviceIdentity | None" = None) -> None:
         self.node_id = node_id
         self.link = link
         self.bus = bus
         self.op_source = op_source
         self.apply_op = apply_op
         self.may_share = may_share or (lambda _op: True)
+        # Without an identity the mesh behaves exactly as it did before:
+        # every operation is believed. That is the configuration the
+        # simulator uses to reproduce the attack, so it has to stay
+        # reachable rather than be quietly removed.
+        self.identity = identity
 
         self.peers: dict[str, Peer] = {}
         self.known: dict[str, Operation] = {}
@@ -117,8 +126,93 @@ class GossipAgent:
         self.ops_pulled = 0
         self.ops_pushed = 0
         self.withheld = 0
+        self.refused_inbound = 0
+        self.refused_forged = 0
+        self.verified_ops = 0
         self.bytes_saved = 0
         link.join(self)
+
+    # -- identity ---------------------------------------------------------
+
+    def _key_bundle(self) -> dict[str, str]:
+        """Every author key this node holds, to travel with the operations.
+
+        An operation written on edge-A and relayed by edge-B arrives at edge-C,
+        which may never have spoken to edge-A. Without this, edge-C cannot
+        verify a signature it has no key for and would refuse a perfectly good
+        operation — signing would break the very partition tolerance it is
+        meant to protect.
+
+        The cost is stated plainly: trust-on-first-use over a relay is only as
+        good as the relay that carried the first key. What it still buys is the
+        thing the simulator found — an established identity cannot be taken
+        over, because a *change* to a known key is refused, and an operation
+        cannot be edited in flight, because the relay cannot re-sign it.
+        """
+        if self.identity is None:
+            return {}
+        import base64
+        from cryptography.hazmat.primitives import serialization
+        return {device: base64.b64encode(key.public_bytes(
+                    encoding=serialization.Encoding.Raw,
+                    format=serialization.PublicFormat.Raw)).decode()
+                for device, key in self.identity.known.items()}
+
+    def _learn_keys(self, keys: dict[str, str] | None) -> None:
+        if not keys or self.identity is None:
+            return
+        for device, public in keys.items():
+            try:
+                self.identity.learn(device, public)
+            except IdentityChanged as exc:
+                # Not a merge conflict. Somebody is claiming a name that is
+                # already spoken for, and the honest holder of that name is
+                # still out there using it.
+                self.refused_forged += 1
+                self.bus.publish("mesh", "identity_conflict", level="error",
+                                 device=device, message=str(exc))
+
+    def _admit(self, op: Operation, sender: str) -> bool:
+        """Everything that has to be true before an operation is applied.
+
+        Both inbound paths run through here. They used to differ: anti-entropy
+        pulled operations straight into the store while the push path checked
+        policy, which meant the same restricted memory was refused if it was
+        offered and accepted if it was asked for. One door, checked once.
+        """
+        # Policy. Egress filtering on the sender is worth nothing against a
+        # sender that skips it, so the receiver enforces its own rules. The
+        # simulator found this at seed 5 and finds it there every time.
+        if not self.may_share(op):
+            self.refused_inbound += 1
+            self.bus.publish(
+                "mesh", "inbound_refused", level="warn", peer=sender, op_id=op.op_id,
+                message=(f"refused an operation from <b>{sender}</b> that this "
+                         f"node's own policy says may never leave a device"))
+            return False
+
+        if self.identity is None:
+            return True
+
+        # Integrity and authorship. A relay may route an operation; it may not
+        # edit one, and it may not write one in somebody else's name.
+        try:
+            ok = self.identity.verify(op.as_dict(), op.sig)
+        except UnknownDevice:
+            ok = False
+            reason = f"no key known for <b>{op.device_id}</b>"
+        else:
+            reason = (f"signature from <b>{op.device_id}</b> does not check out"
+                      if not ok else "")
+        if not ok:
+            self.refused_forged += 1
+            self.bus.publish(
+                "mesh", "forgery_refused", level="error", peer=sender,
+                op_id=op.op_id, author=op.device_id,
+                message=f"refused an operation relayed by <b>{sender}</b>: {reason}")
+            return False
+        self.verified_ops += 1
+        return True
 
     # -- membership -------------------------------------------------------
 
@@ -137,9 +231,9 @@ class GossipAgent:
         """Prefer live peers; occasionally probe a dead one so partitions heal."""
         alive = [p for p in self.peers.values() if p.alive]
         dead = [p for p in self.peers.values() if not p.alive]
-        chosen = random.sample(alive, min(count, len(alive))) if alive else []
-        if dead and (not chosen or random.random() < 0.3):
-            chosen.append(random.choice(dead))
+        chosen = determinism.rng().sample(alive, min(count, len(alive))) if alive else []
+        if dead and (not chosen or determinism.rng().random() < 0.3):
+            chosen.append(determinism.rng().choice(dead))
         return chosen
 
     # -- local state ------------------------------------------------------
@@ -156,6 +250,11 @@ class GossipAgent:
         Operations that arrive without a clock are applied directly. The
         buffer preserves declared ordering; it does not invent it.
         """
+        # Signed before the policy check: an operation that never leaves
+        # this device today may be exported tomorrow, and an unsigned one
+        # in the log is a gap in the record.
+        if self.identity is not None and not op.sig and op.device_id == self.node_id:
+            op.sig = self.identity.sign(op.as_dict())
         self.known[op.op_id] = op
         if not self.may_share(op):
             return None                       # local-only: never enters the sequence
@@ -189,24 +288,27 @@ class GossipAgent:
 
     async def handle(self, sender: str, method: str, payload: dict[str, Any]) -> dict[str, Any]:
         peer = self.add_peer(sender)
-        peer.last_seen = time.time()
+        peer.last_seen = determinism.now()
         peer.received += 1
+        self._learn_keys(payload.get("keys"))
 
         if method == "ping":
             return {"node_id": self.node_id, "ops": len(self._shareable()),
-                    "clock": self.causal.clock.pack()}
+                    "clock": self.causal.clock.pack(), "keys": self._key_bundle()}
 
         if method == "digest":
             mine = self._shareable()
             cells = int(payload.get("cells", 128))
             table = IBLT(cells).insert_many(mine.keys())
-            return {"table": table.to_wire(), "ops": len(mine)}
+            return {"table": table.to_wire(), "ops": len(mine),
+                    "keys": self._key_bundle()}
 
         if method == "fetch":
             mine = self._shareable()
             ids = [op_id for op_id in payload.get("op_ids", []) if op_id in mine]
             frame = self.codec.encode([mine[op_id].as_dict() for op_id in ids])
-            return {"frame": frame, "clocks": {i: self.clocks[i] for i in ids if i in self.clocks}}
+            return {"frame": frame, "keys": self._key_bundle(),
+                    "clocks": {i: self.clocks[i] for i in ids if i in self.clocks}}
 
         if method == "push":
             ops = [Operation.from_dict(o) for o in self.codec.decode(payload["frame"])]
@@ -219,6 +321,8 @@ class GossipAgent:
             fresh = 0
             for op in ops:
                 if op.op_id in self.known:
+                    continue
+                if not self._admit(op, sender):
                     continue
                 stamped = clocks.get(op.op_id) if streaming else None
                 if stamped is None:
@@ -250,16 +354,17 @@ class GossipAgent:
         peer = self.add_peer(peer_id)
         mine = self._shareable()
         cells = IBLT.size_for(max(8, len(mine) // 8))
-        started = time.perf_counter()
+        started = determinism.monotonic()
         try:
-            response = await self.link.call(self.node_id, peer_id, "digest", {"cells": cells})
+            response = await self.link.call(self.node_id, peer_id, "digest", {"cells": cells, "keys": self._key_bundle()})
         except ConnectionError as exc:
             peer.failures += 1
             peer.trust = max(0.0, peer.trust - 0.05)
             return {"peer": peer_id, "error": str(exc)}
 
-        peer.rtt_ms = (time.perf_counter() - started) * 1000
-        peer.last_seen = time.time()
+        self._learn_keys(response.get("keys"))
+        peer.rtt_ms = (determinism.monotonic() - started) * 1000
+        peer.last_seen = determinism.now()
         peer.rounds += 1
         self.rounds += 1
 
@@ -273,7 +378,7 @@ class GossipAgent:
             # act on a partial answer
             cells *= 4
             attempts += 1
-            response = await self.link.call(self.node_id, peer_id, "digest", {"cells": cells})
+            response = await self.link.call(self.node_id, peer_id, "digest", {"cells": cells, "keys": self._key_bundle()})
             local_table = IBLT(cells).insert_many(mine.keys())
             remote_table = IBLT.from_wire(response["table"])
             only_mine, only_theirs, complete = local_table.subtract(remote_table).decode()
@@ -281,11 +386,15 @@ class GossipAgent:
         pulled = pushed = 0
         if only_theirs:
             fetched = await self.link.call(self.node_id, peer_id, "fetch",
-                                           {"op_ids": sorted(only_theirs)})
+                                           {"op_ids": sorted(only_theirs),
+                                            "keys": self._key_bundle()})
             ops = [Operation.from_dict(o) for o in self.codec.decode(fetched["frame"])]
             incoming_clocks = fetched.get("clocks", {})
+            self._learn_keys(fetched.get("keys"))
             for op in ops:
                 if op.op_id in self.known:
+                    continue
+                if not self._admit(op, peer_id):
                     continue
                 self.known[op.op_id] = op
                 if op.op_id in incoming_clocks:
@@ -300,7 +409,7 @@ class GossipAgent:
             sending = [op_id for op_id in sorted(only_mine) if op_id in mine]
             frame = self.codec.encode([mine[op_id].as_dict() for op_id in sending])
             result = await self.link.call(self.node_id, peer_id, "push", {
-                "frame": frame,
+                "frame": frame, "keys": self._key_bundle(),
                 "clocks": {i: self.clocks[i] for i in sending if i in self.clocks},
             })
             pushed = int(result.get("accepted", 0))
@@ -332,7 +441,7 @@ class GossipAgent:
             try:
                 frame = self.codec.encode([op.as_dict()])
                 result = await self.link.call(self.node_id, peer.node_id, "push", {
-                    "frame": frame, "rumour": True,
+                    "frame": frame, "rumour": True, "keys": self._key_bundle(),
                     "clocks": {op.op_id: self.clocks[op.op_id]} if op.op_id in self.clocks else {},
                 })
                 if result.get("accepted"):
@@ -355,7 +464,13 @@ class GossipAgent:
             "alive_peers": sum(1 for p in self.peers.values() if p.alive),
             "known_ops": len(self.known), "rounds": self.rounds,
             "pulled": self.ops_pulled, "pushed": self.ops_pushed,
-            "withheld_by_policy": self.withheld, "bytes_saved": self.bytes_saved,
+            "withheld_by_policy": self.withheld,
+            "refused_inbound": self.refused_inbound,
+            "refused_forged": self.refused_forged,
+            "verified_ops": self.verified_ops,
+            "identity": (self.identity.snapshot() if self.identity is not None
+                         else {"signing": "off — every operation is believed"}),
+            "bytes_saved": self.bytes_saved,
             "causal": self.causal.snapshot(), "codec": self.codec.snapshot(),
             # The transport's own state, so a caller can tell a quiet mesh from
             # a pulled radio. Without it the two are indistinguishable from

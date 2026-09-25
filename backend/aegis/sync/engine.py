@@ -18,6 +18,7 @@ from typing import Any
 
 import numpy as np
 
+from ..core import determinism
 from ..core.backoff import DecorrelatedJitter
 from ..core.bus import EventBus
 from ..core.clock import HybridClock
@@ -173,7 +174,7 @@ class SyncEngine:
             self._inflight = None
 
     async def _reconcile(self, trigger: str) -> dict[str, Any]:
-        t0 = time.perf_counter()
+        t0 = determinism.monotonic()
         self.cycles += 1
         self.progress = 0.0
         pushed = pulled = conflicts = 0
@@ -206,10 +207,10 @@ class SyncEngine:
             self.progress = 1.0
 
             self._set_state(SyncState.CONVERGED)
-            self.last_converged_at = time.time()
+            self.last_converged_at = determinism.now()
             self.backoff.reset()
             self.arbiter.observe_device(self.settings.node_id, +0.01)
-            duration = (time.perf_counter() - t0) * 1000
+            duration = (determinism.monotonic() - t0) * 1000
             METRICS.observe("sync.cycle_ms", duration)
             self.bus.publish(
                 "sync", "converged", level="ok", trigger=trigger,
@@ -304,7 +305,7 @@ class SyncEngine:
                 SyncClass.FULL),
             model_version=body.get("model_version", ""),
             device_id=body.get("device_id", op.device_id), hlc=op.hlc,
-            source="fleet", created_at=body.get("created_at", time.time()),
+            source="fleet", created_at=body.get("created_at", determinism.now()),
         )
         if not point.dense:
             point.dense = self.store.embedder.embed_sync([point.text])[0].tolist()
