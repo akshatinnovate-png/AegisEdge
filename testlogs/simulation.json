@@ -1,0 +1,12 @@
+{
+  "executions": 3000,
+  "steps": 400,
+  "peers": 6,
+  "signed": true,
+  "real_seconds": 4456.22,
+  "simulated_seconds": 704173.9,
+  "fleet_days": 8.15,
+  "operations": 1973405,
+  "failures": [],
+  "claim": "no counterexample in these executions; this samples the space of orderings rather than covering it"
+}

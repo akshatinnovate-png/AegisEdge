@@ -1,0 +1,10 @@
+deterministic simulation  3,000 executions · 400 steps · 6 peers · signed
+every execution is a pure function of its seed; a failure here is a failure forever
+
+
+3,000 executions in 4456.2s real time
+  simulated            704,174 seconds (8.2 fleet-days)
+  operations exchanged 1,973,405
+  invariant failures   0 of 3,000 executions run
+  no counterexample found. That is not a proof — it is 3,000 executions without one.
+  wrote /home/user/AegisEdge/testlogs/simulation.json

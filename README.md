@@ -344,6 +344,25 @@ was accepted by every downstream node in **453 of 500 executions** — every one
 of them the same invariant, `bodies-intact`. The signed build runs the same
 seeds, with the same attacks still firing, and the invariant holds.
 
+The full signed sweep, with the results committed:
+
+```
+deterministic simulation  3,000 executions · 400 steps · 6 peers · signed
+
+  3,000 executions in 4456.2s real time
+  simulated            704,174 seconds (8.2 fleet-days)
+  operations exchanged 1,973,405
+  invariant failures   0 of 3,000 executions run
+  no counterexample found. That is not a proof — it is 3,000 executions
+  without one.
+```
+
+**8.2 fleet-days of a six-device mesh, just under two million operations
+exchanged, seven invariants checked after every one of 1.2 million steps, and
+nothing broke.** The last sentence of that output is the script's own, and it
+is there because the alternative — printing "verified" — would be a lie about
+what a sweep is. It samples the space of orderings. It does not cover it.
+
 ```
 deterministic simulation  500 executions · 400 steps · 6 peers · unsigned (control)
 
@@ -1238,6 +1257,7 @@ Point it at a live backend:
 - [x] AST lint (`scripts/audit_determinism.py`) that fails the build if simulated code reaches past the environment, with a reason recorded for each exemption
 - [x] Byzantine fault injection — forged clocks, impersonation, in-flight tampering — with the invariants that catch each
 - [x] Delta-debugging shrinker: a failing history reduced to the shortest sequence that still reproduces it
+- [x] 3,000-execution signed sweep — 8.2 fleet-days, 1,973,405 operations, 0 invariant failures; and a 500-execution unsigned control where the same attacks land in 453
 - [x] Identifier generation brought inside the seeded execution, after two sweeps over the same seeds disagreed by two — verified by re-running a 500-seed sweep to an identical failure set and an identical 78,249 operations
 - [x] Ed25519 operation signing — 62 µs sign, 129 µs verify, 88 B wire; trust-on-first-use with key changes refused, and the first-contact limit written down rather than glossed
 - [x] Receive-side policy enforcement — a peer that skips its own egress filter is no longer believed
