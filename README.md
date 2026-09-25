@@ -206,6 +206,24 @@ there is now an exact layer in front of the embed, and a hit in the vector
 layer teaches it — a cache that only learns from full work never learns from
 itself.
 
+**A note on the bake-off guard.** The cost model's crossover is derived from
+what the device measures, which is the design — and it means the bake-off's
+conclusion ("flat wins to 20,000 points") is binding only on a machine like the
+one it was measured on. On a container whose numpy takes **7 ms** for a
+2048×256 matvec — about 75 MFLOP/s, two orders of magnitude off a healthy CPU —
+the linear scan really is slower than a graph walk at that scale, and a model
+preferring the graph there is the model working.
+
+The guard used to assert the bake-off's *conclusion* directly, so it failed on
+such a machine and read as a regression in code that had not changed. It is now
+three assertions that hold on any device — an honestly timed hop must cost
+measurably more than a vectorised one (which is the actual defect, timed both
+ways on the same data); the calibration must be stable across consecutive runs;
+and `choose` must have the right shape around the model's own crossover — plus
+the bake-off assertion, which now measures the machine first and **skips with
+the measurement in the skip reason** rather than failing quietly or passing
+vacuously.
+
 **The empty results (5 and 6)** are the pair that would have ruined a demo.
 Query understanding read "conveyor vibration night shift" as sensor intent and
 applied `collection="sensor"` as a hard filter, though the caller asked for
@@ -1171,7 +1189,8 @@ Point it at a live backend:
 - [x] Triton escalation tier (client + policy; needs a live endpoint to light up)
 - [ ] Qdrant Edge wheel pinned in CI (adapter is in, falls back to the native store)
 - [x] Nine-phase stress battery (`scripts/stress.py`) — the numbers in Appendix 1 come from it
-- [x] Fifteen defects found and fixed — twelve under stress, three under deterministic simulation — regression test each · **277 tests**
+- [x] Sixteen defects found and fixed — twelve under stress, four under deterministic simulation — regression test each · **291 tests**
+- [x] The index-strategy guard reworked after it was found asserting a property of the *machine* rather than of the code; it now measures the machine and states, in the skip reason, which one it is on
 - [x] RaBitQ cold tier — unbiased estimator, per-vector error bound, bound-driven rescore depth
 - [x] Corpus-fitted embedding geometry — streaming covariance, Ledoit–Wolf shrinkage, rank-limited whitening
 - [x] Adaptation gate — paraphrase probes from the node's own memories, paired-bootstrap significance
