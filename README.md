@@ -109,8 +109,22 @@ and the raw results are committed under [`testlogs/`](testlogs/).
 | Ingest, full pipeline | 12,000 documents, **zero failures**, p99 30.8 ms |
 | Adversarial payloads | 22 hostile inputs, **0 timeouts**, fsck clean, audit chain intact |
 | Fault storm | 12 simultaneous faults, **190 queries answered, 0 failed**, p99 138.7 ms, 11/11 subsystems alive |
-| Mesh | 50 peers, 5,000 divergent ops, **5,066 ops/s** across the mesh |
-| Soak | 150 s mixed read/write, no unbounded growth |
+| Query throughput | **6,176 q/s** on repeated questions, **1,599 q/s** on questions never asked before, at 256 concurrent |
+| Energy | **40,191 answers per 1% of a 50 Wh pack**, 44.8 mJ each |
+| Mesh | 50 peers, 2,000 divergent ops, **50/50 converged in 7 waves**, 8,187 ops/s across the mesh |
+| Durability | 27 memories, SIGKILL, **back in 2.9 s with 27 memories and nothing lost** |
+| Soak | 150 s mixed read/write — and an **open memory finding**, below |
+
+One line in that table is an admission rather than a result. A steady-state
+soak — corpus held still, nothing written, queries only — shows the resident
+set growing about **2.6 KB per query under concurrent load**, linearly over
+64,000 queries with no plateau. Python objects, the ONNX memory arena, input
+shapes, the encoder, the micro-batcher, tracing, metrics, the event bus,
+background writes and allocator retention have each been measured and ruled
+out, and two attempted fixes measured as doing nothing and were therefore not
+kept. It is on the status list as open, with the reproduction. A README that
+said "no unbounded growth" — as this one did until the soak was taught to hold
+the corpus still — would have been wrong rather than reassuring.
 
 Two figures are deliberately *not* on that list. AegisEdge does not do "billions
 of inputs per millisecond" — that would be ~10¹² ops/s, several orders of
@@ -126,9 +140,11 @@ guardrail.
 
 ## 3. What the stress runs broke
 
-The point of a stress test is the things it breaks. Eight defects, each found by
-pushing until something gave way and then reading what actually happened rather
-than what was supposed to. All are fixed, with a regression test each.
+The point of a stress test is the things it breaks. Twelve defects, each found
+by pushing until something gave way and then reading what actually happened
+rather than what was supposed to. All are fixed, with a regression test each —
+and a thirteenth finding that is still open, because not finding the cause is
+also a result.
 
 | # | Defect | What it cost |
 |---|---|---|
@@ -140,6 +156,10 @@ than what was supposed to. All are fixed, with a regression test each.
 | 6 | Inferred query narrowing applied as a hard filter | ordinary queries returned **zero** hits: `conveyor` → 5, `conveyor vibration night shift` → 0, on a corpus where every document contains all four words |
 | 7 | The tokenizer encoded the whole input to keep 128 tokens | 1 MB query **853 ms → 35.5 ms**; the same text stored as a document paid it again on every rerank |
 | 8 | In-flight sync outlived the storage handle | shutdown raised bare `RuntimeError` into un-awaited background tasks |
+| 9 | **The semantic cache had never answered a question** | 0 entries, 0 hits, 0 misses across 128 queries — a `if not filters` guard that query understanding made true on almost every query. Fixed and moved in front of the encoder: **11.16 ms → 0.139 ms, 80×** |
+| 10 | The index cost model chose the slower, less accurate structure | it picked HNSW from 5,000 points where flat was **4.9× faster and exact** — it had timed a graph hop as one vectorised call, capturing the arithmetic and none of the interpreter cost |
+| 11 | The index calibration was not reproducible | consecutive calibrations on one machine derived crossovers between 40,000 and 110,000 points, so a node's index strategy depended on what else was running when it booted |
+| 12 | A handling class did not survive the trip between devices | a memory marked for redaction at its origin arrived on the next device freely shareable, and that device's onward decisions rested on a class it never had |
 
 Three of these deserve more than a row.
 
@@ -164,6 +184,17 @@ input. The observation now happens in the pipeline, where every query passes
 regardless of transport. The HTTP layer keeps the failures — which never reach
 the pipeline — and gives up the successes, which would otherwise be counted
 twice and halve the apparent breach rate.
+
+**The dead cache (9)** is the one that cost the most performance and hid the
+longest. The guard read as conservative — a filtered result is not cacheable by
+vector alone — but query understanding infers a collection filter on most
+queries, so it was almost always true. Filters belong *in the key*, not in a
+condition that skips the cache. Fixing the key raised the hit rate and bought
+almost nothing, because the lookup happened *after* the encoder ran: a hit was
+still paying for the most expensive part of the query it existed to avoid. So
+there is now an exact layer in front of the embed, and a hit in the vector
+layer teaches it — a cache that only learns from full work never learns from
+itself.
 
 **The empty results (5 and 6)** are the pair that would have ruined a demo.
 Query understanding read "conveyor vibration night shift" as sensor intent and
