@@ -25,7 +25,7 @@ running console by `backend/scripts/capture_gif.py`; the button is in
 |---|---|
 | **1,599 q/s** unique, **6,176 q/s** repeated | on four cores, no GPU |
 | **60 writes acknowledged, SIGKILL, 60 recovered, 0 lost** | WAL replay in 126 ms |
-| **0 invariant failures in 3,000 simulated executions** | 8.2 fleet-days, 1.97M operations |
+| **0 invariant failures across a 3,000-execution sweep** | 8.2 fleet-days, ~2M operations |
 
 Nothing here is mocked. Real pretrained weights compiled to ONNX at first boot,
 real Qdrant, real ONNX Runtime. The node ships **empty** — whatever you see, you
@@ -50,11 +50,11 @@ python3 scripts/simulate.py --seeds 200 --unsigned --no-shrink \
 
 ```
   --seeds 200                        invariant failures     0 of 200
-  --seeds 200 --unsigned             invariant failures   165 of 200
+  --seeds 200 --unsigned             invariant failures   166 of 200
 ```
 
 The same simulator, the same seeds, the same attacks. **Signed, nothing breaks.
-Unsigned, a relay rewrites other devices' memories in flight and 165 of 200
+Unsigned, a relay rewrites other devices' memories in flight and 166 of 200
 executions catch it.** The control is kept runnable on purpose — a clean run
 means nothing without a run that isn't.
 
@@ -110,14 +110,16 @@ sheds stages to protect p99.
 
 ## Why this one is different
 
-**Sixteen defects found and fixed, each with a regression test.** Not a feature
-list — a record of things that were wrong.
+**Thirty-one defects found and fixed, each with a regression test.** Not a
+feature list — a record of things that were wrong: sixteen under load and
+simulation, five in a security review of that work, ten in a correctness
+review of it.
 
 Three of them came from a deterministic simulator that runs the whole fleet as
 a pure function of one integer. The chain is the point:
 
 1. The simulator found that **a relay could rewrite any operation in flight**
-   and every downstream node accepted it. 453 of 500 executions.
+   and every downstream node accepted it. 435 of 500 executions.
 2. Fixing it with Ed25519 signing exposed a **wire codec silently dropping the
    `sensitivity` label** — the field a receiving node reads to decide whether it
    may hold a memory at all.
@@ -127,12 +129,24 @@ a pure function of one integer. The chain is the point:
 
 Each fix found the next bug. None was reachable by load testing.
 
-Then a **security pass over that same work** — written by the person who had
-just argued it was sound — found five more, two of them remotely exploitable:
-a decompression bomb on the unauthenticated peer endpoint (a 51 KB request
-allocated 50 MB), the same class again in the digest handler (one JSON integer
-worth 69 MB), and a demo route that was the only unauthenticated write in the
-API.
+Then **two review passes over that same work**, written by the person who had
+just argued it was sound.
+
+A security pass found five, two remotely exploitable: a decompression bomb on
+the unauthenticated peer endpoint (a 51 KB request allocated 50 MB), the same
+class again in the digest handler (one JSON integer worth 69 MB), and a demo
+route that was the only unauthenticated write in the API.
+
+A correctness pass found ten more — including that **two of the seven
+simulator invariants had never worked.** They read an attribute that does not
+exist, so they returned clean for three thousand executions. Behind one of them
+was a real, undefended attack: an operation stamped a century ahead wins
+last-writer-wins forever, and the check written to catch it had been unable to
+fail since the day it was written. Repaired, it falsifies 40 of 40 executions
+without the fix and 0 of 60 with it.
+
+Neither pass was lazy. The honest conclusion is that **the number of passes is
+the variable**, and this code has had two.
 
 The same seven invariants the simulator checks now run **against the live
 node**, every two seconds, on a rolling budget — `/api/v1/integrity/invariants`
@@ -178,7 +192,7 @@ description.
 | **[backend/README.md](backend/README.md)** | Module map, dependency matrix, configuration |
 | **[testlogs/](testlogs/)** | Raw results: stress battery, simulation sweeps, bake-offs, screenshots |
 
-**344 tests.** `cd backend && python3 -m pytest -q`
+**347 tests.** `cd backend && python3 -m pytest -q`
 
 ---
 

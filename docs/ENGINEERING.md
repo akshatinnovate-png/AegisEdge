@@ -6,11 +6,15 @@
 
 ## 3. What the stress runs broke
 
-The point of a stress test is the things it breaks. Sixteen defects, each found
-by pushing until something gave way and then reading what actually happened
-rather than what was supposed to. All are fixed, with a regression test each —
-and a seventeenth finding that is still open, because not finding the cause is
-also a result.
+The point of a stress test is the things it breaks. Sixteen of this project's
+thirty-one defects are below, each found by pushing until something gave way
+and then reading what actually happened rather than what was supposed to. All
+are fixed, with a regression test each — and one finding that is still open,
+because not finding the cause is also a result.
+
+The other fifteen came from reviewing this work rather than running it: five in
+a security pass (§3.7) and ten in a correctness pass (§3.8), including two
+invariants that had never worked at all.
 
 Twelve came from load. The last four came from a different instrument
 entirely — a deterministic simulator that runs the whole fleet as a pure
@@ -33,7 +37,7 @@ human would think to write down.
 | 11 | The index calibration was not reproducible | consecutive calibrations on one machine derived crossovers between 40,000 and 110,000 points, so a node's index strategy depended on what else was running when it booted |
 | 12 | A handling class did not survive the trip between devices | a memory marked for redaction at its origin arrived on the next device freely shareable, and that device's onward decisions rested on a class it never had |
 | 13 | Egress policy was enforced on the sender only | a device that skips its own filter — buggy or compromised — pushed a never-leaves-the-device memory to every peer, and each stored it without a murmur. Found deterministically at **seed 5**, and found there every time |
-| 14 | **Operations had no integrity protection at all** | a relay could rewrite the body of somebody else's operation in flight and every downstream node accepted the altered version. **453 of 500** simulated executions found it |
+| 14 | **Operations had no integrity protection at all** | a relay could rewrite the body of somebody else's operation in flight and every downstream node accepted the altered version. **435 of 500** simulated executions found it |
 | 15 | Operation ids were drawn from the wall clock | the ids the IBLT hashes and a fetch is sorted by were not part of the seeded execution, so two sweeps over the same 500 seeds returned **454 failures, then 456** — close enough to read as noise, and a flat contradiction of the claim that a run is a pure function of its seed |
 | 16 | The wire codec silently dropped body fields | it elided a repeated field against encoder state that outlived the frame, while the decoder started empty on every frame. The second operation carrying `sensitivity: restricted` arrived with **no sensitivity label at all** — and that label is exactly what the receiving node reads to decide whether it may hold the memory |
 
@@ -155,7 +159,7 @@ what the IBLT hashes and what a fetch is sorted by, so reconciliation was
 drifting while every other part of the execution replayed perfectly. Ids now
 come from the environment, the per-millisecond counter is reset when a
 simulation begins, and `ids.py` is inside the lint's scope. The two sweeps now
-agree exactly: same failing seeds, same details, the same 78,249 operations
+agree exactly: same failing seeds, same details, the same 80,618 operations
 exchanged.
 
 That is the mechanism working on itself. A simulator whose own instrument
@@ -206,7 +210,7 @@ refuses, and says so on the event bus.
 
 **Then the one that mattered: operations had no integrity protection at all.**
 The `tamper` action — a relay forwarding an operation with the body rewritten —
-was accepted by every downstream node in **453 of 500 executions** — every one
+was accepted by every downstream node in **435 of 500 executions** — every one
 of them the same invariant, `bodies-intact`. The signed build runs the same
 seeds, with the same attacks still firing, and the invariant holds.
 
@@ -236,8 +240,8 @@ deterministic simulation  500 executions · 400 steps · 6 peers · unsigned (co
                   with content that differs from what edge-04 wrote
   ...
   500 executions in 63.5s real time
-  operations exchanged 78,249
-  invariant failures   453 of 500 executions run
+  operations exchanged 80,618
+  invariant failures   435 of 500 executions run
 ```
 
 The control is kept runnable — `--unsigned` is a flag, not a deleted commit.
@@ -783,4 +787,123 @@ Five findings in code written carefully, by someone who had just finished
 arguing it was correct. The honest conclusion is not that the code is now
 clean; it is that a second pass with adversarial intent is worth more than a
 first pass with careful intent, and that nothing here has had a *third*.
+
+---
+
+## 3.8 The correctness review, and the dead assertion behind it
+
+§3.7 was a security pass. This is a second pass with a different lens —
+correctness rather than exploitability — over the same code. It found ten
+things. One of them was hiding a vulnerability, and one of them means a
+sentence in an earlier version of this document was false.
+
+### Two of the seven invariants asserted nothing
+
+`_clock_monotonic` and `_clock_not_poisoned` both read
+`agent.causal.clock.last`. `VectorClock` has no attribute `last`. The lookup
+returned `None`, the loop hit `continue` on every agent, and both checks
+returned clean for **three thousand executions**.
+
+So the claim "seven invariants checked after every step" was five. It was found
+by reading the code, not by a failure, which is how a dead assertion is always
+found: it cannot report itself.
+
+### Behind it was a real, undefended attack
+
+The simulator mounts `forge_clock` — a peer stamping an operation a century
+ahead. Last-writer-wins resolves by `HLC.dominates`, which compares `wall_ms`
+and has no opinion about whether that number is plausible, so such an operation
+beats every honest write to the same point forever.
+
+With the invariant repaired, the very first sweep said so:
+
+```
+seed 0 -> clock-not-poisoned: edge-01 holds 01HF7YAWE3D3QTWT3919WBRWBN
+          stamped 36,458 days beyond the world's clock
+```
+
+Forty seeds out of forty. The check had been written to catch exactly this,
+and had been unable to fail since the day it was written.
+
+The defence is a bound: `GossipAgent` refuses an operation whose clock is more
+than an hour beyond its own, counts it, and says so on the bus. An hour is
+generous against real drift, and the cost is stated rather than hidden — a
+device whose clock is badly wrong has its writes refused, and is told, rather
+than discovering it later as silent data loss.
+
+| | signed sweep |
+|---|---|
+| bound removed (the defence off) | **40 of 40 executions falsified** |
+| bound in place | **0 of 60** |
+
+A guard that cannot fail proves nothing, so both directions are measured.
+
+### A tautology, in the live invariants
+
+`_policy_holds` asked whether anything in `_shareable()` failed `may_share`.
+`_shareable()` is *defined* as the set filtered by `may_share`. It could not
+fail against real code, and fired only against a test stub whose fake
+`_shareable()` returned everything.
+
+It now asks the property the simulator actually found at seed 5: a device may
+keep its own restricted memories and must not hold anybody else's. There are
+two tests — one that a foreign restricted memory is caught, one that this
+device's own is not — because the second is what makes the first meaningful.
+
+### Enrolment converged exactly one hop
+
+Keys travel with operations so a node can verify an author it has never met.
+In enrolment mode a key without its certificate is refused — and every node
+offered its own certificate and nobody else's. Measured on a four-device chain:
+
+```
+hop 1 (direct):  edge-01 has it: True
+hop 2 (relayed): edge-02 has it: False    refused_forged: 5
+```
+
+The two-node test passed throughout, because two nodes are always one hop.
+Certificates are relayed now, which is safe for the reason they exist: a
+certificate carries the root's signature over an id bound to a key, so the
+recipient checks the root rather than the carrier. Four hops, zero forgeries,
+with a test that walks the chain without touching the author again.
+
+### The determinism lint had a blind spot
+
+`field(default_factory=time.time)` never appears as an `ast.Call` on
+`time.time`, and the audit only inspected calls. Two of them sat in
+`causal.py` and `conflict.py` through every sweep, comparing virtual time
+against the real wall clock — which made one buffer-expiry path dead in every
+seed, and meant the "pure function of its seed" claim had a hole in it that the
+tool built to guarantee it could not see.
+
+Both converted; the lint now catches a banned name passed as a value, verified
+by reintroducing the pattern and watching it fail.
+
+### And four smaller ones
+
+- **The honest probe left a real memory behind.** The accepted case is
+  materialised by design — indexed, retrievable, gossipable — and only
+  `mesh.known` was rolled back. A drill that leaves real state behind is not a
+  drill. The point is deleted now, and the test asserts it is neither resident
+  nor findable.
+- **`set_dense` did not copy.** `np.ascontiguousarray` returns the *same
+  object* for an already-contiguous float32 input, which is exactly what the
+  micro-batcher produces — so every point held a view into the batch array it
+  came from, pinning the buffer. The docstring claimed a copy. It is one now.
+- **Two live invariants scanned everything** every two seconds, against a
+  module whose docstring promises a bounded budget. Both windowed.
+- **`set.pop()` evicted an arbitrary id** from the authored-operations cache,
+  frequently the newest — so `origin-retains` had unpredictable gaps past the
+  cap. Oldest-first now.
+
+Plus an unbounded key store on the unauthenticated endpoint, which is the same
+class as §3.7's three and was missed by that pass.
+
+### What two reviews say that one does not
+
+The security pass found five. This pass, over the same code, found ten more,
+including two assertions that had never worked and one vulnerability they were
+written to catch. Neither pass was lazy. The conclusion is not that the code
+is now correct — it is that **the number of passes is the variable**, and this
+code has had two.
 

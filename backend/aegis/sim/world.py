@@ -36,6 +36,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from ..core.bus import EventBus
 from ..core.determinism import VirtualEnvironment, simulated
+from ..core.clock import HLC
 from ..sync.crdt import OpKind, Operation
 from ..sync.gossip import GossipAgent, MeshLink
 from ..sync.identity import DeviceIdentity
@@ -114,8 +115,15 @@ class Simulation:
         # spreads is the system working, not a missing replica. Counting
         # these was the invariant reading a successful defence as a bug.
         self.fabricated: set[str] = set()
+        # op id -> the device that stamped it in the future. A liar holding its
+        # own lie is not poisoning anybody; the property is that it must not
+        # spread, so the author is excluded and every other device is not.
+        self.future_stamped: dict[str, str] = {}
         self.applied: dict[str, int] = {n: 0 for n in self.names}
         self.history: list[tuple[str, Any]] = []
+        # Last seen vector clock per device, so `clock-monotonic` has a
+        # previous value to compare against.
+        self.clock_history: dict[str, dict[str, int]] = {}
         self.steps = 0
         self.messages = 0
 
@@ -257,6 +265,7 @@ class Simulation:
                        device_id=liar, hlc=f"{int(future * 1000)}.00000.{liar}",
                        body={"text": "forged", "sensitivity": "internal"})
         self.origin[op.op_id] = liar
+        self.future_stamped[op.op_id] = liar
         self.stores[liar][op.op_id] = op
         # Signed honestly, with the liar's own key, under its own name. Nothing
         # about this operation is forged except the clock, so the signature is
@@ -440,7 +449,12 @@ class Simulation:
 
     def check_converged(self) -> Violation | None:
         """The property the whole design exists to provide."""
-        excluded = self.local_only | self.fabricated
+        # Operations the fleet refuses on purpose are not operations that
+        # should converge. Forgeries never spread because no peer can verify
+        # them; future-stamped operations never spread because every peer now
+        # refuses an implausible clock. Counting either as a missing replica
+        # reads a working defence as a fault.
+        excluded = self.local_only | self.fabricated | set(self.future_stamped)
         shareable: dict[str, set[str]] = {
             n: {op_id for op_id in store if op_id not in excluded}
             for n, store in self.stores.items()}
@@ -503,42 +517,60 @@ def _no_duplicates(sim: Simulation) -> str | None:
 
 
 def _clock_monotonic(sim: Simulation) -> str | None:
-    """A hybrid logical clock never runs backwards, whatever NTP does."""
+    """No device's vector clock ever goes backwards.
+
+    This used to read `agent.causal.clock.last`, which does not exist —
+    `VectorClock` has no such attribute, so the lookup returned None, the loop
+    hit `continue` on every agent, and the invariant asserted nothing for three
+    thousand executions. It was found by a review, not by a failure, which is
+    the way a dead assertion is always found.
+
+    What it checks now is real and local: every entry in a device's vector
+    clock is monotone non-decreasing across steps. A counter that goes
+    backwards means delivery ordering has been corrupted, and every causal
+    guarantee above it is void.
+    """
     for name, agent in sim.agents.items():
-        clock = getattr(agent, "causal", None)
-        packed = getattr(getattr(clock, "clock", None), "last", None)
-        if packed is None:
-            continue
-        previous = getattr(agent, "_sim_last_hlc", None)
-        if previous is not None and packed < previous:
-            return f"{name} clock went backwards: {previous} then {packed}"
-        agent._sim_last_hlc = packed
+        current = agent.causal.clock.mapping
+        previous = sim.clock_history.get(name)
+        if previous is not None:
+            for device, counter in previous.items():
+                if current.get(device, 0) < counter:
+                    return (f"{name}'s vector clock for {device} went backwards: "
+                            f"{counter} then {current.get(device, 0)}")
+        sim.clock_history[name] = current
     return None
 
 
 def _clock_not_poisoned(sim: Simulation) -> str | None:
     """A peer's claim about the time cannot carry this device into the future.
 
-    Hybrid logical clocks merge what they are told, which is what makes them
-    useful and what makes them attackable: a peer that stamps an operation a
-    century ahead drags every node that merges it, and from then on every
-    honest write loses last-writer-wins to a lie. The bound is generous —
-    an hour of genuine skew is fine, a century is not.
+    Last-writer-wins is only as trustworthy as the clock it compares. An
+    operation stamped a century ahead dominates every honest write to the same
+    point, forever — `HLC.dominates` compares `wall_ms` first and has no
+    opinion about whether that number is plausible.
+
+    So this asserts the plausibility that nothing else does: no operation an
+    honest device holds may claim a time far beyond the world's own. An hour of
+    genuine drift is fine and a century is not, which is the entire distinction
+    the check exists to draw.
     """
     if sim.world is None:
         return None
-    ceiling = (sim.world.now() + 3600.0) * 1000.0
-    for name, agent in sim.agents.items():
-        packed = getattr(getattr(agent.causal, "clock", None), "last", None)
-        if packed is None:
-            continue
-        try:
-            millis = float(str(packed).split(".")[0])
-        except (ValueError, IndexError):
-            continue
-        if millis > ceiling:
-            return (f"{name} clock is {(millis / 1000.0 - sim.world.now()) / 86400.0:,.0f} "
-                    f"days ahead of the world after merging a peer's claim")
+    ceiling_ms = (sim.world.now() + 3600.0) * 1000.0
+    for name, store in sim.stores.items():
+        for op_id, op in store.items():
+            if not op.hlc or sim.future_stamped.get(op_id) == name:
+                continue          # a liar holding its own lie has poisoned nobody
+            try:
+                stamped = HLC.parse(op.hlc).wall_ms
+            except Exception:
+                return f"{name} holds {op_id} with an unparseable clock {op.hlc!r}"
+            if stamped > ceiling_ms:
+                ahead_days = (stamped - ceiling_ms) / 86_400_000.0
+                return (f"{name} holds {op_id} stamped {ahead_days:,.0f} days beyond "
+                        f"the world's clock — a peer's lie about the time, which "
+                        f"last-writer-wins will honour forever")
     return None
 
 

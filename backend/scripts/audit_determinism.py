@@ -74,6 +74,24 @@ def offences(path: Path) -> list[tuple[int, str, str]]:
         found.append((1, "determinism.* with no import",
                       "from ..core import determinism"))
 
+    # A bare reference, not a call: `field(default_factory=time.time)` never
+    # appears as an `ast.Call` on `time.time`, so the check below walked
+    # straight past two of them. They sat in `causal.py` and `conflict.py`
+    # through three thousand simulated executions, comparing virtual time
+    # against the real wall clock, which quietly made one expiry path dead in
+    # every seed.
+    called = {id(node.func) for node in ast.walk(tree)
+              if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Attribute) or not isinstance(node.value, ast.Name):
+            continue
+        if id(node) in called:
+            continue                      # an ordinary call; the loop below has it
+        key = (node.value.id, node.attr)
+        if key in BANNED:
+            found.append((node.lineno, f"{node.value.id}.{node.attr} passed as a value",
+                          BANNED[key]))
+
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
             continue

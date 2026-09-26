@@ -584,3 +584,75 @@ def test_a_failed_key_write_leaves_nothing_behind():
 
     with pytest.raises(Exception):
         write_private_key(pathlib.Path("/proc/nonexistent/key.pem"), b"x")
+
+
+def test_an_enrolled_fleet_converges_past_the_first_hop():
+    """It did not. Measured: hop one delivered, hop two refused as a forgery.
+
+    Keys travel with operations precisely so a node can verify an author it
+    has never met — and in enrolment mode a key without its certificate is
+    refused. Every node offered its own certificate and nobody else's, so a
+    third device could never check the key for a relayed author. The two-node
+    test above passed throughout, because two nodes are always one hop.
+    """
+    root, root_pub = _fleet_root()
+    bus, link = EventBus(), MeshLink(latency_ms=0.0)
+    names = ["edge-00", "edge-01", "edge-02", "edge-03"]
+    stores: dict[str, dict] = {n: {} for n in names}
+
+    def applier(node):
+        async def apply(op): stores[node][op.op_id] = op
+        return apply
+
+    identities = {}
+    for n in names:
+        ident = DeviceIdentity(n, root_public_b64=root_pub, require_enrolment=True)
+        ident.certificate = DeviceIdentity.issue(root, n, ident.public_key_b64)
+        identities[n] = ident
+
+    agents = {n: GossipAgent(n, link, bus, op_source=lambda n=n: list(stores[n].values()),
+                             apply_op=applier(n), identity=identities[n])
+              for n in names}
+    for a in agents.values():
+        for other in names:
+            if other != a.node_id:
+                a.add_peer(other)
+
+    op = _op("edge-00")
+    stores["edge-00"][op.op_id] = op
+    agents["edge-00"].note_local(op)
+
+    # A chain, never touching the author after the first hop.
+    for puller, source in (("edge-01", "edge-00"), ("edge-02", "edge-01"),
+                           ("edge-03", "edge-02")):
+        asyncio.run(agents[puller].anti_entropy(source))
+        assert op.op_id in stores[puller], f"{puller} did not get it from {source}"
+        assert agents[puller].refused_forged == 0, (
+            f"{puller} counted a relayed operation as a forgery")
+
+
+def test_the_honest_probe_does_not_leave_a_memory_behind():
+    """The honest case is meant to be accepted, which means materialised.
+
+    Rolling back only `mesh.known` left a synthetic memory indexed,
+    retrievable and gossipable, behaving exactly like something a person had
+    written. A drill that leaves real state behind is not a drill.
+    """
+    from fastapi.testclient import TestClient
+
+    from aegis.main import app
+
+    with TestClient(app) as client:
+        before = client.get("/api/v1/health").json()["points"]
+        assert client.post("/api/v1/mesh/attack",
+                           json={"kind": "honest"}).json()["accepted"] is True
+        after = client.get("/api/v1/health").json()["points"]
+        # And it must not be findable either, which is the part that matters:
+        # a synthetic memory that answers a question is worse than one that
+        # merely occupies a slot.
+        found = client.post("/api/v1/search",
+                            json={"query": "dispatch the crew to grid 14", "k": 5}).json()
+
+    assert after == before, (before, after)
+    assert not any("grid 14" in (hit.get("text") or "")
+                   for hit in found.get("results", [])), found

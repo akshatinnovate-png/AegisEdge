@@ -13,6 +13,7 @@ from enum import Enum
 from typing import Any
 
 from ..core.clock import HLC
+from ..core import determinism
 from .crdt import Operation
 
 
@@ -32,7 +33,7 @@ class ConflictRecord:
     remote_hlc: str
     remote_device: str
     detail: dict[str, Any] = field(default_factory=dict)
-    ts: float = field(default_factory=time.time)
+    ts: float = field(default_factory=determinism.now)
     reviewed: bool = False
 
     def as_dict(self) -> dict[str, Any]:

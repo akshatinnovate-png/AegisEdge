@@ -86,7 +86,7 @@ class InvariantMonitor:
         self.last_tick_ms = 0.0
         self.total_ms = 0.0
         self._last_hlc: HLC | None = None
-        self._created: set[str] = set()
+        self._created: dict[str, None] = {}      # ordered, for oldest-first eviction
         self.invariants = _build()
 
     # -- the tick ---------------------------------------------------------
@@ -144,10 +144,16 @@ class InvariantMonitor:
         return window
 
     def note_created(self, op_id: str) -> None:
-        """Remember an operation this device authored, for `origin-retains`."""
-        self._created.add(op_id)
-        if len(self._created) > 4096:
-            self._created.pop()
+        """Remember an operation this device authored, for `origin-retains`.
+
+        Oldest-first eviction, not `set.pop()`. A set pops an arbitrary element
+        — frequently the one just added — which gave this check unpredictable
+        coverage past the cap: the operations most likely to be dropped were
+        the ones most likely to still be in flight.
+        """
+        self._created[op_id] = None
+        while len(self._created) > 4096:
+            self._created.pop(next(iter(self._created)))
 
     def snapshot(self) -> dict[str, Any]:
         return {
@@ -194,24 +200,28 @@ def _bodies_intact(m: InvariantMonitor) -> str | None:
 
 
 def _policy_holds(m: InvariantMonitor) -> str | None:
-    """Nothing a device may not share is in the set it would share.
+    """No memory this device's policy refuses arrived here from somewhere else.
 
-    Weaker than the simulated version, which can see every device. A node can
-    only assert that *its own* egress set is clean — but that is the set it is
-    about to hand a peer, so it is the one that decides whether a leak happens.
+    The first version of this asked whether anything in `_shareable()` failed
+    `may_share`, which cannot happen: `_shareable()` is *defined* as the set
+    filtered by `may_share`. It was a tautology that fired only against a test
+    stub, and it took a review to notice — a check that cannot fail is worse
+    than no check, because the counter it feeds says everything is fine.
+
+    What is asked instead is the property the simulator found at seed 5 and
+    that receive-side enforcement exists to hold: a device may hold its own
+    restricted memories, and must not hold anybody else's. If one is here and
+    this device did not write it, egress filtering failed somewhere upstream
+    and this node accepted the result.
     """
     mesh = m._mesh()
     if mesh is None:
         return None
     invariant = _by_name("policy")
-    try:
-        shareable = mesh._shareable()
-    except Exception:
-        return None
-    for op in m._slice(invariant, list(shareable.values())):
-        if not mesh.may_share(op):
-            return (f"operation {op.op_id} is in the set this device would hand a peer, "
-                    f"and its own policy says it may never leave")
+    for op in m._slice(invariant, list(mesh.known.values())):
+        if op.device_id and op.device_id != mesh.node_id and not mesh.may_share(op):
+            return (f"operation {op.op_id}, written by {op.device_id}, is one this "
+                    f"device's policy says may never leave a device — and it is here")
     return None
 
 
@@ -241,10 +251,18 @@ def _no_duplicates(m: InvariantMonitor) -> str | None:
     log = m._oplog()
     if log is None:
         return None
-    distinct = len({op.op_id for op in log.ops})
-    if len(log.ops) != distinct:
-        return (f"the log holds {len(log.ops)} operations under only {distinct} "
-                f"distinct ids — an operation has been applied more than once")
+    # Bounded like the rest: a window of the log rather than all of it. A
+    # duplicate anywhere is found within one pass of the cursor over the log,
+    # which for a long log is many ticks and for a short one is immediate.
+    invariant = _by_name("no-duplicates")
+    window = m._slice(invariant, log.ops)
+    seen_here: dict[str, int] = {}
+    for op in window:
+        seen_here[op.op_id] = seen_here.get(op.op_id, 0) + 1
+    repeated = [op_id for op_id, count in seen_here.items() if count > 1]
+    if repeated:
+        return (f"operation {repeated[0]} appears {seen_here[repeated[0]]} times in the "
+                f"log — it has been applied more than once")
     return None
 
 
@@ -283,7 +301,7 @@ def _origin_retains(m: InvariantMonitor) -> str | None:
     log = m._oplog()
     if log is None or not m._created:
         return None
-    missing = m._created - log.seen
+    missing = set(m._created) - log.seen
     if missing:
         return (f"{len(missing)} operation(s) this device created are no longer in its "
                 f"own log, the first being {sorted(missing)[0]}")

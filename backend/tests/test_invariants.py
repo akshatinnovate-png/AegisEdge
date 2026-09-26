@@ -43,9 +43,12 @@ def _signed_op(identity, text="observation", sensitivity="internal"):
 
 
 class _Mesh:
-    def __init__(self, identity, shareable=(), may_share=lambda _op: True):
+    def __init__(self, identity, shareable=(), may_share=lambda _op: True,
+                 node_id="edge-00"):
         self.identity = identity
-        self._shareable_ops = {op.op_id: op for op in shareable}
+        self.node_id = node_id
+        self.known = {op.op_id: op for op in shareable}
+        self._shareable_ops = dict(self.known)
         self.may_share = may_share
     def _shareable(self): return self._shareable_ops
 
@@ -93,12 +96,25 @@ def test_a_tampered_body_is_caught():
     assert "does not verify" in found[0].detail
 
 
-def test_a_restricted_memory_in_the_egress_set_is_caught():
+def test_another_devices_restricted_memory_sitting_here_is_caught():
+    """The seed-5 property: egress filtering failed upstream and we took it."""
     identity = DeviceIdentity("edge-00")
     op = _signed_op(identity, sensitivity="restricted")
-    mesh = _Mesh(identity, [op], may_share=lambda o: o.body.get("sensitivity") != "restricted")
+    op.device_id = "edge-09"                      # somebody else wrote it
+    mesh = _Mesh(identity, [op], node_id="edge-00",
+                 may_share=lambda o: o.body.get("sensitivity") != "restricted")
     found = InvariantMonitor(_Node([op], mesh)).tick()
-    assert "policy" in [f.invariant for f in found]
+    assert "policy" in [f.invariant for f in found], [f.invariant for f in found]
+
+
+def test_this_devices_own_restricted_memory_is_not_a_violation():
+    """A device is allowed to keep what it decided may never leave."""
+    identity = DeviceIdentity("edge-00")
+    op = _signed_op(identity, sensitivity="restricted")
+    mesh = _Mesh(identity, [op], node_id="edge-00",
+                 may_share=lambda o: o.body.get("sensitivity") != "restricted")
+    found = InvariantMonitor(_Node([op], mesh)).tick()
+    assert "policy" not in [f.invariant for f in found]
 
 
 def test_an_operation_attributed_to_nobody_is_caught():

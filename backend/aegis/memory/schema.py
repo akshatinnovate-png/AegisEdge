@@ -133,11 +133,13 @@ class MemoryPoint:
         if vector is None:
             self.dense = EMPTY_DENSE
             return
-        array = np.asarray(vector, dtype=np.float32)
-        # A copy, not a view: a caller that keeps mutating its own buffer —
-        # the micro-batcher hands out rows of one — would otherwise rewrite
-        # every point it ever produced.
-        self.dense = np.ascontiguousarray(array, dtype=np.float32)
+        # A copy, always. `np.ascontiguousarray` returns the *same object*
+        # when its input is already contiguous float32, which is precisely the
+        # case the micro-batcher produces — so every point held a view into
+        # the batch array it came from, pinning the whole buffer and exposed
+        # to any later mutation of it. That is the opposite of what the comment
+        # here used to claim.
+        self.dense = np.array(vector, dtype=np.float32, copy=True, order="C")
 
     def age_s(self) -> float:
         return time.time() - self.created_at

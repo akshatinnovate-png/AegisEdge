@@ -86,7 +86,7 @@ class BufferedOp:
     op: Operation
     clock: VectorClock
     sender: str
-    received_at: float = field(default_factory=time.time)
+    received_at: float = field(default_factory=determinism.now)
     attempts: int = 0
 
 

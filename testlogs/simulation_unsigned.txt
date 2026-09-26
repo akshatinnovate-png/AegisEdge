@@ -1,294 +1,288 @@
 deterministic simulation  500 executions · 400 steps · 6 peers · unsigned (control)
 every execution is a pure function of its seed; a failure here is a failure forever
 
-  FAIL seed 1 · bodies-intact · edge-03 holds 01HF7YB3PP5BCQ6VNZA4ESAE4V with content that differs from what edge-04 wrote
+  FAIL seed 1 · bodies-intact · edge-00 holds 01HF7YATTHA9QB7QT4MHT6EMVT with content that differs from what edge-05 wrote
   FAIL seed 2 · bodies-intact · edge-03 holds 01HF7YAT005D4XBRT14HE6WGSQ with content that differs from what edge-00 wrote
-  FAIL seed 3 · bodies-intact · edge-01 holds 01HF7YCV4DW8REB1BCZ8SCXMZN with content that differs from what edge-05 wrote
-  FAIL seed 4 · bodies-intact · edge-02 holds 01HF7YAPVZ8YSZH69XVVDWVNAQ with content that differs from what edge-03 wrote
-  FAIL seed 5 · bodies-intact · edge-00 holds 01HF7YA8N4Z3NG0X2H60GXN2BR with content that differs from what edge-04 wrote
-  FAIL seed 6 · bodies-intact · edge-02 holds 01HF7YATE1MZ4D7WC7CRSPRZYD with content that differs from what edge-00 wrote
-  FAIL seed 7 · bodies-intact · edge-03 holds 01HF7YB4VVK74NE3E1JME28GQS with content that differs from what edge-01 wrote
-  FAIL seed 8 · bodies-intact · edge-01 holds 01HF7YFN7Z8KMP6AW6YFNBM2HJ with content that differs from what edge-03 wrote
-  FAIL seed 9 · bodies-intact · edge-01 holds 01HF7YAT1JAP119C24TYDCV2PD with content that differs from what edge-04 wrote
+  FAIL seed 3 · bodies-intact · edge-01 holds 01HF7YCPSB2R6BCX64YKDBTAJC with content that differs from what edge-03 wrote
+  FAIL seed 4 · bodies-intact · edge-02 holds 01HF7YAPXHKTDEC8Q15DJH369X with content that differs from what edge-05 wrote
+  FAIL seed 5 · bodies-intact · edge-00 holds 01HF7YAF0MYZSZ1RYDJWQ83NKD with content that differs from what edge-05 wrote
+  FAIL seed 6 · bodies-intact · edge-02 holds 01HF7YAT678FWVN636DB71S70Q with content that differs from what edge-04 wrote
+  FAIL seed 7 · bodies-intact · edge-00 holds 01HF7YB4M1VVWECHYBHXTED6JX with content that differs from what edge-05 wrote
+  FAIL seed 8 · bodies-intact · edge-02 holds 01HF7YJ8JPGTK2SNDVHDCPWJQK with content that differs from what edge-01 wrote
+  FAIL seed 9 · bodies-intact · edge-03 holds 01HF7YAT1JAP119C24TYDCV2PD with content that differs from what edge-04 wrote
   FAIL seed 10 · bodies-intact · edge-05 holds 01HF7YATCF7NYEBW1GFV2TAVBY with content that differs from what edge-02 wrote
   FAIL seed 11 · bodies-intact · edge-02 holds 01HF7Y9XVZ0FW3WDGRB2HFES3T with content that differs from what edge-00 wrote
   FAIL seed 12 · bodies-intact · edge-03 holds 01HF7YAT1JEQ8CYWQRB2JBCVWC with content that differs from what edge-02 wrote
   FAIL seed 13 · bodies-intact · edge-03 holds 01HF7YAT00WFBDJVGR5Q6N0BA2 with content that differs from what edge-05 wrote
   FAIL seed 14 · bodies-intact · edge-00 holds 01HF7YATAXCXBP3GPZJVX5WBB3 with content that differs from what edge-02 wrote
-  FAIL seed 15 · bodies-intact · edge-00 holds 01HF7YCEAEGJGYH8SEC1HQ28PD with content that differs from what edge-02 wrote
+  FAIL seed 15 · bodies-intact · edge-03 holds 01HF7YCE46YQAS3M0EHCAEQHP4 with content that differs from what edge-00 wrote
   FAIL seed 16 · bodies-intact · edge-03 holds 01HF7YAT34K8HVWM35CKST2R3H with content that differs from what edge-02 wrote
-  FAIL seed 17 · bodies-intact · edge-01 holds 01HF7YA1SC1MX94PRYS5FMG1XW with content that differs from what edge-00 wrote
-  FAIL seed 18 · bodies-intact · edge-03 holds 01HF7YC6ZTBSBZAA7RXCPGBVT8 with content that differs from what edge-01 wrote
-  FAIL seed 19 · bodies-intact · edge-00 holds 01HF7YC1KW8D3PB6R9MT2M0AXR with content that differs from what edge-03 wrote
+  FAIL seed 19 · bodies-intact · edge-00 holds 01HF7YC1C22R1QMEX34YDTJQ4Z with content that differs from what edge-03 wrote
   FAIL seed 21 · bodies-intact · edge-04 holds 01HF7YAT00TZGQN9JM1N400XCP with content that differs from what edge-05 wrote
   FAIL seed 22 · bodies-intact · edge-03 holds 01HF7YB10BNXPRTKY207Q9TJR9 with content that differs from what edge-02 wrote
-  FAIL seed 23 · bodies-intact · edge-01 holds 01HF7YB4CWH5808BB897VTYNG5 with content that differs from what edge-02 wrote
+  FAIL seed 23 · bodies-intact · edge-00 holds 01HF7Y9XRV9J0PHQ4Z0HPD7SD3 with content that differs from what edge-05 wrote
   FAIL seed 24 · bodies-intact · edge-04 holds 01HF7YAT342XZTX05GFANVYEW4 with content that differs from what edge-01 wrote
   FAIL seed 25 · bodies-intact · edge-05 holds 01HF7YATCFCX4140Y25M98S6CX with content that differs from what edge-01 wrote
   FAIL seed 26 · bodies-intact · edge-05 holds 01HF7YAP4HPANAX4XTTBMV27V9 with content that differs from what edge-04 wrote
+  FAIL seed 27 · bodies-intact · edge-00 holds 01HF7YB5BPNFGWATH8BCA1XHKV with content that differs from what edge-05 wrote
   FAIL seed 28 · bodies-intact · edge-01 holds 01HF7YAT1J4KRKD75X7WTZXXC7 with content that differs from what edge-03 wrote
   FAIL seed 29 · bodies-intact · edge-01 holds 01HF7YAT342QJ5JZ9HRK6SCHEC with content that differs from what edge-03 wrote
-  FAIL seed 30 · bodies-intact · edge-00 holds 01HF7YA5C3X2S1H4RZSDKHHE1M with content that differs from what edge-01 wrote
   FAIL seed 31 · bodies-intact · edge-04 holds 01HF7YAT9B1XFRR89H2TMTGGRF with content that differs from what edge-01 wrote
-  FAIL seed 32 · bodies-intact · edge-03 holds 01HF7YAZGH2X2ZVJQXDTSWM1W4 with content that differs from what edge-01 wrote
+  FAIL seed 32 · bodies-intact · edge-02 holds 01HF7YCQRC0CW9G4KS587F2MCT with content that differs from what edge-04 wrote
   FAIL seed 33 · bodies-intact · edge-02 holds 01HF7YBMRZA8P81QKB6KRRKAKF with content that differs from what edge-05 wrote
-  FAIL seed 34 · bodies-intact · edge-05 holds 01HF7YDVBGTFAZBP8K9E9V14GY with content that differs from what edge-01 wrote
+  FAIL seed 34 · bodies-intact · edge-05 holds 01HF7YCQAC7HEAPPEBZ4FCYSP6 with content that differs from what edge-04 wrote
   FAIL seed 36 · bodies-intact · edge-02 holds 01HF7YB7GDCS66P7HX7AJAVKKZ with content that differs from what edge-04 wrote
   FAIL seed 37 · bodies-intact · edge-03 holds 01HF7YAT1JM9MXB98PFEZJXC8G with content that differs from what edge-04 wrote
   FAIL seed 38 · bodies-intact · edge-04 holds 01HF7YAT1JN8ZSQA25WG5JXAK3 with content that differs from what edge-05 wrote
-  FAIL seed 39 · bodies-intact · edge-01 holds 01HF7YB5T57TRM3PX2ADZNP91N with content that differs from what edge-02 wrote
+  FAIL seed 39 · bodies-intact · edge-01 holds 01HF7YAMS7JSJT7FR4E0VMK2Y1 with content that differs from what edge-02 wrote
   FAIL seed 40 · bodies-intact · edge-00 holds 01HF7YB70GDVT7VWRM78TY1GR6 with content that differs from what edge-01 wrote
-  FAIL seed 41 · bodies-intact · edge-00 holds 01HF7YCK7QADHV8F38D3JVYGFJ with content that differs from what edge-01 wrote
   FAIL seed 42 · bodies-intact · edge-04 holds 01HF7YAT1JWHJVV736PEPKRBBD with content that differs from what edge-01 wrote
   FAIL seed 43 · bodies-intact · edge-02 holds 01HF7YAT00BTR7CT43GZTSQ9WS with content that differs from what edge-05 wrote
   FAIL seed 44 · bodies-intact · edge-01 holds 01HF7YCNBZHG7MTPBEGNKK1AZN with content that differs from what edge-03 wrote
-  FAIL seed 45 · bodies-intact · edge-04 holds 01HF7Y9XZ3JWM6K9TDKEQ61CCF with content that differs from what edge-03 wrote
-  FAIL seed 46 · bodies-intact · edge-01 holds 01HF7YB60NXWYBD64PD3VWG4HA with content that differs from what edge-04 wrote
-  FAIL seed 47 · bodies-intact · edge-00 holds 01HF7YANPF3GSBX0M3GSW9AVY7 with content that differs from what edge-02 wrote
-  FAIL seed 48 · bodies-intact · edge-02 holds 01HF7YAXTAKB4PV1KD9XW4N35Z with content that differs from what edge-05 wrote
-  FAIL seed 49 · bodies-intact · edge-01 holds 01HF7YC66KGXMFMVQFVZKPKWER with content that differs from what edge-03 wrote
+  FAIL seed 45 · bodies-intact · edge-05 holds 01HF7Y9Y0NJWM6K9TDKEQ61CCF with content that differs from what edge-03 wrote
+  FAIL seed 46 · bodies-intact · edge-01 holds 01HF7YB5VZ26K0FHXC2043T2HF with content that differs from what edge-04 wrote
+  FAIL seed 48 · bodies-intact · edge-02 holds 01HF7YB4HY26C6M5F08QE720M8 with content that differs from what edge-00 wrote
+  FAIL seed 49 · bodies-intact · edge-00 holds 01HF7YB0151HYEJCAHKCY3PZCK with content that differs from what edge-03 wrote
   FAIL seed 50 · bodies-intact · edge-03 holds 01HF7YATE1PCVPYDEKDFQ1B6XB with content that differs from what edge-02 wrote
   FAIL seed 51 · bodies-intact · edge-03 holds 01HF7YAT1JHHE6BEMX77F0ADVH with content that differs from what edge-04 wrote
-  FAIL seed 52 · bodies-intact · edge-02 holds 01HF7YAVD9EETQQZTN78EW6651 with content that differs from what edge-00 wrote
-  FAIL seed 53 · bodies-intact · edge-03 holds 01HF7YAWRAH6WT37CXSTWJBH20 with content that differs from what edge-00 wrote
-  FAIL seed 54 · bodies-intact · edge-00 holds 01HF7YAT00FEKMRH6X0J75N760 with content that differs from what edge-01 wrote
-  FAIL seed 56 · bodies-intact · edge-00 holds 01HF7YC5XS0K0VB87WZKGJF8FJ with content that differs from what edge-02 wrote
+  FAIL seed 53 · bodies-intact · edge-00 holds 01HF7YA1A64DE0A1CM205CDPWQ with content that differs from what edge-05 wrote
+  FAIL seed 54 · bodies-intact · edge-04 holds 01HF7YB8DSX5SE0NDSZHGX277X with content that differs from what edge-02 wrote
+  FAIL seed 55 · bodies-intact · edge-01 holds 01HF7YA42DEKK0MRVCR5R4MJG9 with content that differs from what edge-04 wrote
+  FAIL seed 56 · bodies-intact · edge-04 holds 01HF7YBQNJFEHR6GBH1W79EVB8 with content that differs from what edge-03 wrote
   FAIL seed 57 · bodies-intact · edge-03 holds 01HF7YAT00A8XR77E59RWS0ADM with content that differs from what edge-04 wrote
-  FAIL seed 58 · bodies-intact · edge-00 holds 01HF7YCJTVPBFFVA8V5W4NEQP6 with content that differs from what edge-03 wrote
-  FAIL seed 59 · bodies-intact · edge-02 holds 01HF7YEVPCXXNGKQ8Y9Z5SYQX8 with content that differs from what edge-03 wrote
+  FAIL seed 58 · bodies-intact · edge-02 holds 01HF7YBVQB39Y6KC14AHFPVD4P with content that differs from what edge-01 wrote
+  FAIL seed 59 · bodies-intact · edge-05 holds 01HF7YF5467Z68R3P7HB3GFECR with content that differs from what edge-02 wrote
   FAIL seed 60 · bodies-intact · edge-02 holds 01HF7YATAX23HMCGPD5E5ZZG1Y with content that differs from what edge-01 wrote
   FAIL seed 61 · bodies-intact · edge-02 holds 01HF7YAT67QKY4NCAKCVKXRT64 with content that differs from what edge-05 wrote
-  FAIL seed 62 · bodies-intact · edge-00 holds 01HF7YAT007KTD15A707W7P8RQ with content that differs from what edge-01 wrote
-  FAIL seed 63 · bodies-intact · edge-01 holds 01HF7Y9XVZER07MQ3EZPNZ996W with content that differs from what edge-03 wrote
-  FAIL seed 64 · bodies-intact · edge-00 holds 01HF7YBW1ZG0SZMA1TTPZHNT3T with content that differs from what edge-05 wrote
-  FAIL seed 65 · bodies-intact · edge-00 holds 01HF7YAVBQSFK9W95C6RHNVVKD with content that differs from what edge-03 wrote
-  FAIL seed 66 · bodies-intact · edge-03 holds 01HF7YGD9R2Z5VVW5KM4PXJDX4 with content that differs from what edge-04 wrote
+  FAIL seed 62 · bodies-intact · edge-05 holds 01HF7YB39BFMHEFNQ3T9SHZ7KQ with content that differs from what edge-00 wrote
+  FAIL seed 63 · bodies-intact · edge-01 holds 01HF7YAHETZ2ZQC01TNDX5RVQX with content that differs from what edge-05 wrote
+  FAIL seed 65 · bodies-intact · edge-03 holds 01HF7YEPX6VVYKFGWX4MYPCYC1 with content that differs from what edge-01 wrote
+  FAIL seed 66 · bodies-intact · edge-00 holds 01HF7YBHVEAM6MKJRJETYN5VCB with content that differs from what edge-04 wrote
   FAIL seed 67 · bodies-intact · edge-03 holds 01HF7YAT7SPHQVQHHA57GWSZ4N with content that differs from what edge-05 wrote
   FAIL seed 68 · bodies-intact · edge-05 holds 01HF7YBW8WQ19M7XTJB9W1Z55S with content that differs from what edge-04 wrote
-  FAIL seed 69 · bodies-intact · edge-05 holds 01HF7YBNTFCT5H4258NN75HDZZ with content that differs from what edge-02 wrote
-  FAIL seed 70 · bodies-intact · edge-01 holds 01HF7YAT00A9WJ5T37GXSKEJQ0 with content that differs from what edge-02 wrote
+  FAIL seed 69 · bodies-intact · edge-01 holds 01HF7YBGPD6114DQKZRMHA89DM with content that differs from what edge-00 wrote
+  FAIL seed 70 · bodies-intact · edge-00 holds 01HF7YANMX4XJDDWWX7RS5FNE7 with content that differs from what edge-04 wrote
   FAIL seed 71 · bodies-intact · edge-00 holds 01HF7YAN9Z619XGXH0MC4FPCXQ with content that differs from what edge-05 wrote
   FAIL seed 72 · bodies-intact · edge-05 holds 01HF7YAT00PBP5G3TRERQTYB7A with content that differs from what edge-04 wrote
   FAIL seed 73 · bodies-intact · edge-05 holds 01HF7YBKF42MQ1B4T13NQ0MC4T with content that differs from what edge-01 wrote
-  FAIL seed 74 · bodies-intact · edge-04 holds 01HF7YD5Z1YSXR7QWP225VNMZR with content that differs from what edge-03 wrote
-  FAIL seed 75 · bodies-intact · edge-00 holds 01HF7YC0Z3BG7RHKF2Z3E6DGSK with content that differs from what edge-01 wrote
-  FAIL seed 77 · bodies-intact · edge-05 holds 01HF7YB1PN1QT0NR2M49DB5GA2 with content that differs from what edge-01 wrote
-  FAIL seed 78 · bodies-intact · edge-00 holds 01HF7YAT34CTATDHA40ZH9R34C with content that differs from what edge-05 wrote
-  FAIL seed 79 · bodies-intact · edge-02 holds 01HF7Y9XH1TP1RKR7CS4B9ZJ5M with content that differs from what edge-01 wrote
-  FAIL seed 80 · bodies-intact · edge-03 holds 01HF7YAT67M7B2RJPW1ABVB479 with content that differs from what edge-01 wrote
-  FAIL seed 81 · bodies-intact · edge-02 holds 01HF7Y92E31N8DY6ZQWDGXRJEA with content that differs from what edge-00 wrote
+  FAIL seed 76 · bodies-intact · edge-00 holds 01HF7YBAZWT9A521WH7EV9N5AR with content that differs from what edge-03 wrote
+  FAIL seed 79 · bodies-intact · edge-00 holds 01HF7YB73NZMJ13YFZH97H0E0V with content that differs from what edge-05 wrote
+  FAIL seed 80 · bodies-intact · edge-03 holds 01HF7YAT4N45JSY2VBM5SS6V5W with content that differs from what edge-04 wrote
+  FAIL seed 81 · bodies-intact · edge-03 holds 01HF7Y9X7NC6Y4RR68GYWN5W2Q with content that differs from what edge-00 wrote
   FAIL seed 82 · bodies-intact · edge-05 holds 01HF7YATZ7QNFXF3GWGRW1VG3M with content that differs from what edge-03 wrote
   FAIL seed 83 · bodies-intact · edge-02 holds 01HF7YAT1JT69HAB81WS7HFEDT with content that differs from what edge-01 wrote
-  FAIL seed 84 · bodies-intact · edge-01 holds 01HF7Y9WG7FZNGQVQWW4K3X934 with content that differs from what edge-00 wrote
-  FAIL seed 86 · bodies-intact · edge-00 holds 01HF7YB5VJ386Z706W2M729Z48 with content that differs from what edge-03 wrote
+  FAIL seed 84 · bodies-intact · edge-02 holds 01HF7YC6SZ1AD4B5M3PTCHQPEC with content that differs from what edge-04 wrote
+  FAIL seed 86 · bodies-intact · edge-00 holds 01HF7YB18PNHAEM9XMWJVZTAK5 with content that differs from what edge-05 wrote
   FAIL seed 87 · bodies-intact · edge-02 holds 01HF7YAT7SP9PGEHRWMD74085T with content that differs from what edge-05 wrote
   FAIL seed 88 · bodies-intact · edge-04 holds 01HF7YAT34E4C2RQNE0YD0K9MS with content that differs from what edge-00 wrote
-  FAIL seed 89 · bodies-intact · edge-04 holds 01HF7YFYP9RNCQ1JMPXEWY2387 with content that differs from what edge-05 wrote
+  FAIL seed 89 · bodies-intact · edge-00 holds 01HF7YATZ74DFHC5BABC6AXBT6 with content that differs from what edge-04 wrote
   FAIL seed 90 · bodies-intact · edge-04 holds 01HF7YAT009X7SC34KYE9HJKXS with content that differs from what edge-00 wrote
   FAIL seed 91 · bodies-intact · edge-01 holds 01HF7YAT1J85PD7DNFNSTM8MNF with content that differs from what edge-05 wrote
   FAIL seed 92 · bodies-intact · edge-02 holds 01HF7Y9WY958XCSH2PFPH3AG7V with content that differs from what edge-00 wrote
-  FAIL seed 93 · bodies-intact · edge-00 holds 01HF7YATH5H6NABJ65JGJ5ZG0N with content that differs from what edge-05 wrote
-  FAIL seed 94 · bodies-intact · edge-04 holds 01HF7YAT671E6BJ61252NYNKF4 with content that differs from what edge-02 wrote
+  FAIL seed 93 · bodies-intact · edge-00 holds 01HF7YATRZ0FXG5QQPMHSB5WS3 with content that differs from what edge-05 wrote
+  FAIL seed 94 · bodies-intact · edge-04 holds 01HF7YB9C5Q86E8YGXE27HKBJQ with content that differs from what edge-03 wrote
   FAIL seed 95 · bodies-intact · edge-01 holds 01HF7YAT4NM5YHBDG24ECY848G with content that differs from what edge-00 wrote
-  FAIL seed 97 · bodies-intact · edge-01 holds 01HF7YFHTTM75T7DQJ3SKKZZMV with content that differs from what edge-03 wrote
-  FAIL seed 99 · bodies-intact · edge-02 holds 01HF7YC0SDFCWXDR43ZJY60DYX with content that differs from what edge-03 wrote
+  FAIL seed 96 · bodies-intact · edge-01 holds 01HF7YBSE7FVKE0D1EDQ9PZT5Y with content that differs from what edge-04 wrote
+  FAIL seed 97 · bodies-intact · edge-04 holds 01HF7YBYH3EJX82Z4ZF33ACJP5 with content that differs from what edge-00 wrote
+  FAIL seed 98 · bodies-intact · edge-00 holds 01HF7YG08P54PC7CAVGEDYT9MB with content that differs from what edge-01 wrote
+  FAIL seed 99 · bodies-intact · edge-05 holds 01HF7YCCJVKBDBZ8E1344FW2E5 with content that differs from what edge-02 wrote
   FAIL seed 100 · bodies-intact · edge-00 holds 01HF7YB06D1KYBFGFWBWFFM44N with content that differs from what edge-02 wrote
-  FAIL seed 101 · bodies-intact · edge-02 holds 01HF7YGKZS3CVVQNDSPAFZW1VK with content that differs from what edge-01 wrote
-  FAIL seed 102 · bodies-intact · edge-00 holds 01HF7YAT00N4RVCSPTZT6YWCCD with content that differs from what edge-04 wrote
+  FAIL seed 101 · bodies-intact · edge-00 holds 01HF7YED2S7HJTP7DBDYHB323P with content that differs from what edge-03 wrote
+  FAIL seed 102 · bodies-intact · edge-01 holds 01HF7YBFF7K4M98KV8FE76WCTS with content that differs from what edge-00 wrote
   FAIL seed 103 · bodies-intact · edge-03 holds 01HF7YBQTNTWMHHG1XTDCHP5C3 with content that differs from what edge-00 wrote
   FAIL seed 104 · bodies-intact · edge-00 holds 01HF7YAT00PTY03EFFJSAA9YEM with content that differs from what edge-01 wrote
   FAIL seed 105 · bodies-intact · edge-02 holds 01HF7YB4FJFWP7BPEYAQA8AVJ1 with content that differs from what edge-03 wrote
+  FAIL seed 106 · bodies-intact · edge-00 holds 01HF7YBEQC2TEHDJHV5YMH80WA with content that differs from what edge-04 wrote
   FAIL seed 107 · bodies-intact · edge-01 holds 01HF7YAT34X0HAHP23FETQ444X with content that differs from what edge-02 wrote
-  FAIL seed 108 · bodies-intact · edge-04 holds 01HF7YBQCRQQNZEAWEWZ5MEZK9 with content that differs from what edge-00 wrote
+  FAIL seed 108 · bodies-intact · edge-02 holds 01HF7YAT34AAH8H4R32GD2DT8V with content that differs from what edge-04 wrote
   FAIL seed 109 · bodies-intact · edge-04 holds 01HF7YAT00793HKYZHAM7CK7DT with content that differs from what edge-03 wrote
-  FAIL seed 110 · bodies-intact · edge-00 holds 01HF7YKM70669RXDBTN2R9A655 with content that differs from what edge-01 wrote
-  FAIL seed 111 · bodies-intact · edge-00 holds 01HF7YCA6A5NVN1JXWMN2EV4A6 with content that differs from what edge-04 wrote
-  FAIL seed 112 · bodies-intact · edge-05 holds 01HF7YAZX8Z0HGMZSQ19RFFVMQ with content that differs from what edge-04 wrote
+  FAIL seed 110 · bodies-intact · edge-04 holds 01HF7YJ5AAFR4CKCDC77N1Z1MH with content that differs from what edge-02 wrote
+  FAIL seed 111 · bodies-intact · edge-02 holds 01HF7YCACJ2ZSDGY8WJWXZJ163 with content that differs from what edge-04 wrote
+  FAIL seed 112 · bodies-intact · edge-04 holds 01HF7YDBFN79F7BTTA62QJX25D with content that differs from what edge-02 wrote
   FAIL seed 113 · bodies-intact · edge-02 holds 01HF7YBX7JRD857ZT5BYFDFFGQ with content that differs from what edge-05 wrote
   FAIL seed 114 · bodies-intact · edge-05 holds 01HF7YAT00M1A3WN2J3QV89B8Q with content that differs from what edge-00 wrote
-  FAIL seed 115 · bodies-intact · edge-04 holds 01HF7YAT00APH1SEYDVY4RY3NJ with content that differs from what edge-01 wrote
+  FAIL seed 115 · bodies-intact · edge-00 holds 01HF7YAZ41VRK3FFQ2FJ3Q510X with content that differs from what edge-01 wrote
   FAIL seed 116 · bodies-intact · edge-02 holds 01HF7YC9CHAR4VYEX220MP8HW8 with content that differs from what edge-04 wrote
   FAIL seed 117 · bodies-intact · edge-04 holds 01HF7YAT67MBGVVMKHBABTA41T with content that differs from what edge-03 wrote
   FAIL seed 118 · bodies-intact · edge-02 holds 01HF7YATNVJDYJ3YGES8MC8RR8 with content that differs from what edge-04 wrote
-  FAIL seed 119 · bodies-intact · edge-05 holds 01HF7YBRZT060DJYGAVCTP7HJ1 with content that differs from what edge-02 wrote
-  FAIL seed 120 · bodies-intact · edge-04 holds 01HF7YH6YEHAJH0G4B46N5XBQH with content that differs from what edge-01 wrote
+  FAIL seed 119 · bodies-intact · edge-02 holds 01HF7YBAXJ7ATDWFP2M289XAWV with content that differs from what edge-03 wrote
+  FAIL seed 120 · bodies-intact · edge-01 holds 01HF7YAXN58DKBTXXCXVVR6FDQ with content that differs from what edge-00 wrote
   FAIL seed 121 · bodies-intact · edge-01 holds 01HF7YAT34Q7ZAT3ZAW07EW6YG with content that differs from what edge-02 wrote
   FAIL seed 122 · bodies-intact · edge-05 holds 01HF7YATQD7RJSNX5MNF4KPDD6 with content that differs from what edge-03 wrote
+  FAIL seed 123 · bodies-intact · edge-05 holds 01HF7YGXHT3SHVXBQHF7JPNB5Z with content that differs from what edge-01 wrote
   FAIL seed 124 · bodies-intact · edge-05 holds 01HF7YAXSF1VCF08MWFQ5S5GED with content that differs from what edge-01 wrote
-  FAIL seed 125 · bodies-intact · edge-03 holds 01HF7YAT34TF5APCTVTT0J2JRW with content that differs from what edge-05 wrote
+  FAIL seed 125 · bodies-intact · edge-02 holds 01HF7YCDDCQ5Y3J9SGREQT1DND with content that differs from what edge-05 wrote
+  FAIL seed 126 · bodies-intact · edge-00 holds 01HF7YBHQGF93VNE1GQ5025V22 with content that differs from what edge-03 wrote
   FAIL seed 127 · bodies-intact · edge-02 holds 01HF7YAT000R41J6SHDQ98ZT4Z with content that differs from what edge-04 wrote
   FAIL seed 128 · bodies-intact · edge-05 holds 01HF7YAT000XEQQCPTWCH515HX with content that differs from what edge-01 wrote
   FAIL seed 130 · bodies-intact · edge-04 holds 01HF7YAT1JY6AAH1N741BF6SYD with content that differs from what edge-02 wrote
-  FAIL seed 131 · bodies-intact · edge-02 holds 01HF7YAWEZXA46X7VA8FGM3M4N with content that differs from what edge-01 wrote
+  FAIL seed 131 · bodies-intact · edge-02 holds 01HF7YA7GH243FXWDJGJQAME02 with content that differs from what edge-01 wrote
   FAIL seed 133 · bodies-intact · edge-04 holds 01HF7YAT348E5EPXR12YMWYCM6 with content that differs from what edge-00 wrote
-  FAIL seed 134 · bodies-intact · edge-04 holds 01HF7YATCF4G0NQQ3TXPN4CS9J with content that differs from what edge-05 wrote
+  FAIL seed 134 · bodies-intact · edge-00 holds 01HF7YEZA1QVSXVRW2ZXVARV5X with content that differs from what edge-03 wrote
   FAIL seed 135 · bodies-intact · edge-03 holds 01HF7YAT9BGQ2ZTAENYX09Z2JX with content that differs from what edge-01 wrote
   FAIL seed 136 · bodies-intact · edge-03 holds 01HF7YBVGXN7AQFD6WANW61M1D with content that differs from what edge-00 wrote
   FAIL seed 137 · bodies-intact · edge-04 holds 01HF7YAT00FM23P7DRJWRM7ZVX with content that differs from what edge-03 wrote
-  FAIL seed 138 · bodies-intact · edge-00 holds 01HF7YBFJX7E5Q7035Q46JJP2D with content that differs from what edge-01 wrote
-  FAIL seed 139 · bodies-intact · edge-04 holds 01HF7YBEBS6WGM2SDQ6ZAVFBN8 with content that differs from what edge-02 wrote
-  FAIL seed 140 · bodies-intact · edge-01 holds 01HF7YAT1JQ3PTVVPP8G6SMC71 with content that differs from what edge-00 wrote
-  FAIL seed 141 · bodies-intact · edge-05 holds 01HF7YGMFGFWWPW75K4EQEWWMX with content that differs from what edge-03 wrote
+  FAIL seed 139 · bodies-intact · edge-01 holds 01HF7YB30CYZQMVVB7XFB04H62 with content that differs from what edge-02 wrote
+  FAIL seed 140 · bodies-intact · edge-00 holds 01HF7YAT34TTMP3EAYRTTERS7S with content that differs from what edge-04 wrote
+  FAIL seed 141 · bodies-intact · edge-02 holds 01HF7YD7C1FFHP89VVR2FXAYTS with content that differs from what edge-00 wrote
   FAIL seed 142 · bodies-intact · edge-00 holds 01HF7YBJN63MBVSJ7AQ1926KKZ with content that differs from what edge-01 wrote
-  FAIL seed 143 · bodies-intact · edge-05 holds 01HF7YBY5SSE2QFVGDH8SCCVW4 with content that differs from what edge-03 wrote
+  FAIL seed 143 · bodies-intact · edge-05 holds 01HF7YC8MKSE2QFVGDH8SCCVW4 with content that differs from what edge-03 wrote
+  FAIL seed 144 · bodies-intact · edge-03 holds 01HF7YB5YAECKS3VG336NNZ52W with content that differs from what edge-02 wrote
+  FAIL seed 145 · bodies-intact · edge-01 holds 01HF7YBGPV6K5E6CNMQTETFQSB with content that differs from what edge-00 wrote
+  FAIL seed 146 · bodies-intact · edge-01 holds 01HF7YBMVSHA7PDC9T4N1D42Y6 with content that differs from what edge-03 wrote
   FAIL seed 147 · bodies-intact · edge-04 holds 01HF7YATCFQHA7R6YMD1KYDWRF with content that differs from what edge-02 wrote
-  FAIL seed 149 · bodies-intact · edge-00 holds 01HF7YBC1XGAGT6BCXBKQ6FC3C with content that differs from what edge-03 wrote
-  FAIL seed 150 · bodies-intact · edge-04 holds 01HF7YK7E671CHM2MSM0X8AMFM with content that differs from what edge-03 wrote
+  FAIL seed 148 · bodies-intact · edge-00 holds 01HF7YAT34D3453RCKZHN2HP6F with content that differs from what edge-04 wrote
+  FAIL seed 149 · bodies-intact · edge-01 holds 01HF7YBPZNV7D9DZ66ADSYRNSG with content that differs from what edge-03 wrote
+  FAIL seed 150 · bodies-intact · edge-05 holds 01HF7YC4TSE4B6JYM35A4PY1J7 with content that differs from what edge-02 wrote
   FAIL seed 151 · bodies-intact · edge-01 holds 01HF7YAT34XC14GG5M4QWJQGHC with content that differs from what edge-05 wrote
-  FAIL seed 152 · bodies-intact · edge-04 holds 01HF7YAT4N7VXQA98GCBEBNM3D with content that differs from what edge-03 wrote
-  FAIL seed 154 · bodies-intact · edge-03 holds 01HF7YB2Q59M2QTG0RWDN5BBFC with content that differs from what edge-05 wrote
-  FAIL seed 155 · bodies-intact · edge-00 holds 01HF7YB0JXS90BPA56FYGSBP14 with content that differs from what edge-02 wrote
-  FAIL seed 157 · bodies-intact · edge-05 holds 01HF7YBKR2R6FY7M94SHPKYRR3 with content that differs from what edge-02 wrote
-  FAIL seed 158 · bodies-intact · edge-02 holds 01HF7YBYXJDMHPFBH1TEFSXVY0 with content that differs from what edge-05 wrote
+  FAIL seed 152 · bodies-intact · edge-03 holds 01HF7YATFK601FQJTYWF4QYACM with content that differs from what edge-00 wrote
+  FAIL seed 153 · bodies-intact · edge-00 holds 01HF7YJMXX4Q516G27D0H33G00 with content that differs from what edge-01 wrote
+  FAIL seed 154 · bodies-intact · edge-00 holds 01HF7YATFK16G2WSSX35XTKGMC with content that differs from what edge-05 wrote
+  FAIL seed 157 · bodies-intact · edge-05 holds 01HF7YBQYER6FY7M94SHPKYRR3 with content that differs from what edge-02 wrote
+  FAIL seed 158 · bodies-intact · edge-02 holds 01HF7YE4WSDMHPFBH1TEFSXVY0 with content that differs from what edge-05 wrote
   FAIL seed 159 · bodies-intact · edge-00 holds 01HF7YATRZMSD37KJ93HMZC57N with content that differs from what edge-05 wrote
-  FAIL seed 160 · bodies-intact · edge-00 holds 01HF7YATAXENKPJJZT3WKSDH52 with content that differs from what edge-01 wrote
-  FAIL seed 161 · bodies-intact · edge-02 holds 01HF7YBR5K4XBPN4BRNX1F3HFA with content that differs from what edge-03 wrote
   FAIL seed 162 · bodies-intact · edge-01 holds 01HF7YAZ8QQSAE0DBECDKFBAMP with content that differs from what edge-02 wrote
-  FAIL seed 163 · bodies-intact · edge-00 holds 01HF7YBTS34705YTJ6GSXB3G3F with content that differs from what edge-01 wrote
   FAIL seed 164 · bodies-intact · edge-03 holds 01HF7YAT00FN67D1N58X0P5WRX with content that differs from what edge-02 wrote
-  FAIL seed 165 · bodies-intact · edge-02 holds 01HF7YAT67PQJAJPH511X6M53Z with content that differs from what edge-03 wrote
-  FAIL seed 166 · bodies-intact · edge-02 holds 01HF7YAV0SJ65A929SBGZ8A45B with content that differs from what edge-03 wrote
-  FAIL seed 167 · bodies-intact · edge-02 holds 01HF7YANHST39VM6P5DDS02S4E with content that differs from what edge-05 wrote
+  FAIL seed 165 · bodies-intact · edge-05 holds 01HF7YE1VAXCP73BZNHWWTJ9WP with content that differs from what edge-03 wrote
+  FAIL seed 166 · bodies-intact · edge-02 holds 01HF7YAT00V2E57C9WM81HXTRT with content that differs from what edge-04 wrote
   FAIL seed 168 · bodies-intact · edge-00 holds 01HF7YBGAG4TW1APNG3ZQVGNM6 with content that differs from what edge-03 wrote
   FAIL seed 169 · bodies-intact · edge-00 holds 01HF7YATE1K84RQH4WBS3PHY8S with content that differs from what edge-05 wrote
   FAIL seed 170 · bodies-intact · edge-03 holds 01HF7YAT34JFN4VR2TEY0ASMWZ with content that differs from what edge-00 wrote
-  FAIL seed 171 · bodies-intact · edge-05 holds 01HF7YHJMKXN65A53TMHCJW6FC with content that differs from what edge-02 wrote
+  FAIL seed 171 · bodies-intact · edge-00 holds 01HF7YD1AVWY8062N87AVPR0HW with content that differs from what edge-05 wrote
   FAIL seed 172 · bodies-intact · edge-00 holds 01HF7YAT67AVANHHWFVD2Q6XCD with content that differs from what edge-01 wrote
   FAIL seed 173 · bodies-intact · edge-05 holds 01HF7Y9XDXKE2F9FNFC965F26A with content that differs from what edge-02 wrote
-  FAIL seed 174 · bodies-intact · edge-01 holds 01HF7YAV2BY480QWVVP9ME7R7V with content that differs from what edge-03 wrote
-  FAIL seed 175 · bodies-intact · edge-05 holds 01HF7YBY1309DNH5RX4JK4EQVE with content that differs from what edge-00 wrote
-  FAIL seed 177 · bodies-intact · edge-03 holds 01HF7YATW3GGWMDMSFH9EYQWQR with content that differs from what edge-05 wrote
+  FAIL seed 174 · bodies-intact · edge-03 holds 01HF7YAQ27XEKN4DS1X0XW1FWZ with content that differs from what edge-01 wrote
+  FAIL seed 176 · bodies-intact · edge-00 holds 01HF7YBAM5A6C8PMTBAS1E6WC6 with content that differs from what edge-03 wrote
+  FAIL seed 177 · bodies-intact · edge-00 holds 01HF7YEJWNT55JVCNT8XM2WC8W with content that differs from what edge-01 wrote
   FAIL seed 178 · bodies-intact · edge-00 holds 01HF7YAT00AR9ZCP9J8Q0MWJ1E with content that differs from what edge-04 wrote
-  FAIL seed 180 · bodies-intact · edge-00 holds 01HF7YFCJVVVRRMHCWW59ZNF7D with content that differs from what edge-03 wrote
+  FAIL seed 179 · bodies-intact · edge-02 holds 01HF7YANKBVJ2KP9PM01A7J24Q with content that differs from what edge-04 wrote
+  FAIL seed 180 · bodies-intact · edge-00 holds 01HF7YGAZ4NP1E210F6RJAV281 with content that differs from what edge-05 wrote
   FAIL seed 181 · bodies-intact · edge-01 holds 01HF7YAT4N8S84H1C9GN3YK6FG with content that differs from what edge-00 wrote
-  FAIL seed 183 · bodies-intact · edge-03 holds 01HF7YAT00SAVMTJWJE5DQXRPB with content that differs from what edge-05 wrote
-  FAIL seed 184 · bodies-intact · edge-03 holds 01HF7YAV5FW7461AS3RCRZ123S with content that differs from what edge-05 wrote
-  FAIL seed 185 · bodies-intact · edge-01 holds 01HF7YAT00VPQ4RYSF74KRWKEC with content that differs from what edge-00 wrote
+  FAIL seed 182 · bodies-intact · edge-02 holds 01HF7YBK7SHHDDXD07V8WSABW5 with content that differs from what edge-00 wrote
+  FAIL seed 183 · bodies-intact · edge-02 holds 01HF7YATAXT292D8MWZF4X4S5V with content that differs from what edge-03 wrote
+  FAIL seed 185 · bodies-intact · edge-01 holds 01HF7YATTHB9MCE59951WWZPQ3 with content that differs from what edge-00 wrote
   FAIL seed 186 · bodies-intact · edge-05 holds 01HF7YBH30WTB6FAG82E4KKKK3 with content that differs from what edge-04 wrote
-  FAIL seed 187 · bodies-intact · edge-00 holds 01HF7Y9CKSSE2YM0ZKW5EVS9QE with content that differs from what edge-05 wrote
-  FAIL seed 188 · bodies-intact · edge-04 holds 01HF7YFDXBEFHH4AR7Y2W0HRNX with content that differs from what edge-00 wrote
   FAIL seed 189 · bodies-intact · edge-05 holds 01HF7YAXPKD2TC0NQYGVDDJYXF with content that differs from what edge-01 wrote
-  FAIL seed 190 · bodies-intact · edge-00 holds 01HF7YBW33VCVEPPDZKMZ2CHP6 with content that differs from what edge-04 wrote
-  FAIL seed 192 · bodies-intact · edge-00 holds 01HF7YBQXSHCNYD4VYMCDV51WW with content that differs from what edge-03 wrote
+  FAIL seed 190 · bodies-intact · edge-03 holds 01HF7YBAK6ZXFBFSKQF48R2GAJ with content that differs from what edge-01 wrote
+  FAIL seed 191 · bodies-intact · edge-01 holds 01HF7YKDB1CM329C8VZDZ3332Y with content that differs from what edge-05 wrote
+  FAIL seed 192 · bodies-intact · edge-01 holds 01HF7YEA20SQ0TN03A9T6JBWF2 with content that differs from what edge-00 wrote
   FAIL seed 193 · bodies-intact · edge-04 holds 01HF7YAT1JN9R8QNM17NT3RGMB with content that differs from what edge-02 wrote
   FAIL seed 194 · bodies-intact · edge-01 holds 01HF7YAT67MMDHMWZY5P63SXXA with content that differs from what edge-05 wrote
-  FAIL seed 195 · bodies-intact · edge-00 holds 01HF7YCQCFEV87S2DEN6EPRB7Q with content that differs from what edge-01 wrote
+  FAIL seed 195 · bodies-intact · edge-03 holds 01HF7YK5JRAC1VVY5Z1HY188BV with content that differs from what edge-02 wrote
   FAIL seed 196 · bodies-intact · edge-01 holds 01HF7YD9PYMA4AXWWY061AZM03 with content that differs from what edge-00 wrote
-  FAIL seed 197 · bodies-intact · edge-00 holds 01HF7YATQDVX92DBM4WWV0W1SV with content that differs from what edge-03 wrote
+  FAIL seed 197 · bodies-intact · edge-04 holds 01HF7YATQDVX92DBM4WWV0W1SV with content that differs from what edge-03 wrote
   FAIL seed 198 · bodies-intact · edge-03 holds 01HF7YAT00ZKDBWYHGQPNV1731 with content that differs from what edge-05 wrote
   FAIL seed 199 · bodies-intact · edge-00 holds 01HF7YATCFE4N0QQ3KFXXWPCCQ with content that differs from what edge-03 wrote
   FAIL seed 200 · bodies-intact · edge-04 holds 01HF7YB2103VZDMMNKYYJZG64M with content that differs from what edge-03 wrote
   FAIL seed 201 · bodies-intact · edge-01 holds 01HF7YAT00AE04GSBMRK3T6FV1 with content that differs from what edge-02 wrote
-  FAIL seed 202 · bodies-intact · edge-03 holds 01HF7YECCGXMKKEB83PYY3JP0W with content that differs from what edge-00 wrote
+  FAIL seed 202 · bodies-intact · edge-00 holds 01HF7YDQ22KTWQGGNWYNT34REJ with content that differs from what edge-01 wrote
   FAIL seed 203 · bodies-intact · edge-00 holds 01HF7YAT00RYCGERG2ZMV6XWNS with content that differs from what edge-03 wrote
-  FAIL seed 204 · bodies-intact · edge-02 holds 01HF7YBNVMBWG6F39F65SA2X57 with content that differs from what edge-04 wrote
-  FAIL seed 206 · bodies-intact · edge-02 holds 01HF7YAT1JXAEM513W4HAZT7RC with content that differs from what edge-01 wrote
-  FAIL seed 207 · bodies-intact · edge-00 holds 01HF7YBYHDCFDCCA1VPWGFN2KB with content that differs from what edge-01 wrote
-  FAIL seed 209 · bodies-intact · edge-00 holds 01HF7YA48ND73DXAHCH5HD1FT8 with content that differs from what edge-03 wrote
+  FAIL seed 204 · bodies-intact · edge-03 holds 01HF7YBNNC6HPKSCKHSZE20SQS with content that differs from what edge-01 wrote
+  FAIL seed 205 · bodies-intact · edge-03 holds 01HF7YEBN3BKY3X0S7Y1GFGYBH with content that differs from what edge-04 wrote
+  FAIL seed 206 · bodies-intact · edge-01 holds 01HF7YAT0042NDF3F95WWNTGSJ with content that differs from what edge-02 wrote
+  FAIL seed 207 · bodies-intact · edge-00 holds 01HF7YBXHZ2Y8RY21524HGZ4MR with content that differs from what edge-04 wrote
+  FAIL seed 208 · bodies-intact · edge-04 holds 01HF7YBB4H61W5MDPYGGV4QZ97 with content that differs from what edge-03 wrote
+  FAIL seed 209 · bodies-intact · edge-05 holds 01HF7YCK6QFR68BMC01VKC7RK1 with content that differs from what edge-04 wrote
   FAIL seed 210 · bodies-intact · edge-03 holds 01HF7Y9XCBPV6M8CW0QVYFFF7P with content that differs from what edge-02 wrote
   FAIL seed 211 · bodies-intact · edge-03 holds 01HF7YCJ0YRJCZDPHSX8VC1ZJE with content that differs from what edge-05 wrote
-  FAIL seed 212 · bodies-intact · edge-00 holds 01HF7Y9XVZFSM9Q8C1PTG2EA8R with content that differs from what edge-01 wrote
+  FAIL seed 212 · bodies-intact · edge-00 holds 01HF7Y9XTDFSM9Q8C1PTG2EA8R with content that differs from what edge-01 wrote
   FAIL seed 213 · bodies-intact · edge-02 holds 01HF7YCA6TZZXZ8MRRW8FPT8A1 with content that differs from what edge-00 wrote
   FAIL seed 214 · bodies-intact · edge-01 holds 01HF7YBJWVZJCQ87RX3XYF5CVS with content that differs from what edge-03 wrote
-  FAIL seed 216 · bodies-intact · edge-00 holds 01HF7YBCZMEV5JCMXWM39JTW60 with content that differs from what edge-04 wrote
+  FAIL seed 216 · bodies-intact · edge-01 holds 01HF7YC0J3CT88HSDSHJ35715Z with content that differs from what edge-03 wrote
   FAIL seed 217 · bodies-intact · edge-00 holds 01HF7YAT7SSRVZED9D3DJ3SKGG with content that differs from what edge-03 wrote
-  FAIL seed 219 · bodies-intact · edge-02 holds 01HF7Y8QS77H75ANF79HKBTTTT with content that differs from what edge-00 wrote
+  FAIL seed 218 · bodies-intact · edge-05 holds 01HF7YDQPNNMA7CNNHG32R9MMN with content that differs from what edge-02 wrote
+  FAIL seed 219 · bodies-intact · edge-00 holds 01HF7YBGV3MTR48PZGWMB1S8MP with content that differs from what edge-05 wrote
+  FAIL seed 220 · bodies-intact · edge-05 holds 01HF7YDKGS1Q5941XN1TDXZCWH with content that differs from what edge-02 wrote
   FAIL seed 222 · bodies-intact · edge-02 holds 01HF7YATXNKPW5Z9XFPQKDGQV7 with content that differs from what edge-05 wrote
   FAIL seed 223 · bodies-intact · edge-05 holds 01HF7YBWX5K2ZGJYRYJ4121PZG with content that differs from what edge-01 wrote
-  FAIL seed 224 · bodies-intact · edge-00 holds 01HF7YAFBKFGT910AGW7518YAE with content that differs from what edge-04 wrote
-  FAIL seed 225 · bodies-intact · edge-00 holds 01HF7Y9XZ3Z5Q6AJS5R248K39J with content that differs from what edge-03 wrote
-  FAIL seed 226 · bodies-intact · edge-01 holds 01HF7YH2PFF6G41HK76XD4AFG7 with content that differs from what edge-00 wrote
-  FAIL seed 227 · bodies-intact · edge-00 holds 01HF7YAQMZ52W5XHNG7MPBAEWH with content that differs from what edge-05 wrote
-  FAIL seed 228 · bodies-intact · edge-03 holds 01HF7YAT00702KKQDSMP9EGRM8 with content that differs from what edge-05 wrote
-  FAIL seed 229 · bodies-intact · edge-00 holds 01HF7YF1N3A7YH4JK5JYVTJW1Y with content that differs from what edge-02 wrote
-  FAIL seed 230 · bodies-intact · edge-02 holds 01HF7YC7HK9TXPE3WS4ET0TQ19 with content that differs from what edge-00 wrote
+  FAIL seed 224 · bodies-intact · edge-04 holds 01HF7Y9XNQAZY2EG20JG60MVM4 with content that differs from what edge-00 wrote
+  FAIL seed 225 · bodies-intact · edge-00 holds 01HF7YAFJK2599P62XJ8FY8808 with content that differs from what edge-01 wrote
+  FAIL seed 226 · bodies-intact · edge-02 holds 01HF7YCRW64J3NETPT870YPHH1 with content that differs from what edge-05 wrote
+  FAIL seed 227 · bodies-intact · edge-01 holds 01HF7YB84AJ45WZKBT4VQT3EW2 with content that differs from what edge-00 wrote
+  FAIL seed 228 · bodies-intact · edge-02 holds 01HF7YATW3RKR26BPH0ZHM3GQ2 with content that differs from what edge-04 wrote
+  FAIL seed 230 · bodies-intact · edge-02 holds 01HF7YAT1JN3908J7YVP4QMXG4 with content that differs from what edge-05 wrote
   FAIL seed 231 · bodies-intact · edge-05 holds 01HF7YAT1JSKEWDTQEQ4TA8XF0 with content that differs from what edge-03 wrote
   FAIL seed 233 · bodies-intact · edge-03 holds 01HF7Y9WY93QVMHQNKBEZXYFK7 with content that differs from what edge-01 wrote
   FAIL seed 234 · bodies-intact · edge-00 holds 01HF7YB2A9Z75VEWSRC4HVT0RH with content that differs from what edge-02 wrote
   FAIL seed 235 · bodies-intact · edge-00 holds 01HF7YAJDZ0BNM0D7AD1CSKSTZ with content that differs from what edge-01 wrote
   FAIL seed 236 · bodies-intact · edge-02 holds 01HF7YCHQMB05W0Y6RAMC3M7VZ with content that differs from what edge-04 wrote
-  FAIL seed 237 · bodies-intact · edge-03 holds 01HF7YAT4N2R39Q3YZV1W2CE7P with content that differs from what edge-05 wrote
-  FAIL seed 238 · bodies-intact · edge-01 holds 01HF7YGVVRZJQTKKRNEXM6SXB7 with content that differs from what edge-05 wrote
+  FAIL seed 237 · bodies-intact · edge-03 holds 01HF7YDGS67YVB1Q4S7A1YK5MN with content that differs from what edge-04 wrote
+  FAIL seed 238 · bodies-intact · edge-00 holds 01HF7YAXZTCX8W1HWRDJT7R7BZ with content that differs from what edge-02 wrote
   FAIL seed 239 · bodies-intact · edge-04 holds 01HF7YC8S6M66WN1ZWC0SGPN4P with content that differs from what edge-00 wrote
-  FAIL seed 241 · bodies-intact · edge-01 holds 01HF7YDNKKQTEZ2BT0G41J0AZE with content that differs from what edge-05 wrote
-  FAIL seed 242 · bodies-intact · edge-01 holds 01HF7YCY9PZP6TWRDP51CEFJRB with content that differs from what edge-03 wrote
-  FAIL seed 243 · bodies-intact · edge-01 holds 01HF7YDE3XBWBCAG12939H0F5X with content that differs from what edge-05 wrote
+  FAIL seed 240 · bodies-intact · edge-04 holds 01HF7YFF7PF0PXDA52YSZZ508H with content that differs from what edge-01 wrote
+  FAIL seed 241 · bodies-intact · edge-03 holds 01HF7YCHP81ASY7K7FSZ0W7XJ9 with content that differs from what edge-00 wrote
+  FAIL seed 242 · bodies-intact · edge-00 holds 01HF7YCZVPZT8JY554X12FVY80 with content that differs from what edge-01 wrote
+  FAIL seed 243 · bodies-intact · edge-01 holds 01HF7YDMQRPSHYT70H8QN1ZHDW with content that differs from what edge-02 wrote
   FAIL seed 244 · bodies-intact · edge-03 holds 01HF7YAT347B93CKXMCGGXH8M8 with content that differs from what edge-02 wrote
-  FAIL seed 245 · bodies-intact · edge-04 holds 01HF7YB4HE62J0K0SJJJP3S6ES with content that differs from what edge-00 wrote
-  FAIL seed 246 · bodies-intact · edge-00 holds 01HF7YAT00237NPJ7C9YW7KW1N with content that differs from what edge-04 wrote
+  FAIL seed 245 · bodies-intact · edge-02 holds 01HF7YAZBVBZ71XXJPGCHAR34B with content that differs from what edge-04 wrote
+  FAIL seed 246 · bodies-intact · edge-00 holds 01HF7YAYMWA1A6HJ1DKH70PXPZ with content that differs from what edge-04 wrote
   FAIL seed 247 · bodies-intact · edge-00 holds 01HF7YAT4N6NATEWFF9ZTB77C0 with content that differs from what edge-01 wrote
-  FAIL seed 248 · bodies-intact · edge-02 holds 01HF7YEF7T2N563PF6SEZY53AH with content that differs from what edge-04 wrote
-  FAIL seed 249 · bodies-intact · edge-03 holds 01HF7YC7QBYRED49DSP2JEJAVT with content that differs from what edge-05 wrote
-  FAIL seed 250 · bodies-intact · edge-00 holds 01HF7YAP2Z6S9CCC655B8RDWXQ with content that differs from what edge-03 wrote
-  FAIL seed 251 · bodies-intact · edge-00 holds 01HF7YC61H5B00PZYVVZBJ6CFD with content that differs from what edge-02 wrote
+  FAIL seed 248 · bodies-intact · edge-02 holds 01HF7YCMDDJTF7XTM6F606PHW8 with content that differs from what edge-05 wrote
+  FAIL seed 249 · bodies-intact · edge-00 holds 01HF7YCPCS9G4PV2SGH1KWE35F with content that differs from what edge-02 wrote
+  FAIL seed 251 · bodies-intact · edge-01 holds 01HF7Y9XFF17MDB1HET580WGQ8 with content that differs from what edge-05 wrote
   FAIL seed 252 · bodies-intact · edge-02 holds 01HF7YATRZ4A20VFTH2NXP847B with content that differs from what edge-03 wrote
-  FAIL seed 253 · bodies-intact · edge-05 holds 01HF7YCN2KBWF55KJBRB85Y2Y8 with content that differs from what edge-02 wrote
-  FAIL seed 254 · bodies-intact · edge-00 holds 01HF7YDR5H0Y7CB0HBVA0ZVJVG with content that differs from what edge-03 wrote
+  FAIL seed 253 · bodies-intact · edge-00 holds 01HF7YBGSKTR2PTM2NXQMHF8S3 with content that differs from what edge-05 wrote
   FAIL seed 255 · bodies-intact · edge-03 holds 01HF7YAT00XFM0QM3Z5EAVP9T0 with content that differs from what edge-05 wrote
   FAIL seed 256 · bodies-intact · edge-04 holds 01HF7YAT4NAGDZ15MZW5989CNZ with content that differs from what edge-05 wrote
-  FAIL seed 257 · bodies-intact · edge-02 holds 01HF7YAT34X257MMMP6AFSJND2 with content that differs from what edge-01 wrote
-  FAIL seed 258 · bodies-intact · edge-01 holds 01HF7YB0WT7JFFVBX1YVC33TK4 with content that differs from what edge-02 wrote
+  FAIL seed 257 · bodies-intact · edge-02 holds 01HF7YAT1JKVFC6JH5XSV3TAR0 with content that differs from what edge-00 wrote
+  FAIL seed 258 · bodies-intact · edge-01 holds 01HF7YBXBZFEA566XV26HMWT0V with content that differs from what edge-00 wrote
   FAIL seed 259 · bodies-intact · edge-05 holds 01HF7YAT9BX65AZF6V4DXFM4N0 with content that differs from what edge-01 wrote
-  FAIL seed 261 · bodies-intact · edge-01 holds 01HF7YAT674V2ZQVSPNM27PGYT with content that differs from what edge-00 wrote
+  FAIL seed 260 · bodies-intact · edge-05 holds 01HF7YJ1FT0RD7GTQC030B5QDY with content that differs from what edge-00 wrote
+  FAIL seed 261 · bodies-intact · edge-00 holds 01HF7YE3NQQ9AB58JGRFSKYVX4 with content that differs from what edge-02 wrote
   FAIL seed 262 · bodies-intact · edge-04 holds 01HF7YAT67ZRNGBZ044TXSTN9S with content that differs from what edge-02 wrote
-  FAIL seed 263 · bodies-intact · edge-00 holds 01HF7Y9Y8FFSAPY6JASJMTKYE8 with content that differs from what edge-03 wrote
-  FAIL seed 265 · bodies-intact · edge-05 holds 01HF7YAVEVGSRV31Q613XRJ746 with content that differs from what edge-03 wrote
-  FAIL seed 266 · bodies-intact · edge-00 holds 01HF7YDF0TDT9JEM3J388NGM1H with content that differs from what edge-05 wrote
+  FAIL seed 265 · bodies-intact · edge-01 holds 01HF7YAT4NAKDGPW81K24JY8VR with content that differs from what edge-05 wrote
+  FAIL seed 266 · bodies-intact · edge-00 holds 01HF7YF7Z1ZYDDEHMS2AN62312 with content that differs from what edge-04 wrote
   FAIL seed 267 · bodies-intact · edge-05 holds 01HF7YBJVPV2TDWS3088N9SFGC with content that differs from what edge-01 wrote
-  FAIL seed 268 · bodies-intact · edge-00 holds 01HF7YB5KVP0ECTSKRSYAZ1JJC with content that differs from what edge-02 wrote
-  FAIL seed 269 · bodies-intact · edge-02 holds 01HF7YGFKQCM9TFDVY857H9ZM0 with content that differs from what edge-00 wrote
-  FAIL seed 270 · bodies-intact · edge-01 holds 01HF7YBN7N9YN9V56E585MV4C3 with content that differs from what edge-05 wrote
-  FAIL seed 273 · bodies-intact · edge-00 holds 01HF7YE5726PAF6X1FGP5D1BQQ with content that differs from what edge-02 wrote
+  FAIL seed 268 · bodies-intact · edge-04 holds 01HF7YB1PZ0DEF361R2WR7M3JP with content that differs from what edge-05 wrote
+  FAIL seed 270 · bodies-intact · edge-03 holds 01HF7YAT9BC4G2P9AN4PA5XZ03 with content that differs from what edge-05 wrote
+  FAIL seed 271 · bodies-intact · edge-02 holds 01HF7YC1YAKK183MW3CDNP0EGB with content that differs from what edge-00 wrote
+  FAIL seed 273 · bodies-intact · edge-00 holds 01HF7YATJQHJGX6E41XQ00QPG0 with content that differs from what edge-05 wrote
   FAIL seed 274 · bodies-intact · edge-03 holds 01HF7YAT000TKKBEHNGK5MNAWT with content that differs from what edge-02 wrote
-  FAIL seed 275 · bodies-intact · edge-05 holds 01HF7Y9XCBGHDT1C1HP42DT905 with content that differs from what edge-04 wrote
+  FAIL seed 275 · bodies-intact · edge-02 holds 01HF7Y9WWQGR40QVAW8699QVDZ with content that differs from what edge-04 wrote
   FAIL seed 276 · bodies-intact · edge-01 holds 01HF7YAT7SB329YPKW53X6HXAN with content that differs from what edge-02 wrote
   FAIL seed 277 · bodies-intact · edge-00 holds 01HF7YERN8VBKHZ1ZZP5S1KQW6 with content that differs from what edge-01 wrote
-  FAIL seed 278 · bodies-intact · edge-01 holds 01HF7YAT00M9JQQX44RW57VF1W with content that differs from what edge-03 wrote
-  FAIL seed 281 · bodies-intact · edge-02 holds 01HF7YBQW7P319KN9HDD3RJBKH with content that differs from what edge-05 wrote
-  FAIL seed 282 · bodies-intact · edge-05 holds 01HF7YB9XJ9VGS5Z8GCSKQHRG3 with content that differs from what edge-04 wrote
-  FAIL seed 283 · bodies-intact · edge-02 holds 01HF7YBHQPF7CY1PWD8NPDFBK4 with content that differs from what edge-03 wrote
+  FAIL seed 278 · bodies-intact · edge-01 holds 01HF7YBHQF5QEKJZHP9XWSXJC3 with content that differs from what edge-02 wrote
+  FAIL seed 279 · bodies-intact · edge-01 holds 01HF7YCVA9XBXTVN5377EC103B with content that differs from what edge-05 wrote
+  FAIL seed 280 · bodies-intact · edge-02 holds 01HF7YDNMG3A2HZQHZFT1TVCSC with content that differs from what edge-04 wrote
+  FAIL seed 281 · bodies-intact · edge-00 holds 01HF7YBRA97SKTSE550WY09P9N with content that differs from what edge-05 wrote
+  FAIL seed 282 · bodies-intact · edge-04 holds 01HF7YDPAYZ56ENNYTEP2V3V16 with content that differs from what edge-01 wrote
+  FAIL seed 283 · bodies-intact · edge-05 holds 01HF7YBHP4HXYG6WB2KF0F1PZK with content that differs from what edge-04 wrote
   FAIL seed 284 · bodies-intact · edge-03 holds 01HF7YAV8KHM323G4XV8JN3MVV with content that differs from what edge-02 wrote
-  FAIL seed 285 · bodies-intact · edge-00 holds 01HF7YEENHES9K1ED99BPBDXZT with content that differs from what edge-04 wrote
+  FAIL seed 285 · bodies-intact · edge-03 holds 01HF7YATNVKRRS56ADCR4XRV5Y with content that differs from what edge-00 wrote
   FAIL seed 286 · bodies-intact · edge-05 holds 01HF7YBPCVH0N0BB1CCA2SVGS2 with content that differs from what edge-03 wrote
-  FAIL seed 287 · bodies-intact · edge-00 holds 01HF7YBKGCCY7BQJTJG8QVHBGW with content that differs from what edge-03 wrote
+  FAIL seed 287 · bodies-intact · edge-01 holds 01HF7YATE1GW7XZ8EEFQWWE17B with content that differs from what edge-00 wrote
   FAIL seed 288 · bodies-intact · edge-01 holds 01HF7YB8WZ4QDAVWPGQS1KK9AQ with content that differs from what edge-04 wrote
-  FAIL seed 289 · bodies-intact · edge-00 holds 01HF7YC1BCY7MD89QBAGR1SRZ4 with content that differs from what edge-02 wrote
-  FAIL seed 290 · bodies-intact · edge-03 holds 01HF7YDS2EFD8CY27EFFTS2QHD with content that differs from what edge-04 wrote
+  FAIL seed 289 · bodies-intact · edge-00 holds 01HF7YAT7S12FF8WW47M42VNCA with content that differs from what edge-05 wrote
+  FAIL seed 290 · bodies-intact · edge-00 holds 01HF7YGE4VQ4X46WBYEPKX54F8 with content that differs from what edge-04 wrote
   FAIL seed 291 · bodies-intact · edge-04 holds 01HF7YAZ75Z679VVB0FKD2TFTJ with content that differs from what edge-05 wrote
   FAIL seed 292 · bodies-intact · edge-04 holds 01HF7YAT1JJH78X647HQN8CP3Z with content that differs from what edge-02 wrote
   FAIL seed 293 · bodies-intact · edge-03 holds 01HF7YAT4N1DEE0D94GY0N85J1 with content that differs from what edge-00 wrote
-  FAIL seed 294 · bodies-intact · edge-00 holds 01HF7YEZZ586RFDW996Z2RXZY6 with content that differs from what edge-05 wrote
   FAIL seed 295 · bodies-intact · edge-04 holds 01HF7YB2FE9MDBW4JHE8WA4MPG with content that differs from what edge-00 wrote
   FAIL seed 296 · bodies-intact · edge-05 holds 01HF7YAT00M75GQM2JDAPWCER9 with content that differs from what edge-02 wrote
   FAIL seed 297 · bodies-intact · edge-04 holds 01HF7YBCE4F6WF3NCSPSYS5KGJ with content that differs from what edge-00 wrote
   FAIL seed 298 · bodies-intact · edge-04 holds 01HF7YATW3T13GZ1VPD5KQXYNY with content that differs from what edge-02 wrote
-  FAIL seed 299 · bodies-intact · edge-01 holds 01HF7YB0HBHK14XZPZQ4S4HXSW with content that differs from what edge-02 wrote
+  FAIL seed 299 · bodies-intact · edge-00 holds 01HF7YATAX1DF1NQ83FQYDYT5K with content that differs from what edge-01 wrote
   FAIL seed 300 · bodies-intact · edge-00 holds 01HF7YAT347W8A3CB0G8HQHB7A with content that differs from what edge-02 wrote
   FAIL seed 301 · bodies-intact · edge-03 holds 01HF7YD3DWADX945GBPX6XFNRY with content that differs from what edge-02 wrote
-  FAIL seed 302 · bodies-intact · edge-01 holds 01HF7YBVV0QXR8HZTGXN5NQESP with content that differs from what edge-05 wrote
+  FAIL seed 302 · bodies-intact · edge-01 holds 01HF7YBVWJQXR8HZTGXN5NQESP with content that differs from what edge-05 wrote
   FAIL seed 303 · bodies-intact · edge-03 holds 01HF7YAT00Y9ES1WKBGBZ92MS9 with content that differs from what edge-05 wrote
-  FAIL seed 304 · bodies-intact · edge-05 holds 01HF7YBJ83GZ7C4S9J0DG8J57Z with content that differs from what edge-01 wrote
   FAIL seed 305 · bodies-intact · edge-02 holds 01HF7YAT1JJ4G7GTQYAMQMMXEE with content that differs from what edge-05 wrote
   FAIL seed 306 · bodies-intact · edge-05 holds 01HF7YATNV0MPD0AMVJ4WQF28C with content that differs from what edge-01 wrote
-  FAIL seed 307 · bodies-intact · edge-00 holds 01HF7YBDRWAYZ4NQKJDASWVRDP with content that differs from what edge-03 wrote
-  FAIL seed 308 · bodies-intact · edge-05 holds 01HF7YBKR1XT720FDR1YTT4AQG with content that differs from what edge-03 wrote
-  FAIL seed 309 · bodies-intact · edge-03 holds 01HF7YDD49MHAH4PQP3VR3TKDW with content that differs from what edge-02 wrote
-  FAIL seed 310 · bodies-intact · edge-04 holds 01HF7YD9YEMC8JQBXX2XBR91AD with content that differs from what edge-00 wrote
+  FAIL seed 307 · bodies-intact · edge-02 holds 01HF7YATCF82NCGWMK1HWA90H2 with content that differs from what edge-00 wrote
+  FAIL seed 308 · bodies-intact · edge-00 holds 01HF7YBPQB598KE1QSFSKGMJ1A with content that differs from what edge-02 wrote
+  FAIL seed 309 · bodies-intact · edge-04 holds 01HF7YG16ADJG849HT4BAFJ0WW with content that differs from what edge-01 wrote
   FAIL seed 311 · bodies-intact · edge-04 holds 01HF7YAT1JWA9ZGXNWQ9WQH0EY with content that differs from what edge-00 wrote
-  FAIL seed 312 · bodies-intact · edge-03 holds 01HF7YDRJNF84DFFKWVVQJ4NK5 with content that differs from what edge-05 wrote
   FAIL seed 313 · bodies-intact · edge-05 holds 01HF7YAT6770B6PZZ3QE2T9JJC with content that differs from what edge-04 wrote
-  FAIL seed 314 · bodies-intact · edge-03 holds 01HF7YDVGN069E5CYJVGWRV9KR with content that differs from what edge-02 wrote
+  FAIL seed 314 · bodies-intact · edge-05 holds 01HF7YGK68NMDXBY1DGG35D2HY with content that differs from what edge-01 wrote
   FAIL seed 315 · bodies-intact · edge-02 holds 01HF7YAT346M7353RX2T0A08EF with content that differs from what edge-00 wrote
-  FAIL seed 316 · bodies-intact · edge-05 holds 01HF7YBM5MRY16X5HY5NV9B9VX with content that differs from what edge-03 wrote
+  FAIL seed 316 · bodies-intact · edge-05 holds 01HF7YBMAA0WNKW6ZNE411GJ8M with content that differs from what edge-03 wrote
   FAIL seed 317 · bodies-intact · edge-00 holds 01HF7YAT34XGA5KJR34BCBNAZ0 with content that differs from what edge-03 wrote
   FAIL seed 319 · bodies-intact · edge-02 holds 01HF7YAT00KJ0CFY197J4VG34M with content that differs from what edge-00 wrote
   FAIL seed 320 · bodies-intact · edge-04 holds 01HF7YAGKZ2PPFHQENZ5MG5NBQ with content that differs from what edge-00 wrote
   FAIL seed 321 · bodies-intact · edge-02 holds 01HF7YAT00AX9Q2A5R87TAX99X with content that differs from what edge-01 wrote
-  FAIL seed 322 · bodies-intact · edge-01 holds 01HF7YJ4J62T0SVCAQ61BA6PA7 with content that differs from what edge-03 wrote
-  FAIL seed 323 · bodies-intact · edge-00 holds 01HF7YC02JBM607X9EQ4SM5WXK with content that differs from what edge-01 wrote
-  FAIL seed 324 · bodies-intact · edge-02 holds 01HF7YD1Q78EGC2JR64ZQR5QHP with content that differs from what edge-03 wrote
-  FAIL seed 325 · bodies-intact · edge-01 holds 01HF7YBHFYX503MR32TANM6GH1 with content that differs from what edge-04 wrote
-  FAIL seed 326 · bodies-intact · edge-00 holds 01HF7YFJG5MAR0SA9EM20G4N4J with content that differs from what edge-01 wrote
+  FAIL seed 322 · bodies-intact · edge-04 holds 01HF7YJ4RE65WZ1Q94SPRJHSNR with content that differs from what edge-03 wrote
+  FAIL seed 323 · bodies-intact · edge-04 holds 01HF7YBQW7HVEFKZE70S9VGTMY with content that differs from what edge-02 wrote
+  FAIL seed 325 · bodies-intact · edge-02 holds 01HF7YCY8RFRXKR1YZCP3T43ZH with content that differs from what edge-04 wrote
   FAIL seed 327 · bodies-intact · edge-00 holds 01HF7YANGNX1J63GNFC82S0ZZ2 with content that differs from what edge-03 wrote
   FAIL seed 328 · bodies-intact · edge-03 holds 01HF7YATFKVZM8JC3T8SCMWEQ2 with content that differs from what edge-00 wrote
   FAIL seed 329 · bodies-intact · edge-00 holds 01HF7YAT4NCZSHGX1YEYEQRHZ1 with content that differs from what edge-04 wrote
@@ -296,167 +290,155 @@ every execution is a pure function of its seed; a failure here is a failure fore
   FAIL seed 331 · bodies-intact · edge-00 holds 01HF7YD1DDKT0C7CR2V182Y5Z9 with content that differs from what edge-05 wrote
   FAIL seed 332 · bodies-intact · edge-05 holds 01HF7YAT4NC7BSQG45TP3RNM9D with content that differs from what edge-04 wrote
   FAIL seed 333 · bodies-intact · edge-01 holds 01HF7YAT4NRQ0YDXQAXECPFJTW with content that differs from what edge-03 wrote
-  FAIL seed 334 · bodies-intact · edge-04 holds 01HF7YC9WS6CFHCJKHX62HYTKR with content that differs from what edge-02 wrote
+  FAIL seed 334 · bodies-intact · edge-01 holds 01HF7YASN1QDDDQGJT9HP0GTKJ with content that differs from what edge-02 wrote
   FAIL seed 335 · bodies-intact · edge-03 holds 01HF7YBJVG4CQV0HYCJ6BFGRVY with content that differs from what edge-02 wrote
   FAIL seed 336 · bodies-intact · edge-02 holds 01HF7YAT00HA4J9KRWDGRY14FW with content that differs from what edge-05 wrote
-  FAIL seed 337 · bodies-intact · edge-03 holds 01HF7YASA3E4RERZKQSBFY1PN1 with content that differs from what edge-02 wrote
-  FAIL seed 338 · bodies-intact · edge-00 holds 01HF7YBXK3DBAE3MM4FVVKHYPG with content that differs from what edge-02 wrote
-  FAIL seed 339 · bodies-intact · edge-01 holds 01HF7YAMYF27KJFVDT1W32XXG1 with content that differs from what edge-04 wrote
+  FAIL seed 337 · bodies-intact · edge-00 holds 01HF7YA6MD3SRVNFGK1ETFCAJK with content that differs from what edge-03 wrote
+  FAIL seed 338 · bodies-intact · edge-00 holds 01HF7YC4DVM9BSFTHCGWTC66BE with content that differs from what edge-03 wrote
   FAIL seed 340 · bodies-intact · edge-04 holds 01HF7YAT4N1CKGDKZ32M4E8VXW with content that differs from what edge-02 wrote
-  FAIL seed 341 · bodies-intact · edge-05 holds 01HF7Y9YF3BQHEVJNXVMVTN7VW with content that differs from what edge-03 wrote
-  FAIL seed 342 · bodies-intact · edge-00 holds 01HF7Y9VP6SWYQ77QVJ5WDWT8T with content that differs from what edge-02 wrote
+  FAIL seed 341 · bodies-intact · edge-02 holds 01HF7YBSTGK06446KXN7EJNJPM with content that differs from what edge-05 wrote
+  FAIL seed 342 · bodies-intact · edge-04 holds 01HF7YBXPD800FC4K1E2ZBRG33 with content that differs from what edge-01 wrote
   FAIL seed 343 · bodies-intact · edge-03 holds 01HF7YAT00GNDF4HF8FWBRJ074 with content that differs from what edge-01 wrote
-  FAIL seed 344 · bodies-intact · edge-01 holds 01HF7YAT1J93F57XQP07H11TJC with content that differs from what edge-05 wrote
+  FAIL seed 344 · bodies-intact · edge-00 holds 01HF7YAZ7DT7BJEMQY2D58P8Y7 with content that differs from what edge-03 wrote
   FAIL seed 345 · bodies-intact · edge-02 holds 01HF7YAT7SRZH29YZQWHBHW5VK with content that differs from what edge-04 wrote
-  FAIL seed 346 · bodies-intact · edge-00 holds 01HF7YD3DA49YQ6VVYNFS1TW60 with content that differs from what edge-01 wrote
+  FAIL seed 346 · bodies-intact · edge-01 holds 01HF7YHWAWT7KWQ4G84M92BKEJ with content that differs from what edge-02 wrote
   FAIL seed 347 · bodies-intact · edge-01 holds 01HF7YB9M9EHQ007P4JBZXXQ3K with content that differs from what edge-04 wrote
   FAIL seed 348 · bodies-intact · edge-04 holds 01HF7YBGJKHYZHDKQVBDEERZPW with content that differs from what edge-01 wrote
-  FAIL seed 349 · bodies-intact · edge-03 holds 01HF7YANPFZYHCYDD49EBG7BGV with content that differs from what edge-04 wrote
-  FAIL seed 350 · bodies-intact · edge-01 holds 01HF7YBCSC7HMQEF6P4HY70MKB with content that differs from what edge-03 wrote
+  FAIL seed 349 · bodies-intact · edge-03 holds 01HF7YAP6366J5Q7AQHWW3JP8V with content that differs from what edge-02 wrote
+  FAIL seed 350 · bodies-intact · edge-00 holds 01HF7YCADTW0S06K59GWYNM6AQ with content that differs from what edge-04 wrote
   FAIL seed 351 · bodies-intact · edge-01 holds 01HF7YC8EAG4XHDFDH1BE08590 with content that differs from what edge-02 wrote
   FAIL seed 352 · bodies-intact · edge-03 holds 01HF7YAYC525W1T1FGMTYEKFA4 with content that differs from what edge-04 wrote
-  FAIL seed 353 · bodies-intact · edge-00 holds 01HF7YBPMHZET1NZEG09946J0S with content that differs from what edge-01 wrote
+  FAIL seed 353 · bodies-intact · edge-01 holds 01HF7YJP9DZXXSYM8CP73PXH3R with content that differs from what edge-04 wrote
   FAIL seed 354 · bodies-intact · edge-05 holds 01HF7YB37JTDDCCD92GPQXPZR8 with content that differs from what edge-00 wrote
   FAIL seed 355 · bodies-intact · edge-04 holds 01HF7YBJ87K9VSNTX3KQBDD2TY with content that differs from what edge-02 wrote
-  FAIL seed 356 · bodies-intact · edge-01 holds 01HF7YBX7AJ74GKD6M729DTB2E with content that differs from what edge-02 wrote
-  FAIL seed 357 · bodies-intact · edge-04 holds 01HF7YBAB7GEXAZZ9RZ8N6B4RT with content that differs from what edge-00 wrote
+  FAIL seed 357 · bodies-intact · edge-02 holds 01HF7YDWSN2080CJSWTFQ22WYZ with content that differs from what edge-00 wrote
   FAIL seed 359 · bodies-intact · edge-01 holds 01HF7YAT4NVW3VCHQG607V35FP with content that differs from what edge-05 wrote
-  FAIL seed 360 · bodies-intact · edge-01 holds 01HF7YAT9BH0X9YYENWWF61BY7 with content that differs from what edge-03 wrote
-  FAIL seed 361 · bodies-intact · edge-04 holds 01HF7YAV5FSFKW4NS0TBJ9ZTCE with content that differs from what edge-00 wrote
+  FAIL seed 360 · bodies-intact · edge-01 holds 01HF7YBC12Y55SQ2YF657PSNFK with content that differs from what edge-00 wrote
+  FAIL seed 361 · bodies-intact · edge-01 holds 01HF7YAT1J59V9WD6R94GBHH03 with content that differs from what edge-03 wrote
   FAIL seed 362 · bodies-intact · edge-02 holds 01HF7YAZ41HM22KS9D13MNJCVK with content that differs from what edge-04 wrote
-  FAIL seed 363 · bodies-intact · edge-00 holds 01HF7YAVWXYWE6WJ0VG8XKPNME with content that differs from what edge-05 wrote
+  FAIL seed 363 · bodies-intact · edge-05 holds 01HF7YAVSSX10VHBZ2TFTBAVBF with content that differs from what edge-04 wrote
   FAIL seed 364 · bodies-intact · edge-00 holds 01HF7YAT4NQPBGQMN5MBZAYDES with content that differs from what edge-05 wrote
-  FAIL seed 365 · bodies-intact · edge-04 holds 01HF7YEA1EDJZQ5QHTFTHBHBBK with content that differs from what edge-05 wrote
+  FAIL seed 365 · bodies-intact · edge-04 holds 01HF7YAH4BPZZ6DC8YEE2HECYR with content that differs from what edge-00 wrote
   FAIL seed 366 · bodies-intact · edge-01 holds 01HF7YB0HR726HZQ6X9G9WCB2P with content that differs from what edge-02 wrote
-  FAIL seed 367 · bodies-intact · edge-00 holds 01HF7YBRHZ4D5YVXVZV7SGR0AV with content that differs from what edge-02 wrote
+  FAIL seed 367 · bodies-intact · edge-00 holds 01HF7YD6F5F6R598451FMZMADW with content that differs from what edge-05 wrote
   FAIL seed 368 · bodies-intact · edge-05 holds 01HF7YBB5V369FR2H5G4EK11ZB with content that differs from what edge-02 wrote
-  FAIL seed 369 · bodies-intact · edge-00 holds 01HF7YCKGWTGQF6GPVBBFB456X with content that differs from what edge-01 wrote
+  FAIL seed 369 · bodies-intact · edge-05 holds 01HF7YBSE74TYSGJJ8TEBW7J9F with content that differs from what edge-00 wrote
   FAIL seed 370 · bodies-intact · edge-05 holds 01HF7YAT1JY7ZVWD3Y1AA04MXR with content that differs from what edge-04 wrote
   FAIL seed 371 · bodies-intact · edge-00 holds 01HF7YC8T9FFMX1HHDAZF9SC08 with content that differs from what edge-05 wrote
-  FAIL seed 372 · bodies-intact · edge-00 holds 01HF7YAQAEWSRR1SCWSQ3F6WKT with content that differs from what edge-04 wrote
+  FAIL seed 372 · bodies-intact · edge-01 holds 01HF7YASJAR5X88TFJD9T0YQVP with content that differs from what edge-03 wrote
   FAIL seed 373 · bodies-intact · edge-03 holds 01HF7YATAXBZ6FQFQ26CZRPYCE with content that differs from what edge-02 wrote
   FAIL seed 374 · bodies-intact · edge-00 holds 01HF7YCCKP5WAWW1SQPESPFK1X with content that differs from what edge-03 wrote
   FAIL seed 375 · bodies-intact · edge-05 holds 01HF7YB60BK4VW7RD4XVN40J16 with content that differs from what edge-03 wrote
   FAIL seed 376 · bodies-intact · edge-02 holds 01HF7YATZ7RHJXKM6ZKQ81KWVC with content that differs from what edge-00 wrote
-  FAIL seed 377 · bodies-intact · edge-00 holds 01HF7YF0WY0EZSJ1WM5S5J6HPB with content that differs from what edge-01 wrote
-  FAIL seed 378 · bodies-intact · edge-02 holds 01HF7YATTH0X9QA9W2W17A5ZP7 with content that differs from what edge-04 wrote
+  FAIL seed 377 · bodies-intact · edge-00 holds 01HF7YE0TVMBESCTTG9TE236BF with content that differs from what edge-01 wrote
+  FAIL seed 378 · bodies-intact · edge-02 holds 01HF7Y8TFXM866A9MD51A825PE with content that differs from what edge-00 wrote
   FAIL seed 379 · bodies-intact · edge-03 holds 01HF7YATAXBTAC446B3HDTHH6Z with content that differs from what edge-01 wrote
-  FAIL seed 380 · bodies-intact · edge-05 holds 01HF7YATE1T2SK8F1G8K2J2W85 with content that differs from what edge-02 wrote
+  FAIL seed 380 · bodies-intact · edge-00 holds 01HF7YBQ81T98PN16J5ZJN7V5A with content that differs from what edge-02 wrote
   FAIL seed 381 · bodies-intact · edge-01 holds 01HF7YC7ETAGQA4MA5F0FX75JC with content that differs from what edge-03 wrote
   FAIL seed 382 · bodies-intact · edge-00 holds 01HF7YBF5EXZ05S4Z17NQ825EQ with content that differs from what edge-05 wrote
   FAIL seed 383 · bodies-intact · edge-00 holds 01HF7YAT3468NV6JG9Y4B796Q8 with content that differs from what edge-01 wrote
-  FAIL seed 384 · bodies-intact · edge-02 holds 01HF7YCT686C0B2YMK8KAE7AM1 with content that differs from what edge-04 wrote
-  FAIL seed 385 · bodies-intact · edge-00 holds 01HF7YATZ70BSNVWFDQ4DCH7CJ with content that differs from what edge-03 wrote
-  FAIL seed 386 · bodies-intact · edge-04 holds 01HF7YAT34P2W41FM6533SZG48 with content that differs from what edge-01 wrote
+  FAIL seed 386 · bodies-intact · edge-04 holds 01HF7YATCF54Q5C1MJDHG2Y9GG with content that differs from what edge-01 wrote
   FAIL seed 387 · bodies-intact · edge-04 holds 01HF7YAZBV7DTJ10FRR1FCY8JZ with content that differs from what edge-00 wrote
   FAIL seed 388 · bodies-intact · edge-05 holds 01HF7YAT67Q7Y820HZRN785EQ9 with content that differs from what edge-01 wrote
   FAIL seed 389 · bodies-intact · edge-01 holds 01HF7YAZX106D48ZH1XJYC1BFV with content that differs from what edge-05 wrote
-  FAIL seed 390 · bodies-intact · edge-00 holds 01HF7YATE1VC5Y431MB2EJVAPD with content that differs from what edge-02 wrote
-  FAIL seed 391 · bodies-intact · edge-04 holds 01HF7YC5GKPGNTCFKH7ACWBY6V with content that differs from what edge-02 wrote
-  FAIL seed 392 · bodies-intact · edge-01 holds 01HF7YBM01GKR9WXG9GHYXCZH5 with content that differs from what edge-03 wrote
-  FAIL seed 393 · bodies-intact · edge-00 holds 01HF7YAV5FBW6KWCXVQT195WM8 with content that differs from what edge-03 wrote
-  FAIL seed 394 · bodies-intact · edge-02 holds 01HF7YCNGV5FW39XDQXTG5CXDY with content that differs from what edge-00 wrote
+  FAIL seed 390 · bodies-intact · edge-05 holds 01HF7YAVBQWZ05EVXHNTS5WHTD with content that differs from what edge-02 wrote
+  FAIL seed 392 · bodies-intact · edge-00 holds 01HF7YDWMSJWSX6B1TQQ5ZHA00 with content that differs from what edge-01 wrote
+  FAIL seed 394 · bodies-intact · edge-04 holds 01HF7YKQNVH6K8AY0RD7K9BWQ6 with content that differs from what edge-05 wrote
   FAIL seed 395 · bodies-intact · edge-01 holds 01HF7YAT4NV2SWXHWND8W77CD8 with content that differs from what edge-04 wrote
-  FAIL seed 396 · bodies-intact · edge-02 holds 01HF7YB57BQ7WM0PC2X4VKQRDY with content that differs from what edge-04 wrote
-  FAIL seed 397 · bodies-intact · edge-04 holds 01HF7YANR16BDZBAK0RYJRHAYV with content that differs from what edge-05 wrote
+  FAIL seed 396 · bodies-intact · edge-04 holds 01HF7YB5KVSP7Q719AF3F6A3XC with content that differs from what edge-02 wrote
+  FAIL seed 397 · bodies-intact · edge-02 holds 01HF7YBMGPWTCSB6YQVYYM4BRH with content that differs from what edge-05 wrote
   FAIL seed 398 · bodies-intact · edge-02 holds 01HF7YAT00PZBQBXFHYDFKRD6T with content that differs from what edge-03 wrote
-  FAIL seed 399 · bodies-intact · edge-02 holds 01HF7Y9VMG7MGMYP1QPFYT0789 with content that differs from what edge-03 wrote
-  FAIL seed 400 · bodies-intact · edge-00 holds 01HF7YAJWF22258GZSSM2YZSY6 with content that differs from what edge-05 wrote
+  FAIL seed 399 · bodies-intact · edge-00 holds 01HF7Y9VQMN7CTT2RHW5SKAYMW with content that differs from what edge-03 wrote
+  FAIL seed 400 · bodies-intact · edge-05 holds 01HF7YCPEMAGK2MWHKA70MMM91 with content that differs from what edge-00 wrote
   FAIL seed 401 · bodies-intact · edge-02 holds 01HF7YA676EQFFJA9DA59Y72X4 with content that differs from what edge-01 wrote
   FAIL seed 402 · bodies-intact · edge-04 holds 01HF7Y9KNDHQ8459JRHG3JGGH3 with content that differs from what edge-00 wrote
-  FAIL seed 403 · bodies-intact · edge-02 holds 01HF7YC1HX3PSBFM0P4XA3XP3Q with content that differs from what edge-05 wrote
+  FAIL seed 403 · bodies-intact · edge-00 holds 01HF7YF8DYS4QF3FYG845BH38D with content that differs from what edge-04 wrote
   FAIL seed 404 · bodies-intact · edge-00 holds 01HF7YAT00NT01FV771J28X0BV with content that differs from what edge-03 wrote
-  FAIL seed 405 · bodies-intact · edge-04 holds 01HF7YE77G4XM5H8XBX9MRBYKK with content that differs from what edge-00 wrote
   FAIL seed 406 · bodies-intact · edge-05 holds 01HF7YB3M3W18GGF15Q71Z47TH with content that differs from what edge-02 wrote
   FAIL seed 407 · bodies-intact · edge-05 holds 01HF7YATNVCCE5VF92JQY0KXAC with content that differs from what edge-00 wrote
   FAIL seed 408 · bodies-intact · edge-00 holds 01HF7YAT671WMJF18WK7N57SRA with content that differs from what edge-01 wrote
-  FAIL seed 410 · bodies-intact · edge-01 holds 01HF7YCDDKATR4N7M4HG00E9KN with content that differs from what edge-02 wrote
-  FAIL seed 411 · bodies-intact · edge-00 holds 01HF7YCHJ22DR8BHT5RQYPF8KE with content that differs from what edge-05 wrote
-  FAIL seed 412 · bodies-intact · edge-03 holds 01HF7YAD49ZB0S06YJ2PY6GSQ8 with content that differs from what edge-00 wrote
+  FAIL seed 409 · bodies-intact · edge-05 holds 01HF7YB4JSZ7443YE7HJR6PA0Q with content that differs from what edge-01 wrote
+  FAIL seed 410 · bodies-intact · edge-05 holds 01HF7YAQ8FNMFV7VD2HX42S5RF with content that differs from what edge-02 wrote
+  FAIL seed 411 · bodies-intact · edge-02 holds 01HF7YC2VKN2DZN1QF5AY7NJVG with content that differs from what edge-01 wrote
+  FAIL seed 412 · bodies-intact · edge-05 holds 01HF7YCZM34QNHZVZ1PAV38JYF with content that differs from what edge-01 wrote
   FAIL seed 413 · bodies-intact · edge-01 holds 01HF7YAT34HZDAG9JQ48PMPEMD with content that differs from what edge-05 wrote
   FAIL seed 414 · bodies-intact · edge-01 holds 01HF7YAT34XPKY2S63RDHV9EP6 with content that differs from what edge-05 wrote
   FAIL seed 415 · bodies-intact · edge-02 holds 01HF7YASR5VYW6Z7GWR2XJFXBS with content that differs from what edge-01 wrote
   FAIL seed 416 · bodies-intact · edge-01 holds 01HF7YAT00YMTTKKG3FAD0NQ9R with content that differs from what edge-00 wrote
-  FAIL seed 417 · bodies-intact · edge-03 holds 01HF7YB8PRP8813Q5ZXSN7YVAM with content that differs from what edge-00 wrote
+  FAIL seed 417 · bodies-intact · edge-05 holds 01HF7YB8RAD40EQRZ1ZTWXF7DJ with content that differs from what edge-00 wrote
   FAIL seed 418 · bodies-intact · edge-02 holds 01HF7YAT1JB9XD2TKZXS9FEE4P with content that differs from what edge-00 wrote
-  FAIL seed 419 · bodies-intact · edge-05 holds 01HF7YAVWX5QXZKSBFSQ1NJH68 with content that differs from what edge-01 wrote
-  FAIL seed 420 · bodies-intact · edge-00 holds 01HF7YB7Z4W197HDQ0EZKHD39Q with content that differs from what edge-05 wrote
+  FAIL seed 419 · bodies-intact · edge-05 holds 01HF7YATRZR5SA4VRR8RVPP4EE with content that differs from what edge-04 wrote
+  FAIL seed 420 · bodies-intact · edge-02 holds 01HF7YB5VYGVXR2PS0DXE1GBXZ with content that differs from what edge-05 wrote
   FAIL seed 421 · bodies-intact · edge-03 holds 01HF7YATAXD0QNVPRSF97E4YQF with content that differs from what edge-05 wrote
   FAIL seed 422 · bodies-intact · edge-00 holds 01HF7YATCFCDGNARGTVF4KGH1X with content that differs from what edge-05 wrote
-  FAIL seed 423 · bodies-intact · edge-02 holds 01HF7YAXWWXSNDQESJH5QQB1Q2 with content that differs from what edge-04 wrote
-  FAIL seed 425 · bodies-intact · edge-02 holds 01HF7YA39D8EVZ86Q3E2F4RX2Z with content that differs from what edge-05 wrote
-  FAIL seed 426 · bodies-intact · edge-03 holds 01HF7YPBFVYJ3RSJZV6QWZV37F with content that differs from what edge-01 wrote
-  FAIL seed 427 · bodies-intact · edge-01 holds 01HF7YD7AWCA6QZ2NA6EM4HE34 with content that differs from what edge-00 wrote
-  FAIL seed 428 · bodies-intact · edge-01 holds 01HF7YAT67XPZSHR84HZPVF2DY with content that differs from what edge-00 wrote
-  FAIL seed 429 · bodies-intact · edge-05 holds 01HF7YCSRDH1HWHF63MVWSSRVK with content that differs from what edge-02 wrote
+  FAIL seed 425 · bodies-intact · edge-03 holds 01HF7YC1YQ5019ZXHJHQV6YJG6 with content that differs from what edge-01 wrote
+  FAIL seed 427 · bodies-intact · edge-00 holds 01HF7YBSHBV2DB0ZCDEWKFSNBQ with content that differs from what edge-02 wrote
+  FAIL seed 428 · bodies-intact · edge-02 holds 01HF7YDEHTGAEHCGZR149N8749 with content that differs from what edge-03 wrote
+  FAIL seed 429 · bodies-intact · edge-00 holds 01HF7YG8K1KB1KHMCZ37PS9P0Y with content that differs from what edge-04 wrote
   FAIL seed 430 · bodies-intact · edge-05 holds 01HF7YB6R8XHM0S74V62FNMT9D with content that differs from what edge-04 wrote
-  FAIL seed 431 · bodies-intact · edge-05 holds 01HF7YAE8Y7N88YQJVDHVWTM23 with content that differs from what edge-01 wrote
+  FAIL seed 431 · bodies-intact · edge-05 holds 01HF7YAVRNYJ8PG6Q08PHDT6N9 with content that differs from what edge-01 wrote
   FAIL seed 432 · bodies-intact · edge-00 holds 01HF7YC291P21NG1198AQ6SCJX with content that differs from what edge-01 wrote
   FAIL seed 433 · bodies-intact · edge-05 holds 01HF7YBNY0HJMTAA6TS2DRSM3N with content that differs from what edge-01 wrote
   FAIL seed 434 · bodies-intact · edge-05 holds 01HF7YAZ8QG323TX3DP4TDZPF2 with content that differs from what edge-04 wrote
   FAIL seed 435 · bodies-intact · edge-03 holds 01HF7YBB5Y2XS0PF2333K2PM99 with content that differs from what edge-04 wrote
   FAIL seed 436 · bodies-intact · edge-05 holds 01HF7YAT4NG8ZP3SBDBNXVAX63 with content that differs from what edge-04 wrote
-  FAIL seed 437 · bodies-intact · edge-01 holds 01HF7YNBMF6F2D77KCFP30H8ZC with content that differs from what edge-03 wrote
-  FAIL seed 438 · bodies-intact · edge-00 holds 01HF7YAV0SS6CK44M1Z4K4QJ3K with content that differs from what edge-05 wrote
+  FAIL seed 437 · bodies-intact · edge-05 holds 01HF7YDKMFMT8ANMSXV5M82W7J with content that differs from what edge-02 wrote
   FAIL seed 439 · bodies-intact · edge-02 holds 01HF7YBZEXWQJZBAQVA33PWN6K with content that differs from what edge-00 wrote
-  FAIL seed 440 · bodies-intact · edge-00 holds 01HF7YAPFFYXEEG38GWMWRMQ6M with content that differs from what edge-01 wrote
   FAIL seed 441 · bodies-intact · edge-05 holds 01HF7YAT4NDWQ26Z15GABM18V7 with content that differs from what edge-02 wrote
-  FAIL seed 442 · bodies-intact · edge-03 holds 01HF7YCG8F06M5CH3SXNEC4KVA with content that differs from what edge-05 wrote
-  FAIL seed 443 · bodies-intact · edge-03 holds 01HF7YE4H73Y663TCZ8PN7KQ73 with content that differs from what edge-01 wrote
-  FAIL seed 444 · bodies-intact · edge-00 holds 01HF7YBQCMD6C16019S5ZCBHB1 with content that differs from what edge-04 wrote
-  FAIL seed 445 · bodies-intact · edge-02 holds 01HF7YB21XAG6NXJ71DYC884XM with content that differs from what edge-03 wrote
-  FAIL seed 447 · bodies-intact · edge-05 holds 01HF7YFW00NQAYQVJS7BZNJQYE with content that differs from what edge-03 wrote
+  FAIL seed 442 · bodies-intact · edge-01 holds 01HF7YFGBQDS5EJAFS436BJYT7 with content that differs from what edge-05 wrote
+  FAIL seed 443 · bodies-intact · edge-01 holds 01HF7YEC6724K3CH7ZPQ7C4YQE with content that differs from what edge-05 wrote
+  FAIL seed 444 · bodies-intact · edge-02 holds 01HF7Y9SRQ43BS0YXA3RTY4Z2V with content that differs from what edge-04 wrote
+  FAIL seed 445 · bodies-intact · edge-01 holds 01HF7YDC6SJE71QTA62YEQ3FBP with content that differs from what edge-04 wrote
   FAIL seed 448 · bodies-intact · edge-00 holds 01HF7YAT4NYHBX0DAM05BA8814 with content that differs from what edge-02 wrote
   FAIL seed 449 · bodies-intact · edge-01 holds 01HF7YAV0SZNN5591YP1GBTSXN with content that differs from what edge-02 wrote
   FAIL seed 450 · bodies-intact · edge-05 holds 01HF7YAT67VRQAWE92EJDCNTTJ with content that differs from what edge-00 wrote
   FAIL seed 451 · bodies-intact · edge-03 holds 01HF7YAT4NME5W4NM1T0V3P175 with content that differs from what edge-05 wrote
-  FAIL seed 452 · bodies-intact · edge-05 holds 01HF7YBC21DBS43QWM5GE083XT with content that differs from what edge-01 wrote
+  FAIL seed 452 · bodies-intact · edge-05 holds 01HF7YBCEHSMSFPEMH9AGQQRGR with content that differs from what edge-04 wrote
   FAIL seed 453 · bodies-intact · edge-01 holds 01HF7YAT00ZW7658TPE3YE1BA4 with content that differs from what edge-04 wrote
   FAIL seed 454 · bodies-intact · edge-02 holds 01HF7YAT00P6856WB3Z69X9TZT with content that differs from what edge-05 wrote
-  FAIL seed 456 · bodies-intact · edge-05 holds 01HF7Y9SW92S9S5WNTETKNJFA2 with content that differs from what edge-03 wrote
+  FAIL seed 455 · bodies-intact · edge-01 holds 01HF7YATTHVPMZPDCCF26J8WW4 with content that differs from what edge-03 wrote
+  FAIL seed 456 · bodies-intact · edge-05 holds 01HF7YBASY25M6ERH3CJPYVBTM with content that differs from what edge-00 wrote
   FAIL seed 457 · bodies-intact · edge-03 holds 01HF7YCPVTYAMA7T59PB6TCSZ7 with content that differs from what edge-04 wrote
   FAIL seed 458 · bodies-intact · edge-00 holds 01HF7YANR1YWDAGEJC9XVK2ZD9 with content that differs from what edge-03 wrote
-  FAIL seed 459 · bodies-intact · edge-00 holds 01HF7YAVHZ9W2TT6DWY4DVVNAC with content that differs from what edge-05 wrote
+  FAIL seed 459 · bodies-intact · edge-05 holds 01HF7YCA7NAD5HTKX26F0P2SWJ with content that differs from what edge-00 wrote
   FAIL seed 460 · bodies-intact · edge-02 holds 01HF7YCGNHCB1CG41592PVKN9G with content that differs from what edge-01 wrote
-  FAIL seed 461 · bodies-intact · edge-01 holds 01HF7YA0TCB83B1Y13GHSWHJDG with content that differs from what edge-00 wrote
-  FAIL seed 462 · bodies-intact · edge-01 holds 01HF7YBJMP3YRX509NVEDHAZR5 with content that differs from what edge-03 wrote
+  FAIL seed 462 · bodies-intact · edge-00 holds 01HF7YB9BX5S6DS86J0QYNYY31 with content that differs from what edge-05 wrote
   FAIL seed 463 · bodies-intact · edge-01 holds 01HF7YCEQYTWA78GPZFS8C9NAC with content that differs from what edge-00 wrote
-  FAIL seed 464 · bodies-intact · edge-01 holds 01HF7YAT9BQW3XDPZPPR0GYJ30 with content that differs from what edge-05 wrote
+  FAIL seed 464 · bodies-intact · edge-02 holds 01HF7YBXCQBFDNJPR3K3Q57H3S with content that differs from what edge-01 wrote
   FAIL seed 465 · bodies-intact · edge-03 holds 01HF7YAT1J5QBFJFWABYK4PJAN with content that differs from what edge-04 wrote
-  FAIL seed 466 · bodies-intact · edge-05 holds 01HF7YBNA89CNAHGSWD36TFDDN with content that differs from what edge-04 wrote
-  FAIL seed 467 · bodies-intact · edge-00 holds 01HF7YAT9BTQW54VJVGS08RE82 with content that differs from what edge-05 wrote
+  FAIL seed 466 · bodies-intact · edge-05 holds 01HF7YFRGTHGD6BT25N15Y6PCC with content that differs from what edge-00 wrote
+  FAIL seed 467 · bodies-intact · edge-05 holds 01HF7YBZ9GH7KN1M5ND8ABPEKS with content that differs from what edge-03 wrote
   FAIL seed 468 · bodies-intact · edge-03 holds 01HF7YAT9BQYKEMAAM7S9JT89D with content that differs from what edge-01 wrote
-  FAIL seed 469 · bodies-intact · edge-00 holds 01HF7YC6AZY688P2ASPB9CMM1G with content that differs from what edge-03 wrote
-  FAIL seed 470 · bodies-intact · edge-00 holds 01HF7YDY8SQH5T6XRWKFCSP7HN with content that differs from what edge-04 wrote
+  FAIL seed 469 · bodies-intact · edge-00 holds 01HF7YG22CNAS933F9HMWG9ARJ with content that differs from what edge-05 wrote
+  FAIL seed 470 · bodies-intact · edge-01 holds 01HF7YETNM0HXR977VFC9BP1PB with content that differs from what edge-05 wrote
   FAIL seed 471 · bodies-intact · edge-00 holds 01HF7YAT67CZQ6ARKSSVNW88WD with content that differs from what edge-02 wrote
   FAIL seed 472 · bodies-intact · edge-03 holds 01HF7YBP0820C5WYCSF70TF9CE with content that differs from what edge-02 wrote
-  FAIL seed 473 · bodies-intact · edge-00 holds 01HF7YBD4ZB4RYYNCN0ECBVK09 with content that differs from what edge-05 wrote
-  FAIL seed 474 · bodies-intact · edge-00 holds 01HF7YD7HRERKPSTDMQCHX58VS with content that differs from what edge-02 wrote
+  FAIL seed 473 · bodies-intact · edge-03 holds 01HF7YC1K8CK9KN8S4AHAPSM40 with content that differs from what edge-02 wrote
+  FAIL seed 474 · bodies-intact · edge-03 holds 01HF7YCDWKEXTMMQ2D9HAXJ4J4 with content that differs from what edge-00 wrote
   FAIL seed 475 · bodies-intact · edge-00 holds 01HF7YATTH57DNMZYS89TD781K with content that differs from what edge-05 wrote
   FAIL seed 476 · bodies-intact · edge-01 holds 01HF7YBF0RCM2EE2BWD3RQCJ9Y with content that differs from what edge-02 wrote
-  FAIL seed 477 · bodies-intact · edge-03 holds 01HF7YATJQAXDGB82ZT5HSJSYK with content that differs from what edge-00 wrote
+  FAIL seed 477 · bodies-intact · edge-03 holds 01HF7YAT67CXZ1GE9HN0E93MJF with content that differs from what edge-01 wrote
   FAIL seed 478 · bodies-intact · edge-03 holds 01HF7YAZ419QYSK654AEJ5GZGJ with content that differs from what edge-02 wrote
-  FAIL seed 479 · bodies-intact · edge-01 holds 01HF7YB50RCQ64VA90REVE1FFH with content that differs from what edge-04 wrote
-  FAIL seed 480 · bodies-intact · edge-00 holds 01HF7YATW3N3WTAY1Q6RJDYQF3 with content that differs from what edge-01 wrote
+  FAIL seed 479 · bodies-intact · edge-01 holds 01HF7YD0HE5TBRDREB2P5VGTZV with content that differs from what edge-05 wrote
   FAIL seed 481 · bodies-intact · edge-05 holds 01HF7YB7EM9AFRTKTKE0ZHENH2 with content that differs from what edge-01 wrote
-  FAIL seed 482 · bodies-intact · edge-00 holds 01HF7YBKTCAJDB04N070GPW8PG with content that differs from what edge-02 wrote
-  FAIL seed 483 · bodies-intact · edge-05 holds 01HF7YB6GGABS3JEFFE5TT3X39 with content that differs from what edge-04 wrote
-  FAIL seed 484 · bodies-intact · edge-01 holds 01HF7YAVKHJ35H9FMRFCT0K0Y0 with content that differs from what edge-04 wrote
+  FAIL seed 484 · bodies-intact · edge-01 holds 01HF7YAW9D2K27WC25AXM5SKRQ with content that differs from what edge-04 wrote
   FAIL seed 485 · bodies-intact · edge-05 holds 01HF7YAT00CDK5NSABQDBQCN73 with content that differs from what edge-01 wrote
-  FAIL seed 486 · bodies-intact · edge-05 holds 01HF7YAV5FHM74JHF8H5ZQXT18 with content that differs from what edge-02 wrote
-  FAIL seed 488 · bodies-intact · edge-00 holds 01HF7YDX7HAE750WNXBZ52C97C with content that differs from what edge-04 wrote
+  FAIL seed 486 · bodies-intact · edge-02 holds 01HF7YATJQPKPZ7V9YA9N2MN6C with content that differs from what edge-05 wrote
+  FAIL seed 487 · bodies-intact · edge-01 holds 01HF7YAYH86DF9P1HEXH9HJ91Z with content that differs from what edge-00 wrote
+  FAIL seed 488 · bodies-intact · edge-05 holds 01HF7YE1VR2CW41V13FA8KRYFC with content that differs from what edge-02 wrote
   FAIL seed 489 · bodies-intact · edge-02 holds 01HF7YATRZCE5MVWY6KTSM6Z0C with content that differs from what edge-00 wrote
-  FAIL seed 490 · bodies-intact · edge-03 holds 01HF7YK1Q86MQ7FF7NZ1E3GK9J with content that differs from what edge-05 wrote
+  FAIL seed 490 · bodies-intact · edge-00 holds 01HF7YGFYH2YX7F51C0XKMQMYV with content that differs from what edge-05 wrote
+  FAIL seed 491 · bodies-intact · edge-04 holds 01HF7YBCS1Z34JAVRTN4AFS705 with content that differs from what edge-00 wrote
   FAIL seed 492 · bodies-intact · edge-05 holds 01HF7YAZ95V1FVWRRRE3Y7CJK3 with content that differs from what edge-03 wrote
+  FAIL seed 493 · bodies-intact · edge-03 holds 01HF7YBNWN7HFT1RF18BRSFTQP with content that differs from what edge-05 wrote
   FAIL seed 494 · bodies-intact · edge-04 holds 01HF7YBWYQ4G1DS790VB0YG7FC with content that differs from what edge-05 wrote
-  FAIL seed 495 · bodies-intact · edge-03 holds 01HF7YATNVGY8QBB6TWBN9EXK9 with content that differs from what edge-02 wrote
+  FAIL seed 495 · bodies-intact · edge-00 holds 01HF7YB5Z527TP8WX8DW7DVN0P with content that differs from what edge-03 wrote
   FAIL seed 496 · bodies-intact · edge-00 holds 01HF7YBR8QJE2B4ZKQY0SDW6MK with content that differs from what edge-04 wrote
-  FAIL seed 497 · bodies-intact · edge-00 holds 01HF7YDJXP5CTEE1PXDXA7GC7B with content that differs from what edge-03 wrote
-  FAIL seed 498 · bodies-intact · edge-03 holds 01HF7YCMPRSTPRMAWTR4X3MTSN with content that differs from what edge-01 wrote
-  FAIL seed 500 · bodies-intact · edge-01 holds 01HF7YB4FXGNCA5Q4E7WVSGZWF with content that differs from what edge-00 wrote
+  FAIL seed 498 · bodies-intact · edge-00 holds 01HF7YBC8VTFV2NSJXH6WGNM3R with content that differs from what edge-02 wrote
+  FAIL seed 500 · bodies-intact · edge-02 holds 01HF7YB0KSZPFRZRCCZ97EPJ2S with content that differs from what edge-05 wrote
 
-500 executions in 63.4s real time
-  simulated            27,461 seconds (0.3 fleet-days)
-  operations exchanged 78,249
-  invariant failures   453 of 500 executions run
+500 executions in 94.3s real time
+  simulated            32,367 seconds (0.4 fleet-days)
+  operations exchanged 80,618
+  invariant failures   435 of 500 executions run
   wrote /home/user/AegisEdge/testlogs/simulation_unsigned.json

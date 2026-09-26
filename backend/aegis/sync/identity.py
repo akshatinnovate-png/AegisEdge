@@ -165,6 +165,14 @@ class DeviceIdentity:
         self.root: Ed25519PublicKey | None = (
             _public_from_b64(root_public_b64) if root_public_b64 else None)
         self.certificate = certificate
+        # Certificates this node has verified, kept so they can be relayed.
+        # A certificate is signed by the fleet root and says nothing about who
+        # is carrying it, which is exactly what makes it safe to pass on and
+        # what makes it better than trust-on-first-use: the recipient checks
+        # the root's signature, not the relay's goodwill.
+        self.certificates: dict[str, str] = {}
+        if certificate:
+            self.certificates[device_id] = certificate
         self.require_enrolment = bool(require_enrolment)
         self.enrolled = 0
         if self.require_enrolment and self.root is None:
@@ -219,11 +227,18 @@ class DeviceIdentity:
             key = Ed25519PublicKey.from_public_bytes(base64.b64decode(public_b64))
         except Exception:
             return False
-        if self.require_enrolment and not self.check_certificate(device_id, public_b64,
-                                                                 certificate):
-            self.refused += 1
-            raise NotEnrolled(
-                f"{device_id} offered a key with no valid certificate from the fleet root")
+        if self.require_enrolment:
+            if not self.check_certificate(device_id, public_b64, certificate):
+                self.refused += 1
+                raise NotEnrolled(
+                    f"{device_id} offered a key with no valid certificate from the "
+                    f"fleet root")
+            # Verified, so it can be handed on. Without this a fleet converges
+            # one hop and no further: every node offered its own certificate
+            # and nobody else's, so a third device could never check the key
+            # for an author it had not met, and refused every relayed
+            # operation as a forgery.
+            self.certificates[device_id] = certificate
         existing = self.known.get(device_id)
         if existing is not None:
             same = existing.public_bytes(
@@ -248,6 +263,19 @@ class DeviceIdentity:
         """Sign a device into the fleet. Runs where the root key lives, not on a device."""
         return base64.b64encode(
             root_private.sign(_enrolment_bytes(device_id, public_b64))).decode()
+
+    def certificate_bundle(self) -> dict[str, str]:
+        """Own certificate plus every one verified, for a relay to pass on.
+
+        Own is added here rather than only in `__init__`, because a caller that
+        sets `certificate` afterwards — which enrolment tooling and tests both
+        do — would otherwise hand out a bundle without itself in it, and the
+        fleet would converge exactly one hop.
+        """
+        bundle = dict(self.certificates)
+        if self.certificate:
+            bundle[self.device_id] = self.certificate
+        return bundle
 
     def check_certificate(self, device_id: str, public_b64: str,
                           certificate: str | None) -> bool:

@@ -21,6 +21,7 @@ from typing import Any, Awaitable, Callable
 
 from ..core import determinism
 from ..core.bus import EventBus
+from ..core.clock import HLC
 from ..core.metrics import METRICS
 from .causal import CausalBuffer, VectorClock
 from .identity import (DeviceIdentity, IdentityChanged,  # noqa: F401
@@ -110,6 +111,23 @@ class GossipAgent:
     # is the table this node can actually fill.
     MAX_DIGEST_CELLS = 1 << 18
     MAX_FETCH_IDS = 50_000
+    MAX_LEARNED_KEYS = 10_000     # a peer cannot grow this node's key store without end
+
+    # How far ahead of this device's own clock a peer's timestamp may be.
+    #
+    # Last-writer-wins is only as trustworthy as the clock it compares, and
+    # `HLC.dominates` compares `wall_ms` first with no opinion about whether
+    # that number is plausible. An operation stamped a century ahead therefore
+    # beats every honest write to the same point, forever — and the simulator's
+    # `clock-not-poisoned` invariant, which existed to catch exactly this, was
+    # reading an attribute that does not exist and asserting nothing.
+    #
+    # An hour is generous against real drift: a device whose RTC is wrong by
+    # more than that has a problem its peers cannot fix by believing it. The
+    # cost of the bound is stated rather than hidden — a badly-skewed device
+    # will have its writes refused, and it will be told so on the bus rather
+    # than discovering it as silent data loss.
+    MAX_CLOCK_DRIFT_S = 3600.0
 
     def __init__(self, node_id: str, link: MeshLink, bus: EventBus,
                  op_source: Callable[[], list[Operation]],
@@ -148,6 +166,7 @@ class GossipAgent:
         # effects are accounted here instead.
         self.probe_refused = 0
         self.probe_verified = 0
+        self.refused_future = 0
         self.bytes_saved = 0
         link.join(self)
 
@@ -178,23 +197,32 @@ class GossipAgent:
                 for device, key in self.identity.known.items()}
 
     def _certificates(self) -> dict[str, str]:
-        """This device's own certificate, offered with its key.
+        """Every certificate this node has verified, offered with the keys.
 
-        Only its own. A node does not relay certificates for its peers,
-        because a certificate is the thing that makes relaying unnecessary:
-        the root has already vouched, so a newcomer presents its own rather
-        than asking somebody to vouch for it.
+        It used to be only this node's own, on the reasoning that a device
+        should present its own credentials. That is true of a device and false
+        of a *relay*: keys travel with operations precisely so a node can
+        verify an author it has never met, and in enrolment mode a key without
+        its certificate is refused. The result was a fleet that converged
+        exactly one hop — measured — with every relayed operation counted as a
+        forgery and an error on the bus for each.
+
+        Relaying is safe because a certificate carries the root's signature
+        over an id bound to a key. The recipient checks the root, not the
+        carrier.
         """
-        if self.identity is None or not self.identity.certificate:
+        if self.identity is None:
             return {}
-        return {self.node_id: self.identity.certificate}
+        return self.identity.certificate_bundle()
 
     def _learn_keys(self, keys: dict[str, str] | None,
                     certificates: dict[str, str] | None = None) -> None:
         if not keys or self.identity is None:
             return
         certificates = certificates or {}
-        for device, public in keys.items():
+        if len(self.identity.known) >= self.MAX_LEARNED_KEYS:
+            return          # a full key store is not a reason to stop serving
+        for device, public in list(keys.items())[: self.MAX_LEARNED_KEYS]:
             try:
                 self.identity.learn(device, public, certificates.get(device))
             except NotEnrolled as exc:
@@ -227,6 +255,23 @@ class GossipAgent:
                 message=(f"refused an operation from <b>{sender}</b> that this "
                          f"node's own policy says may never leave a device"))
             return False
+
+        # Plausibility of the clock. This is not integrity — a correctly signed
+        # operation can still carry a lie about the time, and signing it is
+        # what makes the lie durable.
+        if op.hlc:
+            try:
+                stamped = HLC.parse(op.hlc).wall_ms / 1000.0
+            except Exception:
+                stamped = None
+            if stamped is not None and stamped > determinism.now() + self.MAX_CLOCK_DRIFT_S:
+                self.refused_future += 1
+                ahead = (stamped - determinism.now()) / 86400.0
+                self.bus.publish(
+                    "mesh", "clock_refused", level="error", peer=sender, op_id=op.op_id,
+                    message=(f"refused an operation from <b>{sender}</b> stamped "
+                             f"<b>{ahead:,.0f} days</b> ahead of this device's clock"))
+                return False
 
         if self.identity is None:
             return True
@@ -515,6 +560,7 @@ class GossipAgent:
             "withheld_by_policy": self.withheld,
             "refused_inbound": self.refused_inbound,
             "refused_forged": self.refused_forged,
+            "refused_future": self.refused_future,
             "verified_ops": self.verified_ops,
             "probe_refused": self.probe_refused,
             "probe_verified": self.probe_verified,

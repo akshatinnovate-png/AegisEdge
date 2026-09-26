@@ -150,7 +150,18 @@ async def attack(body: AttackRequest, node: EdgeNode = Depends(get_node),
                   "victim": DeviceIdentity(victim_id)}
         node._attack_probes = probes
     attacker, author = probes["attacker"], probes["victim"]
-    mesh.identity.learn(victim_id, author.public_key_b64)
+    try:
+        mesh.identity.learn(victim_id, author.public_key_b64,
+                            certificate=probes.get("certificate"))
+    except Exception as exc:
+        # In enrolment mode the probe has no certificate from the fleet root
+        # and cannot get one, so the node refuses it — correctly. That is an
+        # answer, not a 500.
+        raise HTTPException(
+            status_code=409,
+            detail=(f"this node requires enrolment, so it will not learn the probe "
+                    f"identity: {exc}. The attacks it would mount are refused for "
+                    f"that reason alone, which is the stronger result.")) from exc
 
     original = Operation(kind=OpKind.UPSERT, point_id="attack-probe",
                          device_id=victim_id,
@@ -188,6 +199,16 @@ async def attack(body: AttackRequest, node: EdgeNode = Depends(get_node),
                                                          attacker.public_key_b64}})
     accepted = bool(result.get("accepted"))
     mesh.known.pop(candidate.op_id, None)
+    if accepted:
+        # The honest case is *supposed* to be accepted, which means it was
+        # materialised: indexed, retrievable, and gossipable to every peer.
+        # Rolling back only `mesh.known` left a synthetic memory in the store
+        # behaving exactly like something a person had written. A drill that
+        # leaves real state behind is not a drill.
+        try:
+            node.store.delete(candidate.point_id)
+        except Exception:
+            pass
 
     # Move what this probe caused out of the counters an operator reads as
     # evidence of a real attack, and into counters that say "drill".
