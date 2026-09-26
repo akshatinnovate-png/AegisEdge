@@ -3,6 +3,8 @@
 **AI-Powered Edge Memory & Intelligence Platform**
 Code Cubicle 6.0 — **Problem Statement 03**
 
+[![CI](https://github.com/akshatinnovate-png/AegisEdge/actions/workflows/ci.yml/badge.svg)](https://github.com/akshatinnovate-png/AegisEdge/actions/workflows/ci.yml)
+
 > An offline-first edge brain. It remembers locally, retrieves in single-digit
 > milliseconds without a network, decides for itself what may leave the device,
 > and heals its own state the instant connectivity returns.
