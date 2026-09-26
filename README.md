@@ -104,13 +104,18 @@ with the uplink down.
 
 ```bash
 cd backend
-python3 -m pytest -q                           # 291 passed, 1 skipped
+python3 -m pytest -q                           # 319 tests
 python3 scripts/audit_determinism.py           # the determinism lint
 python3 scripts/simulate.py --seeds 200        # the simulator, ~2 min
 python3 scripts/simulate.py --seeds 200 --unsigned --no-shrink \
         --stop-after 200                       # the control, ~20 s
 python3 scripts/bench.py                       # index recall and latency
+python3 scripts/repro_growth.py                # the one open defect, in two arms
 ```
+
+The node also checks the simulator's invariants against itself while it runs.
+`curl localhost:8000/api/v1/integrity/invariants` says how many assertions it
+has made and how many did not hold.
 
 Those two simulator runs are the pair worth doing together — same simulator,
 same seeds, signing on and off:
@@ -531,7 +536,7 @@ than glossed:
   signing would break the partition tolerance it exists to protect.
 - **This does not defeat an attacker present at the very first contact.**
   Closing that needs an enrolment authority, which is a deployment decision
-  rather than a library one.
+  rather than a library one — and is now built: see §3.3.
 
 What it does defeat, with a regression test each: rewriting an operation in
 flight, writing in another device's name, and taking over an identity that is
@@ -581,6 +586,201 @@ python3 scripts/simulate.py --replay 5                        # see one seed aga
 A clean sweep is **not a proof**, and the script says so in its own output: it
 is "no counterexample in N executions", with N printed so a reader can judge
 it. It samples the space of orderings; it does not cover it.
+
+---
+
+## 3.2 The invariants run in production too
+
+Three thousand simulated executions finding no counterexample is a real result
+and a bounded one. It says the code holds under the orderings the simulator
+sampled, with the faults it knows how to inject, on the machine that ran it. It
+says nothing about the device in somebody's hand.
+
+So `aegis/core/invariants.py` checks the same seven properties against the
+running node, every two seconds, for as long as it is up.
+
+```
+GET /api/v1/integrity/invariants
+
+  ticks        1,284
+  assertions   8,988
+  violations   0
+```
+
+The headline is on `/api/v1/health` as well, and the breakdown — per invariant,
+with its promise, its scope and its own counters — is on the route above.
+`POST /api/v1/integrity/invariants/check` runs a tick immediately.
+
+**Two things make it affordable.** Verifying every signature in the log on
+every tick is O(n) per tick and O(n²) over a run, which would make the check
+the most expensive thing the node does. Each invariant instead advances a
+rolling cursor through its own subject and spends a fixed budget, so a long log
+is covered across many ticks rather than all at once — the cost is bounded by
+the budget, not by how much the device has remembered. There is a test that
+fails if a 4,000-operation log costs materially more per tick than a 64-operation
+one, and another that fails if the cursor never moves, because a budget that
+only ever examined the first 64 entries would be theatre.
+
+**The local checks are weaker than the simulated ones, and say so.** The
+simulator is omniscient: it can assert things about a fleet that no single
+device can see. A node sees only itself. Each invariant carries the scope of
+what it can actually establish, so the API reports `this device's own egress
+set; it cannot see what peers hold` rather than implying a guarantee about the
+mesh.
+
+| Invariant | What a node can establish about itself |
+|---|---|
+| `bodies-intact` | every signed operation it holds still verifies against its author's key |
+| `policy` | nothing its own policy refuses is in the set it would hand a peer |
+| `no-fabrication` | every operation names a device, and a signed one names a device it has a key for |
+| `no-duplicates` | no operation id appears twice in its log |
+| `clock-monotonic` | successive reads of its own clock never go backwards |
+| `clock-not-poisoned` | its clock is not days ahead of its own wall clock |
+| `origin-retains` | operations it authored are still in its log |
+
+**A violation is not an exception.** It is counted, published on the bus at
+`error`, and kept in a ring of recent findings. The node keeps serving, because
+a node that halts on a detected inconsistency converts a partial fault into a
+total one, and an operator needs the evidence more than they need the process
+dead. A check that *throws* is itself recorded as a finding — otherwise the
+assertion counter would keep climbing while nothing was being checked, which
+looks exactly like health.
+
+Every invariant has a test that breaks the property on purpose and asserts the
+monitor fires. A monitor that never fires is indistinguishable from one that
+cannot.
+
+---
+
+## 3.3 Enrolment — closing the gap the signing work named
+
+§3.1 ends by admitting what trust-on-first-use cannot do: an attacker present
+at a device's *very first* contact is believed, because first contact is the
+one moment with nothing to compare against. That is now closed, for fleets that
+want it closed.
+
+```bash
+python3 scripts/enrol.py init --out fleet/                      # once per fleet
+python3 scripts/enrol.py device --fleet fleet/ --id edge-01 --data /var/aegis/edge-01
+```
+
+The fleet has one root key pair. Every device is issued a certificate — its id
+**bound to its public key**, signed by the root — before it ships. A node
+holding the root *public* key accepts a peer only on a valid certificate, so a
+stranger at first contact is refused like any other: it cannot produce the
+root's signature over a name it was never issued.
+
+Both halves are covered by the signature on purpose. Signing the key alone
+would let a device present somebody else's certificate under its own name;
+signing the id alone would let it present any key it liked under a name it was
+issued. There is a test for each.
+
+The root private key is written once and never leaves the directory it was
+made in. It is not on any device and is not needed to run one — only to enrol
+the next. Losing it means you cannot add devices; leaking it means somebody
+else can, which is the whole of its threat model.
+
+**It is a switch, not a spectrum.** A node either requires certificates or it
+does not:
+
+```bash
+AEGIS_FLEET_ROOT=<root public key>  AEGIS_DEVICE_CERT=<this device's certificate>
+```
+
+With both set the node requires every peer to be enrolled. With either missing
+it falls back to trust-on-first-use and **says so** in
+`/api/v1/mesh/status`, under `mode`. Requiring enrolment with no root key to
+check against is refused at construction rather than quietly downgraded — a
+node that claimed enrolment and believed strangers anyway would be worse than
+one that never claimed it, because the claim is what an operator plans around.
+
+Enrolment does not replace the change-refusal from §3.1; it runs in front of
+it. A certificate says whose a key is. It does not say an identity may have two
+keys at once, so a reissued device is still refused by peers that knew the old
+one, loudly, rather than swapped in quietly.
+
+---
+
+## 3.4 The open defect, narrowed to one variable
+
+The README has carried an open item for a while: resident-set growth under
+concurrent load, roughly 2.6 KB per query, cause unknown. It is still open.
+It is no longer vague.
+
+```bash
+cd backend && python3 scripts/repro_growth.py
+
+  without a sequential warm-up   + 0.06 MB over 8,000 queries =     7.2 B/query
+     with a sequential warm-up   +22.17 MB over 8,000 queries =  2,771.5 B/query
+
+  385x more resident growth per query, from one difference before the
+  measurement window opened.
+```
+
+Two runs, identical in every respect but one: whether sixty-four **sequential**
+searches happen before the load. Both then warm with 8,000 concurrent queries
+and measure the next 8,000, so neither is measuring start-up.
+
+That warm-up length is not adjustable, and the reason is worth stating: run at
+2,400 queries instead, the same script reports **12,029 B/query for the clean
+arm against 372 for the dirty one** — the opposite conclusion, stated just as
+confidently. The arm that has *not* done a sequential warm-up pays more of its
+start-up inside a short measured window. A reproducer that inverts under a
+smaller budget is a trap, so the budget is fixed and the script says why.
+
+### What this round established
+
+**It is a leak, not a transient.** Thirty-two thousand queries, sampled every
+two thousand: the first ~8,000 carry a large one-time cost, and everything
+after is flat at 2,740–2,850 B/query with no sign of levelling.
+
+```
+  8,000 queries   total + 64.07 MB   window  8,175 B/query   ← start-up
+ 16,000 queries   total + 86.22 MB   window  2,766 B/query
+ 24,000 queries   total +108.42 MB   window  2,785 B/query
+ 32,000 queries   total +131.63 MB   window  2,746 B/query
+```
+
+**It is not any pipeline stage.** The SLO ladder is a ready-made ablation
+instrument — each rung switches off another stage — so every rung was run with
+the load held identical. With a concurrent warm-up, *every* rung sits at
+6–70 B/query, top to bottom. There is nothing to attribute to graph boosting,
+late interaction, the adapter, query understanding, the cross-encoder or
+diversity, because none of them leaks.
+
+A first attempt at that ablation ran all five rungs in one process and produced
+a clean staircase — 41.9, 21.9, 6.1, 2.6, 2.6 MB — which looked like a decisive
+attribution. Running the rungs in the *reverse* order produced 3.9, 2.6, 2.6,
+41.4, 21.9: the numbers tracked position, not rung. The staircase was the
+one-time start-up cost being absorbed by whichever rung ran first. Each rung now
+runs in its own process and measures only the flat region.
+
+**It is not the ONNX runtime's shape planning.** `enable_mem_pattern = False`
+was the one knob in that area never tried, and it produces the same numbers to
+within a tenth of a megabyte at every checkpoint — alongside
+`enable_cpu_mem_arena = False`, ruled out earlier the same way.
+
+**The obvious fix does not work.** If the trigger is the node's first inference
+running at batch size one, then making the node warm itself concurrently at
+boot should disarm it. Measured: 2,770.9 B/query, unchanged. The sequential
+searches arm it wherever they happen, not only when they come first. That is
+why it is not in the shipped code — a fix that does not fix it, shipped on the
+strength of a plausible story, would be worse than an open item.
+
+### What is left
+
+A reproducer this sharp is most of the way to a cause. What is known: the
+encoder at batch one is clean in isolation (0.0 MB over 12,000 texts), so it is
+not simply "small batches allocate". Something about running the *whole
+pipeline* at concurrency one puts the process into a state that then leaks
+under concurrency eight, and stays in it.
+
+Stated plainly because the alternative is worse: a device that serves a few
+queries a minute before a burst — which is most of them — will drift. On this
+hardware that is roughly 2.8 KB per query; a node answering ten thousand
+queries a day grows about 28 MB a day. It is not a reason to avoid deploying
+this; it is a reason to restart nodes on a schedule until it is found, and
+that is a sentence an operator can act on.
 
 ---
 
@@ -1214,6 +1414,7 @@ local simulation when the backend is absent.
 | `GET` | `/api/v1/sync/conflicts` | Conflict records and the human review queue |
 | `POST` | `/api/v1/mesh/exchange` | The receiving half of the mesh, when the peer is another device |
 | `POST` | `/api/v1/mesh/offline` | Pull this device's radio, or put it back |
+| `GET` | `/api/v1/integrity/invariants` · `POST /invariants/check` | What the node has asserted about itself while running: the simulator's seven invariants, per-invariant counters, the scope each local check can actually establish, and any findings |
 | `POST` | `/api/v1/mesh/attack` | Mount one of four operations — honest, tampered, impersonated, unsigned — against this node through the same handler a peer reaches, and report what it did with it. The honest case is the control |
 | `POST` | `/api/v1/chaos/kill` | Send this node SIGKILL; refused without a supervisor |
 | `GET` | `/api/v1/integrity/recovery` | What the last boot recovered, and what it could not |
@@ -1354,7 +1555,7 @@ Point it at a live backend:
 - [x] Triton escalation tier (client + policy; needs a live endpoint to light up)
 - [ ] Qdrant Edge wheel pinned in CI (adapter is in, falls back to the native store)
 - [x] Nine-phase stress battery (`scripts/stress.py`) — the numbers in Appendix 1 come from it
-- [x] Sixteen defects found and fixed — twelve under stress, four under deterministic simulation — regression test each · **291 tests**
+- [x] Sixteen defects found and fixed — twelve under stress, four under deterministic simulation — regression test each · **319 tests**
 - [x] The index-strategy guard reworked after it was found asserting a property of the *machine* rather than of the code; it now measures the machine and states, in the skip reason, which one it is on
 - [x] RaBitQ cold tier — unbiased estimator, per-vector error bound, bound-driven rescore depth
 - [x] Corpus-fitted embedding geometry — streaming covariance, Ledoit–Wolf shrinkage, rank-limited whitening
@@ -1379,8 +1580,10 @@ Point it at a live backend:
 - [x] Ed25519 operation signing — 62 µs sign, 129 µs verify, 88 B wire; trust-on-first-use with key changes refused, and the first-contact limit written down rather than glossed
 - [x] Receive-side policy enforcement — a peer that skips its own egress filter is no longer believed
 - [x] Wire codec made frame-local after it was caught dropping the `sensitivity` label that access decisions are made on
-- [ ] **Not covered:** an attacker present at a device's *first* contact. Trust-on-first-use cannot close this; an enrolment authority can, and that is a deployment decision
-- [ ] **Open:** ~2.6 KB/query resident growth under *concurrent* load, linear over 64,000 queries. Python objects, the ONNX arena, input shapes, the encoder, the micro-batcher, instrumentation, background writes and allocator retention are each measured and ruled out; it does not reproduce when the warm-up is concurrent rather than sequential. See `soak_steady` in `backend/scripts/stress.py`
+- [x] **Enrolment authority** — a fleet root signing device certificates that bind an id to a key, closing the first-contact gap trust-on-first-use cannot; a switch, not a spectrum, and the node states which mode it is in
+- [x] **Live invariant checking** — the simulator's seven properties asserted against the running node every two seconds, on a rolling budget, with a counter on `/health` and a per-invariant breakdown on `/api/v1/integrity/invariants`
+- [x] CI: tests, the determinism lint, and a signed sweep beside an unsigned control that **fails the build if the control comes back clean** — a sweep that finds nothing is only evidence next to one that finds something
+- [ ] **Open:** ~2.8 KB/query resident growth, now with a one-variable reproducer (`backend/scripts/repro_growth.py`): **7 B/query without a sequential warm-up, 2,771 B/query with one.** Linear and flat over 32,000 queries, so not a start-up transient. Not any pipeline stage — every rung of the degradation ladder behaves the same. Not the ONNX arena, not the memory-pattern planner, not Python objects, the encoder, the micro-batcher, instrumentation, background writes or allocator retention. Making the node's first inference concurrent was the obvious fix and was measured and discarded. See §3.4
 - [ ] Multi-modal named vector spaces (schema supports them; encoders pending)
 - [ ] Soak phase cannot yet separate a leak from legitimate corpus growth
 
@@ -1969,13 +2172,28 @@ makes two real devices possible. The peer receives it on
 `POST /api/v1/mesh/exchange` and hands it to its own `GossipAgent`, so there
 is one implementation of anti-entropy rather than two to keep in step.
 
+**`core/invariants.py`.** The simulator's seven invariants, checked against
+the live node on a two-second loop. Each advances a rolling cursor through its
+own subject and spends a fixed budget, so the cost is bounded by the budget
+rather than by how much the device has remembered — asserted by a test that
+fails if a 4,000-operation log costs materially more per tick than a 64-operation
+one, and another that fails if the cursor never moves. Local checks are weaker
+than simulated ones, because a node sees only itself, and each carries the
+scope of what it can actually establish rather than implying a guarantee about
+the mesh. A violation is counted and published, never raised: a node that
+halted on a detected inconsistency would turn a partial fault into a total one.
+A check that throws is itself recorded, because a climbing assertion counter
+with nothing behind it looks exactly like health.
+
 **`sync/identity.py`.** An Ed25519 key pair per device, persisted beside its
 data, signing the immutable part of every operation it creates: `op_id`,
 `kind`, `point_id`, `hlc`, `device_id`, `body`, over canonical sorted-key JSON.
 `ts` sits outside the signature on purpose — a relay may touch routing, not
 content — and a test fails if that set is widened without meaning to. Keys are
-learned trust-on-first-use and any later change to a known identity's key is
-refused as an `identity_conflict`; keys travel alongside operations so a node
+learned trust-on-first-use — or, where a fleet has been enrolled, only on a
+certificate binding an id to a key and signed by the fleet root, which closes
+the first-contact gap TOFU cannot (`scripts/enrol.py`, §3.3). Either way a
+later change to a known identity's key is refused as an `identity_conflict`; keys travel alongside operations so a node
 can verify an author it has never met, which is what stops signing from
 breaking the partition tolerance it exists to protect. 62 µs to sign, 129 µs to
 verify, 88 bytes on the wire. The limit it does *not* close — an attacker

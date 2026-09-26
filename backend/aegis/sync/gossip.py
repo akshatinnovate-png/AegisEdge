@@ -24,7 +24,7 @@ from ..core.bus import EventBus
 from ..core.metrics import METRICS
 from .causal import CausalBuffer, VectorClock
 from .identity import (DeviceIdentity, IdentityChanged,  # noqa: F401
-                       UnknownDevice)
+                       NotEnrolled, UnknownDevice)
 from .compression import WireCodec
 from .crdt import Operation
 from .iblt import IBLT
@@ -158,12 +158,30 @@ class GossipAgent:
                     format=serialization.PublicFormat.Raw)).decode()
                 for device, key in self.identity.known.items()}
 
-    def _learn_keys(self, keys: dict[str, str] | None) -> None:
+    def _certificates(self) -> dict[str, str]:
+        """This device's own certificate, offered with its key.
+
+        Only its own. A node does not relay certificates for its peers,
+        because a certificate is the thing that makes relaying unnecessary:
+        the root has already vouched, so a newcomer presents its own rather
+        than asking somebody to vouch for it.
+        """
+        if self.identity is None or not self.identity.certificate:
+            return {}
+        return {self.node_id: self.identity.certificate}
+
+    def _learn_keys(self, keys: dict[str, str] | None,
+                    certificates: dict[str, str] | None = None) -> None:
         if not keys or self.identity is None:
             return
+        certificates = certificates or {}
         for device, public in keys.items():
             try:
-                self.identity.learn(device, public)
+                self.identity.learn(device, public, certificates.get(device))
+            except NotEnrolled as exc:
+                self.refused_forged += 1
+                self.bus.publish("mesh", "not_enrolled", level="error", device=device,
+                                 message=(f"refused <b>{device}</b>: {exc}"))
             except IdentityChanged as exc:
                 # Not a merge conflict. Somebody is claiming a name that is
                 # already spoken for, and the honest holder of that name is
@@ -290,24 +308,25 @@ class GossipAgent:
         peer = self.add_peer(sender)
         peer.last_seen = determinism.now()
         peer.received += 1
-        self._learn_keys(payload.get("keys"))
+        self._learn_keys(payload.get("keys"), payload.get("certs"))
 
         if method == "ping":
             return {"node_id": self.node_id, "ops": len(self._shareable()),
-                    "clock": self.causal.clock.pack(), "keys": self._key_bundle()}
+                    "clock": self.causal.clock.pack(), "keys": self._key_bundle(),
+                    "certs": self._certificates()}
 
         if method == "digest":
             mine = self._shareable()
             cells = int(payload.get("cells", 128))
             table = IBLT(cells).insert_many(mine.keys())
             return {"table": table.to_wire(), "ops": len(mine),
-                    "keys": self._key_bundle()}
+                    "keys": self._key_bundle(), "certs": self._certificates()}
 
         if method == "fetch":
             mine = self._shareable()
             ids = [op_id for op_id in payload.get("op_ids", []) if op_id in mine]
             frame = self.codec.encode([mine[op_id].as_dict() for op_id in ids])
-            return {"frame": frame, "keys": self._key_bundle(),
+            return {"frame": frame, "keys": self._key_bundle(), "certs": self._certificates(), "certs": self._certificates(),
                     "clocks": {i: self.clocks[i] for i in ids if i in self.clocks}}
 
         if method == "push":
@@ -356,13 +375,14 @@ class GossipAgent:
         cells = IBLT.size_for(max(8, len(mine) // 8))
         started = determinism.monotonic()
         try:
-            response = await self.link.call(self.node_id, peer_id, "digest", {"cells": cells, "keys": self._key_bundle()})
+            response = await self.link.call(self.node_id, peer_id, "digest", {"cells": cells, "keys": self._key_bundle(),
+                                            "certs": self._certificates()})
         except ConnectionError as exc:
             peer.failures += 1
             peer.trust = max(0.0, peer.trust - 0.05)
             return {"peer": peer_id, "error": str(exc)}
 
-        self._learn_keys(response.get("keys"))
+        self._learn_keys(response.get("keys"), response.get("certs"))
         peer.rtt_ms = (determinism.monotonic() - started) * 1000
         peer.last_seen = determinism.now()
         peer.rounds += 1
@@ -378,7 +398,8 @@ class GossipAgent:
             # act on a partial answer
             cells *= 4
             attempts += 1
-            response = await self.link.call(self.node_id, peer_id, "digest", {"cells": cells, "keys": self._key_bundle()})
+            response = await self.link.call(self.node_id, peer_id, "digest", {"cells": cells, "keys": self._key_bundle(),
+                                            "certs": self._certificates()})
             local_table = IBLT(cells).insert_many(mine.keys())
             remote_table = IBLT.from_wire(response["table"])
             only_mine, only_theirs, complete = local_table.subtract(remote_table).decode()
@@ -387,10 +408,11 @@ class GossipAgent:
         if only_theirs:
             fetched = await self.link.call(self.node_id, peer_id, "fetch",
                                            {"op_ids": sorted(only_theirs),
-                                            "keys": self._key_bundle()})
+                                            "keys": self._key_bundle(),
+                                            "certs": self._certificates()})
             ops = [Operation.from_dict(o) for o in self.codec.decode(fetched["frame"])]
             incoming_clocks = fetched.get("clocks", {})
-            self._learn_keys(fetched.get("keys"))
+            self._learn_keys(fetched.get("keys"), fetched.get("certs"))
             for op in ops:
                 if op.op_id in self.known:
                     continue
@@ -409,7 +431,7 @@ class GossipAgent:
             sending = [op_id for op_id in sorted(only_mine) if op_id in mine]
             frame = self.codec.encode([mine[op_id].as_dict() for op_id in sending])
             result = await self.link.call(self.node_id, peer_id, "push", {
-                "frame": frame, "keys": self._key_bundle(),
+                "frame": frame, "keys": self._key_bundle(), "certs": self._certificates(),
                 "clocks": {i: self.clocks[i] for i in sending if i in self.clocks},
             })
             pushed = int(result.get("accepted", 0))
@@ -442,6 +464,7 @@ class GossipAgent:
                 frame = self.codec.encode([op.as_dict()])
                 result = await self.link.call(self.node_id, peer.node_id, "push", {
                     "frame": frame, "rumour": True, "keys": self._key_bundle(),
+                    "certs": self._certificates(),
                     "clocks": {op.op_id: self.clocks[op.op_id]} if op.op_id in self.clocks else {},
                 })
                 if result.get("accepted"):

@@ -17,6 +17,7 @@ from .chaos.faults import ChaosController
 from .config import Settings, get_settings
 from .core.bus import EventBus
 from .core.clock import HybridClock
+from .core.invariants import InvariantMonitor
 from .core.energy import EnergyMeter
 from .core.provenance import Provenance
 from .core.metrics import METRICS
@@ -151,7 +152,19 @@ class EdgeNode:
         # peer would see the key change and — correctly — refuse everything the
         # device had ever said.
         self.identity = DeviceIdentity.load_or_create(
-            self.settings.node_id, Path(self.settings.data_dir) / "device_key.pem")
+            self.settings.node_id, Path(self.settings.data_dir) / "device_key.pem",
+            root_public_b64=self.settings.fleet_root or None,
+            certificate=self.settings.device_cert or None,
+            # Requiring enrolment is an explicit act. A node that fell back to
+            # believing strangers when its root key was missing would be worse
+            # than one that never claimed enrolment, because the claim is what
+            # an operator plans around.
+            require_enrolment=bool(self.settings.fleet_root and self.settings.device_cert))
+        # The simulator's invariants, checked against this node while it runs.
+        # A property worth asserting three thousand times in simulation is
+        # worth watching once in production.
+        self.invariants = InvariantMonitor(self)
+
         self.mesh = GossipAgent(
             self.settings.node_id, self.mesh_link, self.bus,
             op_source=lambda: list(self.sync.oplog.ops),
@@ -219,6 +232,7 @@ class EdgeNode:
         self.supervisor.register("archiver", self._archive_loop)
         self.supervisor.register("scrubber", self._scrub_loop)
         self.supervisor.register("slo", self._slo_loop)
+        self.supervisor.register("invariants", self._invariant_loop)
         self.supervisor.start_all()
 
         self.ready = True
@@ -343,6 +357,17 @@ class EdgeNode:
         await self.sync._materialize(op)
         self.pipeline.cache.invalidate()
 
+    async def _invariant_loop(self) -> None:
+        """Check the invariants forever, on a budget.
+
+        Two seconds is often enough to be a live signal and rare enough that
+        the cost does not show up beside a query. The budget inside each check
+        is what actually bounds the work; this only sets how often it is paid.
+        """
+        while True:
+            await asyncio.sleep(2.0)
+            self.invariants.tick()
+
     async def _consolidation_loop(self) -> None:
         while True:
             await asyncio.sleep(self.settings.memory.consolidation_interval_s)
@@ -398,6 +423,14 @@ class EdgeNode:
         point = await self.store.ingest(text, collection=collection, payload=payload,
                                         source=source, tenant_id=tenant_id)
         op = self.sync.record_local(point)
+        # `origin-retains` needs to know what this device authored. Nothing
+        # else does, so the monitor is told rather than made to infer it.
+        #
+        # `record_local` returns None for a memory policy declines to record
+        # as a shareable operation, and an operation that was never written is
+        # not one the log should be expected to still hold.
+        if op is not None:
+            self.invariants.note_created(op.op_id)
         self.understanding.observe(text)                  # vocabulary + co-occurrence
         # Corpus statistics for the on-device adaptations. Both are O(1)-ish
         # here — a counter bump and a rank-1 update — and the expensive parts
@@ -495,5 +528,12 @@ class EdgeNode:
             "degradation": self.slo.level.name,
             "tenants": len(self.tenants.tenants),
             "graph_facts": len(self.graph.facts),
+            # The headline only. `/api/v1/integrity/invariants` has the
+            # per-invariant breakdown and the findings; health needs to answer
+            # "is anything wrong" in one line, and a violation count of zero
+            # means nothing without the assertion count beside it.
+            "invariants": {"assertions": self.invariants.assertions,
+                           "violations": self.invariants.violations,
+                           "ticks": self.invariants.ticks},
             "subsystems": self.supervisor.health(),
         }

@@ -114,3 +114,31 @@ async def restore(body: RestoreRequest, node: EdgeNode = Depends(get_node),
     node.audit.record("pitr_restore", str(body.generation), dropped=dropped)
     return {"restored_to": body.generation, "segments_dropped": dropped,
             "note": "restart the node to rebuild in-memory state from the restored segments"}
+
+
+@router.get("/invariants")
+async def invariants(node: EdgeNode = Depends(get_node)) -> dict:
+    """What the node has asserted about itself, and what did not hold.
+
+    These are the seven properties `aegis/sim/` checks after every step of
+    every simulated execution. Three thousand executions found no
+    counterexample; that is a statement about the simulator's sample of the
+    ordering space, not about the device this is running on. So they are
+    checked here too, continuously, and the counter says how many times.
+
+    A clean counter is evidence, not proof — which is why the number of
+    assertions is reported beside the number of violations rather than a
+    green tick. Each invariant also states where the local check is weaker
+    than the simulated one, because a node can only see itself.
+    """
+    return node.invariants.snapshot()
+
+
+@router.post("/invariants/check")
+async def check_invariants(node: EdgeNode = Depends(get_node)) -> dict:
+    """Run one tick now, rather than waiting for the loop."""
+    # Keyed `found_now` rather than `violations`: the snapshot already has a
+    # `violations` count, and spreading it over a list of this tick's findings
+    # silently replaced the list with a number.
+    found = [f.as_dict() for f in node.invariants.tick()]
+    return {"found_now": found, **node.invariants.snapshot()}

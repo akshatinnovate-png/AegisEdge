@@ -1,0 +1,85 @@
+name: CI
+
+# What a stranger should be able to check without taking anybody's word for it:
+# that the tests pass, that the determinism lint holds, and that the simulator
+# finds nothing signed and plenty unsigned.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    name: tests and lints
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install
+        run: pip install -r backend/requirements.txt
+
+      - name: Determinism lint
+        working-directory: backend
+        # This one runs first and on its own. If simulated code has started
+        # reaching past the ambient environment, every result below it is
+        # about a different program than the one the seeds describe.
+        run: python3 scripts/audit_determinism.py
+
+      - name: Tests
+        working-directory: backend
+        run: python3 -m pytest -q
+
+  simulation:
+    name: deterministic simulation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install
+        run: pip install -r backend/requirements.txt
+
+      - name: Signed sweep — expect no counterexample
+        working-directory: backend
+        run: python3 scripts/simulate.py --seeds 200 --out /tmp/signed.json
+
+      - name: Unsigned control — expect the attack to land
+        working-directory: backend
+        # The control is the point. A signed sweep finding nothing means
+        # nothing on its own: it is only evidence beside a run where the same
+        # simulator, on the same seeds, finds the attack. So this step fails
+        # the build if the control comes back *clean*, which would mean the
+        # simulator had stopped mounting the attack rather than that the
+        # attack had stopped working.
+        run: |
+          python3 scripts/simulate.py --seeds 200 --unsigned --no-shrink \
+                  --stop-after 200 --out /tmp/unsigned.json || true
+          python3 - <<'PY'
+          import json, sys
+          data = json.load(open("/tmp/unsigned.json"))
+          failures = len(data["failures"])
+          print(f"unsigned control: {failures} of {data['executions']} executions falsified")
+          if failures < 50:
+              sys.exit("the control found almost nothing — the simulator is no longer "
+                       "mounting the attack, so the signed sweep above proves nothing")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: simulation
+          path: /tmp/*.json

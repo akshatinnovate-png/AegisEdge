@@ -248,3 +248,135 @@ def test_the_attack_route_runs_the_attacks_against_the_running_node():
         assert outcomes[kind]["accepted"] is False, outcomes[kind]
         assert outcomes[kind]["refused_as_forged"] == 1, outcomes[kind]
     assert all(o["correct"] for o in outcomes.values())
+
+
+# -- enrolment: closing the first-contact gap ------------------------------
+
+def _fleet_root():
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    import base64
+    root = Ed25519PrivateKey.generate()
+    root_pub = base64.b64encode(root.public_key().public_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PublicFormat.Raw)).decode()
+    return root, root_pub
+
+
+def test_an_enrolled_peer_is_accepted():
+    root, root_pub = _fleet_root()
+    peer = DeviceIdentity("edge-00")
+    cert = DeviceIdentity.issue(root, "edge-00", peer.public_key_b64)
+    node = DeviceIdentity("edge-01", root_public_b64=root_pub, require_enrolment=True)
+    assert node.learn("edge-00", peer.public_key_b64, cert) is True
+
+
+def test_a_stranger_at_first_contact_is_refused():
+    """The gap trust-on-first-use cannot close, closed."""
+    from aegis.sync.identity import NotEnrolled
+
+    _root, root_pub = _fleet_root()
+    attacker = DeviceIdentity("edge-00")            # never enrolled
+    node = DeviceIdentity("edge-01", root_public_b64=root_pub, require_enrolment=True)
+    with pytest.raises(NotEnrolled):
+        node.learn("edge-00", attacker.public_key_b64, None)
+    assert "edge-00" not in node.known
+
+
+def test_the_same_stranger_is_believed_without_enrolment():
+    """The control. Otherwise the test above only shows a node that refuses everything."""
+    attacker = DeviceIdentity("edge-00")
+    node = DeviceIdentity("edge-01")                # trust-on-first-use
+    assert node.learn("edge-00", attacker.public_key_b64) is True
+
+
+def test_a_certificate_cannot_be_reused_under_another_name():
+    from aegis.sync.identity import NotEnrolled
+
+    root, root_pub = _fleet_root()
+    enrolled = DeviceIdentity("edge-00")
+    cert = DeviceIdentity.issue(root, "edge-00", enrolled.public_key_b64)
+    node = DeviceIdentity("edge-02", root_public_b64=root_pub, require_enrolment=True)
+    with pytest.raises(NotEnrolled):                 # same certificate, different name
+        node.learn("edge-99", enrolled.public_key_b64, cert)
+
+
+def test_a_certificate_cannot_be_reused_with_another_key():
+    from aegis.sync.identity import NotEnrolled
+
+    root, root_pub = _fleet_root()
+    enrolled, attacker = DeviceIdentity("edge-00"), DeviceIdentity("edge-00")
+    cert = DeviceIdentity.issue(root, "edge-00", enrolled.public_key_b64)
+    node = DeviceIdentity("edge-02", root_public_b64=root_pub, require_enrolment=True)
+    with pytest.raises(NotEnrolled):                 # the name it was issued, a key it was not
+        node.learn("edge-00", attacker.public_key_b64, cert)
+
+
+def test_a_certificate_from_another_fleet_is_refused():
+    from aegis.sync.identity import NotEnrolled
+
+    other_root, _ = _fleet_root()
+    _root, root_pub = _fleet_root()
+    peer = DeviceIdentity("edge-00")
+    cert = DeviceIdentity.issue(other_root, "edge-00", peer.public_key_b64)
+    node = DeviceIdentity("edge-01", root_public_b64=root_pub, require_enrolment=True)
+    with pytest.raises(NotEnrolled):
+        node.learn("edge-00", peer.public_key_b64, cert)
+
+
+def test_enrolment_still_refuses_a_key_change():
+    """A certificate says whose a key is. It does not say an identity may have two."""
+    root, root_pub = _fleet_root()
+    first, second = DeviceIdentity("edge-00"), DeviceIdentity("edge-00")
+    node = DeviceIdentity("edge-01", root_public_b64=root_pub, require_enrolment=True)
+    node.learn("edge-00", first.public_key_b64,
+               DeviceIdentity.issue(root, "edge-00", first.public_key_b64))
+    with pytest.raises(IdentityChanged):
+        node.learn("edge-00", second.public_key_b64,
+                   DeviceIdentity.issue(root, "edge-00", second.public_key_b64))
+
+
+def test_requiring_enrolment_without_a_root_is_refused_at_construction():
+    """A node that required certificates it could not check would refuse its whole fleet."""
+    with pytest.raises(ValueError):
+        DeviceIdentity("edge-01", require_enrolment=True)
+
+
+def test_the_snapshot_says_which_mode_it_is_in():
+    _root, root_pub = _fleet_root()
+    assert DeviceIdentity("edge-01").snapshot()["mode"] == "trust-on-first-use"
+    strict = DeviceIdentity("edge-01", root_public_b64=root_pub, require_enrolment=True)
+    assert strict.snapshot()["mode"] == "enrolment"
+    assert "first contact is refused" in strict.snapshot()["trust"]
+
+
+def test_an_enrolled_mesh_converges():
+    """A defence that stops the fleet talking is not a defence."""
+    root, root_pub = _fleet_root()
+    bus, link = EventBus(), MeshLink(latency_ms=0.0)
+    names = ["edge-00", "edge-01"]
+    stores: dict[str, dict] = {n: {} for n in names}
+
+    def applier(node):
+        async def apply(op): stores[node][op.op_id] = op
+        return apply
+
+    identities = {}
+    for n in names:
+        ident = DeviceIdentity(n, root_public_b64=root_pub, require_enrolment=True)
+        ident.certificate = DeviceIdentity.issue(root, n, ident.public_key_b64)
+        identities[n] = ident
+
+    agents = {n: GossipAgent(n, link, bus, op_source=lambda n=n: list(stores[n].values()),
+                             apply_op=applier(n), identity=identities[n])
+              for n in names}
+    for a in agents.values():
+        for other in names:
+            if other != a.node_id:
+                a.add_peer(other)
+
+    op = _op("edge-00")
+    stores["edge-00"][op.op_id] = op
+    agents["edge-00"].note_local(op)
+    asyncio.run(agents["edge-01"].anti_entropy("edge-00"))
+    assert op.op_id in stores["edge-01"]

@@ -96,6 +96,13 @@ class Settings:
     # "http"   — peers are other node processes, reached directly.
     mesh_transport: str = field(default_factory=lambda: _env("mesh_transport", "memory"))
     node_endpoint: str = field(default_factory=lambda: _env("node_endpoint", ""))
+    # Enrolment. Set both to require every peer to present a certificate
+    # signed by the fleet root; leave them empty for trust-on-first-use, which
+    # is what a mesh does before anybody has provisioned anything. The root
+    # *private* key is never any of these — it stays where certificates are
+    # issued. `scripts/enrol.py` makes all three.
+    fleet_root: str = field(default_factory=lambda: _env("fleet_root", ""))
+    device_cert: str = field(default_factory=lambda: _env("device_cert", ""))
     mesh_interval_s: float = field(default_factory=lambda: _env("mesh_interval_s", 15.0))
     archive_interval_s: float = field(default_factory=lambda: _env("archive_interval_s", 45.0))
     scrub_interval_s: float = field(default_factory=lambda: _env("scrub_interval_s", 120.0))

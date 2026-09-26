@@ -41,6 +41,7 @@ async def subsystems(node: EdgeNode = Depends(get_node)) -> dict:
         "retrieval": node.pipeline.snapshot(),
         "scheduler": node.scheduler.snapshot(),
         "mesh": node.mesh.snapshot(),
+        "invariants": node.invariants.snapshot(),
         "learning": {"adapter": node.adapter.snapshot(),
                      "federation": node.federation.snapshot()},
         "index": (node.store.store.index_report()
