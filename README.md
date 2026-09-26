@@ -148,6 +148,11 @@ without the fix and 0 of 60 with it.
 Neither pass was lazy. The honest conclusion is that **the number of passes is
 the variable**, and this code has had two.
 
+One consequence is in CI. `scripts/audit_claims.py` checks the measured numbers
+in this README against the committed results that produced them, and fails the
+build on drift — because prose does not fail a build, which is how almost every
+README ends up lying slightly. It caught drift on its first run.
+
 The same seven invariants the simulator checks now run **against the live
 node**, every two seconds, on a rolling budget — `/api/v1/integrity/invariants`
 reports assertions beside violations.

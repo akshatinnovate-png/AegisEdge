@@ -103,6 +103,7 @@ with the uplink down.
 cd backend
 python3 -m pytest -q                           # 347 tests
 python3 scripts/audit_determinism.py           # the determinism lint
+python3 scripts/audit_claims.py                # the numbers in these docs, checked
 python3 scripts/simulate.py --seeds 200        # the simulator, ~2 min
 python3 scripts/simulate.py --seeds 200 --unsigned --no-shrink \
         --stop-after 200                       # the control, ~20 s

@@ -33,6 +33,14 @@ jobs:
         # about a different program than the one the seeds describe.
         run: python3 scripts/audit_determinism.py
 
+      - name: Documentation claims match the committed results
+        working-directory: backend
+        # Prose does not fail a build, which is how almost every README ends up
+        # lying slightly: a number is right when it is written and wrong three
+        # commits later. This checks the measured claims against the artefacts
+        # that produced them. It found drift on its first run.
+        run: python3 scripts/audit_claims.py
+
       - name: Tests
         working-directory: backend
         run: python3 -m pytest -q
