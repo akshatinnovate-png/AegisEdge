@@ -15,3 +15,5 @@ models/
 # artefacts are testlogs/stress-raw.json and testlogs/STRESS-REPORT.md.
 testlogs/stress-run.log
 testlogs/images/_shots.js
+testlogs/images/_gif/
+testlogs/images/_frames.js

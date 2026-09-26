@@ -10,6 +10,17 @@ Code Cubicle 6.0 — **Problem Statement 03**, AI-Powered Edge Memory & Intellig
 
 ![AegisEdge console](testlogs/images/02-hero.png)
 
+### Kill it and watch it come back
+
+![SIGKILL and recovery](testlogs/images/durability.gif)
+
+Six memories, `SIGKILL`, **six memories** — back in 3.6 seconds after replaying
+six operations in 11.41 ms. `process generation` ticks to 2 because that is a
+different process. SIGKILL runs no handler, flushes no buffer and tidies
+nothing, which is the only kind of crash worth testing. Recorded from the
+running console by `backend/scripts/capture_gif.py`; the button is in
+**PROVE IT** and it is not a mock.
+
 | | |
 |---|---|
 | **1,599 q/s** unique, **6,176 q/s** repeated | on four cores, no GPU |
@@ -46,6 +57,10 @@ The same simulator, the same seeds, the same attacks. **Signed, nothing breaks.
 Unsigned, a relay rewrites other devices' memories in flight and 165 of 200
 executions catch it.** The control is kept runnable on purpose — a clean run
 means nothing without a run that isn't.
+
+**Or take GitHub's word rather than mine.** Both runs execute on every push, on
+a clean machine, and the logs are public:
+[CI run of this commit →](https://github.com/akshatinnovate-png/AegisEdge/actions/runs/36233821341/job/108381840747)
 
 Every execution is a pure function of its seed, so a failure replays byte for
 byte, forever. CI runs both on every push and **fails the build if the control
