@@ -47,7 +47,7 @@ async def anisotropy(sample: int = 2048, node: EdgeNode = Depends(get_node),
     migration it costs.
     """
     vectors = [np.asarray(p.dense, dtype=np.float32)
-               for p in node.store.points.values() if p.dense]
+               for p in node.store.points.values() if p.has_dense]
     if len(vectors) < 4:
         raise HTTPException(status_code=409,
                             detail="need at least 4 embedded points to measure")
@@ -94,7 +94,7 @@ async def arm(on: bool = True, node: EdgeNode = Depends(get_node),
         raise HTTPException(status_code=409, detail="no transform has been fitted")
 
     stale = sum(1 for p in node.store.points.values()
-                if p.dense and len(p.dense) != embedder.geometry.out_dim)
+                if p.has_dense and len(p.dense) != embedder.geometry.out_dim)
     if on and stale:
         raise HTTPException(
             status_code=409,

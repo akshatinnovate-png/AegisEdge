@@ -30,6 +30,7 @@ from ..memory.store import MemoryStore
 from ..policy.engine import PolicyEngine
 from ..policy.redaction import RedactionVault
 from .conflict import ConflictArbiter, Resolution
+from .compression import dequantize_vector, quantize_vector
 from .crdt import OpKind, OpLog, Operation
 from .merkle import MerkleTree
 from .oracle import ConnectivityOracle, LinkState
@@ -44,6 +45,24 @@ class SyncState(str, Enum):
     PULL = "PULL"
     CONVERGED = "CONVERGED"
     BACKOFF = "BACKOFF"
+
+
+def _body_vector(body: dict[str, Any]) -> list[float] | None:
+    """The vector an operation carries, whichever form it is in.
+
+    `dense_q` is what this version writes. `dense` is what older operations —
+    already on disk, already in a peer's log — carry, and dropping them on the
+    floor at an upgrade would silently lose their vectors.
+    """
+    quantized = body.get("dense_q")
+    if quantized:
+        restored = dequantize_vector(quantized)
+        if restored:
+            return restored
+    plain = body.get("dense")
+    if plain is not None and len(plain):
+        return list(plain)
+    return None
 
 
 class SyncEngine:
@@ -124,7 +143,18 @@ class SyncEngine:
         payload = {k: v for k, v in point.payload.items() if k not in self.policy.strip_keys}
         return {
             "collection": point.collection, "text": text, "payload": payload,
-            "dense": point.dense, "sparse": {str(k): v for k, v in point.sparse.items()},
+            # Quantized here, at creation, rather than by the codec on the way
+            # out. The codec used to do it, which meant the vector that was
+            # signed was not the vector that arrived: every real upsert carrying
+            # a vector failed verification at the receiver and was refused as a
+            # forgery. Nothing caught it because no test signed a body with a
+            # vector in it.
+            #
+            # Peers already received int8 vectors — this only moves where the
+            # rounding happens — and it costs 620 bytes in the operation log
+            # instead of 8,344, on a log that is never trimmed.
+            "dense_q": quantize_vector(point.dense),
+            "sparse": {str(k): v for k, v in point.sparse.items()},
             "created_at": point.created_at, "confidence": point.confidence,
             "sensitivity": point.sensitivity.value, "model_version": point.model_version,
             "device_id": point.device_id, "redacted": redacted,
@@ -307,8 +337,11 @@ class SyncEngine:
             device_id=body.get("device_id", op.device_id), hlc=op.hlc,
             source="fleet", created_at=body.get("created_at", determinism.now()),
         )
-        if not point.dense:
-            point.dense = self.store.embedder.embed_sync([point.text])[0].tolist()
+        vector = _body_vector(body)
+        if vector is not None:
+            point.set_dense(vector)
+        if not point.has_dense:
+            point.set_dense(self.store.embedder.embed_sync([point.text])[0])
         self.store.apply_remote(point)
         self.tree.set(point.id, op.hlc)
 
@@ -316,9 +349,10 @@ class SyncEngine:
         local_point = self.store.points.get(op.point_id)
         local_clock = self.oplog.heads.get(op.point_id) or self.clock.now()
         similarity = None
-        if local_point and local_point.dense and op.body.get("dense"):
+        remote_vector = _body_vector(op.body)
+        if local_point is not None and local_point.has_dense and remote_vector is not None:
             a = np.asarray(local_point.dense, dtype=np.float32)
-            b = np.asarray(op.body["dense"], dtype=np.float32)
+            b = np.asarray(remote_vector, dtype=np.float32)
             denominator = (np.linalg.norm(a) * np.linalg.norm(b)) or 1.0
             similarity = float(a @ b / denominator)
         record = self.arbiter.resolve(local_clock, op, similarity)

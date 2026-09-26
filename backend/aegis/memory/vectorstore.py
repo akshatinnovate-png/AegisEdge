@@ -257,7 +257,7 @@ class QdrantStore(NativeStore):
         self.client.upsert(
             collection_name=point.collection,
             points=[PointStruct(id=self._qdrant_id(point.id),
-                                vector=list(point.dense), payload=payload)],
+                                vector=point.dense_list(), payload=payload)],
         )
         self.upserts += 1
 

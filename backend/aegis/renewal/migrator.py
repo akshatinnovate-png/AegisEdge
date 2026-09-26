@@ -124,7 +124,7 @@ class DualSpaceMigrator:
         vectors = self.embedder.embed_sync([p.text for p in pending])
         for point, vector in zip(pending, vectors):
             point.payload["prior_space"] = point.model_version      # dual-space bookkeeping
-            point.dense = np.asarray(vector, dtype=np.float32).tolist()
+            point.set_dense(vector)
             point.model_version = self.checkpoint.to_version
             point.payload["last_verified_at"] = time.time()
             self.store.store.upsert(point)

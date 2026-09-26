@@ -49,6 +49,8 @@ from __future__ import annotations
 
 import base64
 import json
+
+import numpy as np
 from pathlib import Path
 from typing import Any
 
@@ -62,6 +64,29 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 SIGNED_FIELDS = ("op_id", "kind", "point_id", "hlc", "device_id", "body")
 
 
+def jsonable(value: Any) -> Any:
+    """Arrays become lists, wherever they are, before anything serialises them.
+
+    An operation's body holds the *same* float32 array the point holds, so a
+    retained operation costs almost nothing beyond the point it describes —
+    measured, that is 8,344 bytes per memory of pure duplication removed, on a
+    log that is never trimmed. The array cannot go on the wire or under a
+    signature, so it is converted here, in the one place both of those paths
+    pass through.
+
+    Both must agree exactly. A signature taken over one representation and
+    checked against another fails, and it fails as a *forgery*, which is the
+    most misleading way for a serialisation bug to present.
+    """
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, dict):
+        return {k: jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [jsonable(v) for v in value]
+    return value
+
+
 def canonical(op: dict[str, Any]) -> bytes:
     """The exact bytes a signature covers.
 
@@ -70,7 +95,7 @@ def canonical(op: dict[str, Any]) -> bytes:
     would reject perfectly good operations, which is a worse failure than the
     one this is preventing.
     """
-    return json.dumps({k: op.get(k) for k in SIGNED_FIELDS},
+    return json.dumps({k: jsonable(op.get(k)) for k in SIGNED_FIELDS},
                       sort_keys=True, separators=(",", ":"),
                       default=str).encode("utf-8")
 

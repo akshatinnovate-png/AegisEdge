@@ -69,7 +69,7 @@ class Consolidator:
         t0 = time.perf_counter()
         report = ConsolidationReport()
         candidates = [p for p in self.store.by_collection(collection)
-                      if p.superseded_by is None and not p.pinned and p.dense]
+                      if p.superseded_by is None and not p.pinned and p.has_dense]
         for cluster in self._cluster(candidates):
             summary = await self.store.ingest(
                 self._distil(cluster), collection="semantic",

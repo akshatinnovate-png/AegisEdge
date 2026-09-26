@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 import zlib
+
+from .identity import jsonable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -78,7 +80,24 @@ _ABSENT = object()
 
 
 class WireCodec:
-    """Encodes a batch of operations for transmission."""
+    """Encodes a batch of operations for transmission.
+
+    It compresses; it does not edit. That distinction is load-bearing and was
+    learned the hard way twice. This codec used to quantize an operation's
+    dense vector on the way out and dequantize it on the way in — a lossy,
+    non-round-tripping transform applied to content that is *signed*. The
+    vector that was signed was therefore never the vector that arrived, so
+    every real upsert carrying a vector failed verification at the receiver
+    and was refused as a forgery. Nothing caught it, because no test had ever
+    signed a body with a vector in it.
+
+    The quantizing now happens where the operation is built, which is the only
+    place it can happen without the signature and the wire disagreeing. The
+    wire is the same size as before; what changed is that what a peer checks
+    is what the author signed.
+
+    The other lesson is the frame-local delta context, below.
+    """
 
     MIN_COMPRESS_BYTES = 256
 
@@ -93,6 +112,10 @@ class WireCodec:
         self.elided = 0
 
     def encode(self, ops: list[dict[str, Any]]) -> dict[str, Any]:
+        # Normalised first: an operation body may hold the point's float32
+        # array rather than a copy of it as a list, and neither the raw-size
+        # accounting nor the frame can carry an array.
+        ops = [jsonable(op) for op in ops]
         raw = json.dumps(ops, separators=(",", ":"), default=str).encode("utf-8")
 
         # The delta context is rebuilt for every frame and never survives one.
@@ -120,8 +143,6 @@ class WireCodec:
         context: dict[str, Any] = {}
         for op in ops:
             body = dict(op.get("body") or {})
-            if body.get("dense"):
-                body["dense_q"] = quantize_vector(body.pop("dense"))     # 4x on the biggest field
             delta = []
             for key in self.DELTA_FIELDS:
                 if key not in body:
@@ -173,8 +194,6 @@ class WireCodec:
             for key in self.DELTA_FIELDS:
                 if key in body:
                     context[key] = body[key]
-            if "dense_q" in body:
-                body["dense"] = dequantize_vector(body.pop("dense_q"))
             out.append({**op, "body": body})
         return out
 

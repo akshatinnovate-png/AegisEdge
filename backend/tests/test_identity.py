@@ -380,3 +380,100 @@ def test_an_enrolled_mesh_converges():
     agents["edge-00"].note_local(op)
     asyncio.run(agents["edge-01"].anti_entropy("edge-00"))
     assert op.op_id in stores["edge-01"]
+
+
+# -- arrays on the wire and under a signature ------------------------------
+
+def test_an_array_in_a_body_signs_and_verifies_like_the_list_it_prints_as():
+    """The op body shares the point's float32 array instead of copying it.
+
+    Measured: 8,344 bytes per memory of pure duplication, on a log that is
+    never trimmed. The array cannot go under a signature, so both the signer
+    and the wire normalise it — and they must agree exactly, because a
+    signature taken over one representation and checked against another fails
+    as a *forgery*, which is the most misleading way for a serialisation bug
+    to present.
+    """
+    import numpy as np
+
+    from aegis.sync.identity import canonical
+
+    author, peer = DeviceIdentity("edge-00"), DeviceIdentity("edge-01")
+    peer.learn("edge-00", author.public_key_b64)
+    vector = np.arange(8, dtype=np.float32) / 3.0
+
+    as_array = _op("edge-00")
+    as_array.body = {"text": "x", "sensitivity": "internal", "dense": vector}
+    as_list = Operation.from_dict({**as_array.as_dict(), "body": {
+        "text": "x", "sensitivity": "internal", "dense": vector.tolist()}})
+
+    # The two must produce byte-identical signing input, or a node holding the
+    # array and a peer holding the list would disagree about authenticity.
+    assert canonical(as_array.as_dict()) == canonical(as_list.as_dict())
+
+    signature = author.sign(as_array.as_dict())
+    assert peer.verify(as_list.as_dict(), signature) is True
+
+
+def test_an_array_body_survives_the_wire_and_still_verifies():
+    import numpy as np
+
+    author, peer = DeviceIdentity("edge-00"), DeviceIdentity("edge-01")
+    peer.learn("edge-00", author.public_key_b64)
+    op = _op("edge-00")
+    op.body = {"text": "x", "sensitivity": "restricted",
+               "dense": np.linspace(-1, 1, 16, dtype=np.float32)}
+    op.sig = author.sign(op.as_dict())
+
+    encoder, decoder = WireCodec(), WireCodec()
+    back = Operation.from_dict(decoder.decode(encoder.encode([op.as_dict()]))[0])
+    assert back.body["sensitivity"] == "restricted"          # the field that was dropped once
+    assert peer.verify(back.as_dict(), back.sig) is True
+
+
+def test_a_signed_operation_carrying_a_vector_survives_the_wire():
+    """The defect this found: every real upsert was refused as a forgery.
+
+    The codec quantized `dense` on the way out, so the vector that was signed
+    was not the vector that arrived. No test had ever signed a body with a
+    vector in it, so nothing caught it. The quantizing now happens where the
+    operation is built, which is the only place it can happen without the
+    signature and the wire disagreeing.
+    """
+    import numpy as np
+
+    from aegis.sync.compression import quantize_vector
+
+    author, peer = DeviceIdentity("edge-00"), DeviceIdentity("edge-01")
+    peer.learn("edge-00", author.public_key_b64)
+    op = _op("edge-00")
+    op.body = {"text": "x", "sensitivity": "restricted",
+               "dense_q": quantize_vector(np.linspace(-1, 1, 256, dtype=np.float32))}
+    op.sig = author.sign(op.as_dict())
+
+    encoder, decoder = WireCodec(), WireCodec()
+    back = Operation.from_dict(decoder.decode(encoder.encode([op.as_dict()]))[0])
+    assert back.body["sensitivity"] == "restricted"
+    assert peer.verify(back.as_dict(), back.sig) is True
+
+
+def test_a_quantized_body_is_a_fraction_of_a_list_body():
+    """The memory this buys, on a log that is never trimmed."""
+    import json
+
+    import numpy as np
+
+    from aegis.sync.compression import quantize_vector
+
+    vector = np.linspace(-1, 1, 256, dtype=np.float32)
+    as_list = len(json.dumps(vector.tolist()))
+    as_codes = len(json.dumps(quantize_vector(vector)))
+    assert as_codes * 3 < as_list, (as_codes, as_list)
+
+
+def test_an_older_operation_carrying_a_plain_vector_is_still_read():
+    """Operations already on disk and already in a peer's log keep working."""
+    from aegis.sync.engine import _body_vector
+
+    assert _body_vector({"dense": [0.25, 0.5]}) == [0.25, 0.5]
+    assert _body_vector({}) is None

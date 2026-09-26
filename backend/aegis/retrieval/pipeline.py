@@ -414,7 +414,7 @@ class RetrievalPipeline:
             with TRACER.span("adapter") as span:
                 candidates_for_adapter = [
                     (point.id, final, np.asarray(point.dense, dtype=np.float32))
-                    for point, final, _, _ in scored if point.dense
+                    for point, final, _, _ in scored if point.has_dense
                 ]
                 adapted = self.adapter.rescore(vector, candidates_for_adapter)
                 order = {pid: rank for rank, (pid, _, _) in enumerate(adapted)}
@@ -427,7 +427,7 @@ class RetrievalPipeline:
             with TRACER.span("diversity") as span:
                 candidates_for_mmr = [
                     (point.id, final, np.asarray(point.dense, dtype=np.float32))
-                    for point, final, _, _ in scored if point.dense
+                    for point, final, _, _ in scored if point.has_dense
                 ]
                 chosen, report = self.diversity.select(vector, candidates_for_mmr, k)
                 if chosen:

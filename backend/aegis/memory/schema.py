@@ -6,6 +6,8 @@ subsystems each need to reason about a single remembered thing.
 from __future__ import annotations
 
 import time
+import numpy as np
+
 from dataclasses import dataclass, field, asdict
 from enum import Enum
 from typing import Any
@@ -55,12 +57,27 @@ class SyncClass(str, Enum):
         return max(classes, key=lambda c: c.restriction)
 
 
+# One shared empty array rather than a fresh allocation per point without a
+# vector. It is read-only so a caller cannot make every such point share an
+# accidental mutation.
+EMPTY_DENSE = np.zeros(0, dtype=np.float32)
+EMPTY_DENSE.flags.writeable = False
+
+
 @dataclass(slots=True)
 class MemoryPoint:
     id: str = field(default_factory=lambda: short_id("pt"))
     collection: str = "episodic"
     text: str = ""
-    dense: list[float] = field(default_factory=list)
+    # float32, not a list of Python floats. Measured on this schema: a
+    # 256-dimension vector costs 8,344 bytes as a list and 1,024 as an array,
+    # because every element is a separate 24-byte object with a pointer to it.
+    # At 18.6 KB for a whole point that one field was 45% of a device's
+    # resident memory, and it is the field every point has.
+    #
+    # The trap this introduces is worth naming: `if point.dense` raises on an
+    # array of more than one element. Use `point.has_dense`.
+    dense: np.ndarray = field(default_factory=lambda: EMPTY_DENSE)
     sparse: dict[int, float] = field(default_factory=dict)
     payload: dict[str, Any] = field(default_factory=dict)
 
@@ -90,6 +107,38 @@ class MemoryPoint:
     derived_from: list[str] = field(default_factory=list)
     source: str | None = None
 
+    def __post_init__(self) -> None:
+        """Whatever a caller passes, a stored vector is float32.
+
+        Normalising here rather than at each call site is deliberate. Points
+        are constructed from the wire, from the WAL, from a peer's operation
+        and from tests, and any one of those handing over a list would leave a
+        point that costs eight times what it should and breaks `has_dense`
+        besides. One door.
+        """
+        if not isinstance(self.dense, np.ndarray):
+            self.set_dense(self.dense)
+
+    @property
+    def has_dense(self) -> bool:
+        """`if point.dense` raises on an array. This is what to use instead."""
+        return self.dense is not None and self.dense.size > 0
+
+    def dense_list(self) -> list[float]:
+        """For the wire and for JSON, where an array is not a value."""
+        return self.dense.tolist() if self.has_dense else []
+
+    def set_dense(self, vector: Any) -> None:
+        """One place that decides what a stored vector is."""
+        if vector is None:
+            self.dense = EMPTY_DENSE
+            return
+        array = np.asarray(vector, dtype=np.float32)
+        # A copy, not a view: a caller that keeps mutating its own buffer —
+        # the micro-batcher hands out rows of one — would otherwise rewrite
+        # every point it ever produced.
+        self.dense = np.ascontiguousarray(array, dtype=np.float32)
+
     def age_s(self) -> float:
         return time.time() - self.created_at
 
@@ -105,6 +154,7 @@ class MemoryPoint:
         d["tier"] = self.tier.value
         d["sensitivity"] = self.sensitivity.value
         d["sync_class"] = self.sync_class.value
+        d["dense"] = self.dense_list()          # asdict leaves the array as-is
         if not include_vectors:
             d.pop("dense", None)
             d["sparse_terms"] = len(self.sparse)

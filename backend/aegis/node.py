@@ -439,8 +439,8 @@ class EdgeNode:
         self._corpus_sample.append(text)
         if len(self._corpus_sample) > self._corpus_sample_cap:
             del self._corpus_sample[: len(self._corpus_sample) - self._corpus_sample_cap]
-        if point.dense:
-            self.embedder.observe_vectors(np.asarray(point.dense, dtype=np.float32))
+        if point.has_dense:
+            self.embedder.observe_vectors(point.dense)
         if op is not None and self.settings.mesh_enabled:
             self.mesh.note_local(op)
         self.pipeline.cache.invalidate()
@@ -452,14 +452,14 @@ class EdgeNode:
                        weight: float = 1.0) -> dict[str, Any]:
         """Teach the adapter from a real choice a person made."""
         chosen = self.store.points.get(chosen_id)
-        if chosen is None or not chosen.dense:
+        if chosen is None or not chosen.has_dense:
             return {"accepted": False, "reason": "unknown or unembedded point"}
         rejected = self.store.points.get(rejected_id) if rejected_id else None
         query_vector = self.embedder.embed_sync([query])[0]
         example = TrainingExample(
             query=query_vector,
             positive=chosen.dense,
-            negative=rejected.dense if rejected and rejected.dense else None,
+            negative=rejected.dense if rejected is not None and rejected.has_dense else None,
             weight=weight,
         )
         self.feedback_buffer.append(example)

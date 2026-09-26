@@ -82,7 +82,7 @@ class ContradictionDetector:
         keeps detection stable across every variant the governor may swap in.
         """
         cosine = 0.0
-        if candidate.dense and other.dense:
+        if candidate.has_dense and other.has_dense:
             a = np.asarray(candidate.dense, dtype=np.float32)
             b = np.asarray(other.dense, dtype=np.float32)
             denominator = float(np.linalg.norm(a) * np.linalg.norm(b)) or 1.0

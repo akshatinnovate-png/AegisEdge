@@ -76,15 +76,32 @@ def test_wire_codec_compresses_and_roundtrips_vectors():
         ops.append({"op_id": f"op{i}", "kind": "upsert", "point_id": f"p{i}", "hlc": "1.0.a",
                     "device_id": "edge-07", "ts": 1.0,
                     "body": {"collection": "episodic", "sensitivity": "internal",
-                             "text": f"observation {i}", "dense": vector.tolist()}})
+                             "text": f"observation {i}",
+                             # As the sync engine builds it. The quantizing
+                             # happens there now, not here: a codec that edits
+                             # a signed field makes every operation carrying a
+                             # vector unverifiable at the receiver.
+                             "dense_q": quantize_vector(vector)}})
     codec = WireCodec()
     frame = codec.encode(ops)
-    assert frame["raw_bytes"] / frame["wire_bytes"] > 5
+
+    # The contract is exactness. Anything else and a signature taken before
+    # the wire cannot be checked after it.
     decoded = codec.decode(frame)
-    original = np.asarray(ops[3]["body"]["dense"])
-    restored = np.asarray(decoded[3]["body"]["dense"])
-    assert float(original @ restored) > 0.999
-    assert decoded[3]["body"]["text"] == "observation 3"
+    assert decoded == ops
+
+    # And it still pays: about 325 bytes for an operation carrying a
+    # 256-dimension vector, against 5,500 for the same operation with the
+    # vector written out as JSON floats.
+    assert frame["raw_bytes"] / frame["wire_bytes"] > 2
+    assert frame["wire_bytes"] / len(ops) < 400
+
+    verbose = []
+    for op in ops:
+        body = {k: v for k, v in op["body"].items() if k != "dense_q"}
+        body["dense"] = dequantize_vector(op["body"]["dense_q"])
+        verbose.append({**op, "body": body})
+    assert WireCodec().encode(verbose)["wire_bytes"] > frame["wire_bytes"] * 2
 
 
 def test_varint_roundtrip():

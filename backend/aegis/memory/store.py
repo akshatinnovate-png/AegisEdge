@@ -158,7 +158,7 @@ class MemoryStore:
             point.payload.setdefault("policy_rule", decision.rule)
 
             dense = await self.embedder.embed(text)                  # 3. embed
-            point.dense = np.asarray(dense, dtype=np.float32).tolist()
+            point.set_dense(dense)
             point.sparse = self.sparse.encode(text, fit=True)
             point.hlc = self.clock.now().pack()
 
