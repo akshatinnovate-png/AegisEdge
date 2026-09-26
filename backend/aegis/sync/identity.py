@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 
 import numpy as np
 from pathlib import Path
@@ -62,6 +63,29 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 # The fields that make an operation what it is. Everything outside this set is
 # routing or bookkeeping a relay may legitimately touch.
 SIGNED_FIELDS = ("op_id", "kind", "point_id", "hlc", "device_id", "body")
+
+
+def write_private_key(path: Path, pem: bytes) -> None:
+    """Write a private key so it is never briefly world-readable.
+
+    `write_bytes` then `chmod` leaves a window in which the file exists with
+    whatever the umask allows — commonly 0644 — and anything on the box can
+    read it. The window is short and entirely sufficient. Creating the file
+    with the mode already set closes it, and the temp-then-rename keeps the
+    write atomic so a crash cannot leave a half-written key behind.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(path.suffix + ".tmp")
+    descriptor = os.open(temp, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(pem)
+            handle.flush()
+            os.fsync(handle.fileno())
+    except BaseException:
+        temp.unlink(missing_ok=True)
+        raise
+    temp.replace(path)
 
 
 def jsonable(value: Any) -> Any:
@@ -165,14 +189,10 @@ class DeviceIdentity:
                 pass          # unreadable key: generate a new one rather than refuse to boot
         identity = cls(device_id, **enrolment)
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            temp = path.with_suffix(path.suffix + ".tmp")
-            temp.write_bytes(identity._private.private_bytes(
+            write_private_key(path, identity._private.private_bytes(
                 encoding=serialization.Encoding.PEM,
                 format=serialization.PrivateFormat.PKCS8,
                 encryption_algorithm=serialization.NoEncryption()))
-            temp.chmod(0o600)
-            temp.replace(path)
         except Exception:
             pass              # an ephemeral identity still signs; it just will not persist
         return identity

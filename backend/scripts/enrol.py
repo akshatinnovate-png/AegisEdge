@@ -35,7 +35,8 @@ from cryptography.hazmat.primitives import serialization                 # noqa:
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (          # noqa: E402
     Ed25519PrivateKey)
 
-from aegis.sync.identity import DeviceIdentity                           # noqa: E402
+from aegis.sync.identity import (DeviceIdentity,                          # noqa: E402
+                                 write_private_key)
 
 O, R, B, D = "\033[38;5;208m", "\033[0m", "\033[1m", "\033[2m"
 
@@ -55,11 +56,14 @@ def init(out: Path) -> int:
               f"file. Replacing it would invalidate the whole fleet at once.{R}")
         return 1
     private = Ed25519PrivateKey.generate()
-    root_pem.write_bytes(private.private_bytes(
+    # The fleet root is the most sensitive file this project creates: whoever
+    # holds it can enrol a device into the fleet. It is written with its mode
+    # already set rather than chmod-ed afterwards, because the gap between the
+    # two is a window in which it is readable by anything on the box.
+    write_private_key(root_pem, private.private_bytes(
         encoding=serialization.Encoding.PEM,
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=serialization.NoEncryption()))
-    root_pem.chmod(0o600)
     public = _root_public_b64(private)
     (out / "root.pub").write_text(public + "\n", encoding="utf-8")
     print(f"{O}{B}fleet root created{R}")

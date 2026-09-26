@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 
+import numpy as np
 import pytest
 
 from aegis.core.bus import EventBus
@@ -304,3 +305,111 @@ def test_http_mesh_link_refuses_an_unknown_peer():
         await link.close()
 
     asyncio.run(attempt())
+
+
+# -- what a peer may make this node allocate --------------------------------
+
+def test_a_compressed_frame_cannot_expand_without_bound():
+    """`/mesh/exchange` is unauthenticated by design, so this is remote.
+
+    Measured before the bound: a 51 KB request allocated 50 MB, about a
+    thousandfold, which makes a 5 MB request worth 5 GB.
+    """
+    import zlib
+
+    bomb = zlib.compress(b"\0" * (40 * 1024 * 1024), 9)
+    assert len(bomb) < 100_000, "the point is that the request is small"
+    frame = {"z": True, "n": 1, "payload": bomb.hex(),
+             "raw_bytes": 1, "wire_bytes": len(bomb)}
+    with pytest.raises(ValueError, match="expands past"):
+        WireCodec().decode(frame)
+
+
+def test_an_oversized_frame_is_refused_before_it_is_decoded():
+    frame = {"z": False, "n": 1, "payload": "00" * (WireCodec.MAX_WIRE_BYTES + 1),
+             "raw_bytes": 1, "wire_bytes": 1}
+    with pytest.raises(ValueError, match="on the wire"):
+        WireCodec().decode(frame)
+
+
+def test_a_frame_within_the_bound_still_round_trips():
+    """A limit that also refuses real traffic is not a fix."""
+    ops = [{"op_id": f"op{i}", "kind": "upsert", "point_id": f"p{i}", "hlc": "1.0.a",
+            "device_id": "edge-07", "ts": 1.0,
+            "body": {"collection": "episodic", "sensitivity": "internal",
+                     "text": "observation " * 20,
+                     "dense_q": quantize_vector(
+                         np.random.default_rng(i).normal(size=256).astype("float32"))}}
+           for i in range(400)]
+    codec = WireCodec()
+    frame = codec.encode(ops)
+    assert frame["wire_bytes"] < WireCodec.MAX_WIRE_BYTES
+    assert codec.decode(frame) == ops
+
+
+def test_the_exchange_endpoint_turns_a_bomb_into_a_bad_request():
+    """Not a 500, and not an allocation."""
+    import zlib
+
+    from fastapi.testclient import TestClient
+
+    from aegis.main import app
+
+    bomb = zlib.compress(b"\0" * (40 * 1024 * 1024), 9)
+    with TestClient(app) as client:
+        response = client.post("/api/v1/mesh/exchange", json={
+            "sender": "edge-99", "method": "push",
+            "payload": {"frame": {"z": True, "n": 1, "payload": bomb.hex(),
+                                  "raw_bytes": 1, "wire_bytes": len(bomb)}}})
+    assert response.status_code == 400, response.status_code
+
+
+def test_a_peer_cannot_size_this_nodes_allocation():
+    """One JSON integer used to be worth 69 MB, and it scaled linearly."""
+    import resource
+
+    bus, link = EventBus(), MeshLink(latency_ms=0.0)
+    agent = GossipAgent("edge-00", link, bus, op_source=lambda: [], apply_op=None)
+    before = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    response = asyncio.run(agent.handle("edge-99", "digest", {"cells": 100_000_000}))
+    grew = (resource.getrusage(resource.RUSAGE_SELF).ru_maxrss - before) * 1024
+
+    assert len(response["table"]["counts"]) <= GossipAgent.MAX_DIGEST_CELLS
+    assert grew < 32 * 1024 * 1024, f"{grew / 1e6:.0f} MB from one field"
+
+
+def test_the_bound_still_lets_two_real_peers_reconcile():
+    """A ceiling that also breaks anti-entropy would be the worse bug."""
+    bus, link = EventBus(), MeshLink(latency_ms=0.0)
+    stores: dict[str, dict] = {"edge-a": {}, "edge-b": {}}
+
+    def applier(node):
+        async def apply(op): stores[node][op.op_id] = op
+        return apply
+
+    agents = {n: GossipAgent(n, link, bus, op_source=lambda n=n: list(stores[n].values()),
+                             apply_op=applier(n)) for n in stores}
+    for a in agents.values():
+        for other in stores:
+            if other != a.node_id:
+                a.add_peer(other)
+
+    for i in range(600):                     # well past a default-sized table
+        op = Operation(kind=OpKind.UPSERT, point_id=f"p{i}", device_id="edge-a",
+                       body={"text": f"observation {i}", "sensitivity": "internal"})
+        stores["edge-a"][op.op_id] = op
+        agents["edge-a"].note_local(op)
+
+    async def settle():
+        for _ in range(4):
+            await agents["edge-b"].anti_entropy("edge-a")
+    asyncio.run(settle())
+    assert len(stores["edge-b"]) == 600, len(stores["edge-b"])
+
+
+def test_a_fetch_cannot_be_asked_for_an_unbounded_list():
+    bus, link = EventBus(), MeshLink(latency_ms=0.0)
+    agent = GossipAgent("edge-00", link, bus, op_source=lambda: [], apply_op=None)
+    response = asyncio.run(agent.handle(
+        "edge-99", "fetch", {"op_ids": [f"op{i}" for i in range(GossipAgent.MAX_FETCH_IDS * 2)]}))
+    assert response["frame"]["n"] == 0

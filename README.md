@@ -171,7 +171,7 @@ description.
 | **[backend/README.md](backend/README.md)** | Module map, dependency matrix, configuration |
 | **[testlogs/](testlogs/)** | Raw results: stress battery, simulation sweeps, bake-offs, screenshots |
 
-**332 tests.** `cd backend && python3 -m pytest -q`
+**344 tests.** `cd backend && python3 -m pytest -q`
 
 ---
 

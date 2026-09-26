@@ -5,8 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from pydantic import BaseModel, Field
 
+from ..core.tenancy import Scope
 from ..node import EdgeNode
 from .deps import get_node
+from .security import Principal, requires
 from .models import PeerRequest
 
 
@@ -90,7 +92,8 @@ class AttackRequest(BaseModel):
 
 
 @router.post("/attack")
-async def attack(body: AttackRequest, node: EdgeNode = Depends(get_node)) -> dict:
+async def attack(body: AttackRequest, node: EdgeNode = Depends(get_node),
+                 _: Principal = Depends(requires(Scope.ADMIN))) -> dict:
     """Try to get a forged operation into this node, and report what happened.
 
     The deterministic simulator in `aegis/sim/` runs these against a simulated
@@ -104,6 +107,25 @@ async def attack(body: AttackRequest, node: EdgeNode = Depends(get_node)) -> dic
     thing the route knows that a peer does not is the attacker's key, and it
     uses it exactly as an attacker would — to sign in its own name while
     claiming somebody else's.
+
+    Three things this route has to get right, none of which were right when it
+    was first written:
+
+    **It needs ADMIN.** A route whose whole purpose is to push forged
+    operations at a node, and which teaches that node a key in the process,
+    cannot be the one unauthenticated write in the router. It was.
+
+    **Its probe identities are namespaced.** They used to be `edge-victim` and
+    `edge-attacker`, learned into the node's real trust store. Trust-on-first-
+    use is permanent by design, so any fleet that ever shipped a device by one
+    of those names would find it refused forever, by a demo. The names now
+    carry a `probe:` prefix and this node's own id, which no real device will
+    present.
+
+    **Its refusals are counted separately.** A probe that is indistinguishable
+    from a real attack in the node's telemetry is worse than no probe: an
+    operator watching `refused_forged` climb cannot tell a drill from an
+    incident. The mesh snapshot reports probe counts on their own.
     """
     from ..sync.crdt import OpKind, Operation
     from ..sync.identity import DeviceIdentity
@@ -120,16 +142,18 @@ async def attack(body: AttackRequest, node: EdgeNode = Depends(get_node)) -> dic
     # them stable is what an actual pair of devices would do; regenerating them
     # would be asking the node to accept an identity takeover in order to
     # demonstrate that it refuses identity takeovers.
+    victim_id = f"probe:victim:{node.settings.node_id}"
+    attacker_id = f"probe:attacker:{node.settings.node_id}"
     probes = getattr(node, "_attack_probes", None)
     if probes is None:
-        probes = {"attacker": DeviceIdentity("edge-attacker"),
-                  "victim": DeviceIdentity("edge-victim")}
+        probes = {"attacker": DeviceIdentity(attacker_id),
+                  "victim": DeviceIdentity(victim_id)}
         node._attack_probes = probes
     attacker, author = probes["attacker"], probes["victim"]
-    mesh.identity.learn("edge-victim", author.public_key_b64)
+    mesh.identity.learn(victim_id, author.public_key_b64)
 
     original = Operation(kind=OpKind.UPSERT, point_id="attack-probe",
-                         device_id="edge-victim",
+                         device_id=victim_id,
                          body={"text": "dispatch the crew to grid 14",
                                "sensitivity": "internal"})
     original.sig = author.sign(original.as_dict())
@@ -159,11 +183,22 @@ async def attack(body: AttackRequest, node: EdgeNode = Depends(get_node)) -> dic
               "verified": mesh.verified_ops}
     mesh.known.pop(candidate.op_id, None)
     frame = mesh.codec.encode([candidate.as_dict()])
-    result = await mesh.handle("edge-attacker", "push",
-                               {"frame": frame, "keys": {"edge-attacker":
+    result = await mesh.handle(attacker_id, "push",
+                               {"frame": frame, "keys": {attacker_id:
                                                          attacker.public_key_b64}})
     accepted = bool(result.get("accepted"))
     mesh.known.pop(candidate.op_id, None)
+
+    # Move what this probe caused out of the counters an operator reads as
+    # evidence of a real attack, and into counters that say "drill".
+    delta_forged = mesh.refused_forged - before["forged"]
+    delta_policy = mesh.refused_inbound - before["policy"]
+    delta_verified = mesh.verified_ops - before["verified"]
+    mesh.refused_forged -= delta_forged
+    mesh.refused_inbound -= delta_policy
+    mesh.verified_ops -= delta_verified
+    mesh.probe_refused += delta_forged + delta_policy
+    mesh.probe_verified += delta_verified
 
     expected_accept = body.kind == "honest"
     return {
@@ -172,9 +207,9 @@ async def attack(body: AttackRequest, node: EdgeNode = Depends(get_node)) -> dic
         "accepted": accepted,
         "expected": "accepted" if expected_accept else "refused",
         "correct": accepted == expected_accept,
-        "refused_as_forged": mesh.refused_forged - before["forged"],
-        "refused_by_policy": mesh.refused_inbound - before["policy"],
-        "verified": mesh.verified_ops - before["verified"],
+        "refused_as_forged": delta_forged,
+        "refused_by_policy": delta_policy,
+        "verified": delta_verified,
         "note": ("Run against the live node, through the same handler a peer device "
                  "reaches. The honest case is here so a refusal of the other three "
                  "cannot be a node that simply refuses everything."),

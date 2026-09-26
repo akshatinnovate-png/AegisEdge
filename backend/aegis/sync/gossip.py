@@ -99,6 +99,18 @@ class GossipAgent:
     FANOUT = 2                    # peers pushed per rumour round
     REDUNDANCY_LIMIT = 2          # stop gossiping a rumour after this many duplicate acks
 
+    # Ceilings on what a peer may make this node allocate. `/mesh/exchange` is
+    # unauthenticated by design, so every number that arrives in a payload and
+    # then sizes an allocation needs one. Measured: `{"cells": 3000000}` — one
+    # JSON integer — allocated 69 MB, and it scales linearly from there.
+    #
+    # The real bound is the node's own data. A difference table never needs
+    # more cells than the set it is reconciling, so a request for more than
+    # that is either a mistake or an attack, and either way the honest answer
+    # is the table this node can actually fill.
+    MAX_DIGEST_CELLS = 1 << 18
+    MAX_FETCH_IDS = 50_000
+
     def __init__(self, node_id: str, link: MeshLink, bus: EventBus,
                  op_source: Callable[[], list[Operation]],
                  apply_op: Callable[[Operation], Awaitable[None]],
@@ -129,6 +141,13 @@ class GossipAgent:
         self.refused_inbound = 0
         self.refused_forged = 0
         self.verified_ops = 0
+        # A drill is not an incident. `/api/v1/mesh/attack` mounts the
+        # simulator's attacks against this live node, which moves the same
+        # counters a real attack would; an operator watching `refused_forged`
+        # climb has to be able to tell the two apart, so the probe's own
+        # effects are accounted here instead.
+        self.probe_refused = 0
+        self.probe_verified = 0
         self.bytes_saved = 0
         link.join(self)
 
@@ -317,14 +336,20 @@ class GossipAgent:
 
         if method == "digest":
             mine = self._shareable()
-            cells = int(payload.get("cells", 128))
+            # Bounded twice: by what this node could possibly need for its own
+            # set, and by an absolute ceiling for the case where the set itself
+            # is enormous.
+            requested = max(8, int(payload.get("cells", 128)))
+            affordable = max(128, IBLT.size_for(max(8, len(mine))) * 4)
+            cells = min(requested, affordable, self.MAX_DIGEST_CELLS)
             table = IBLT(cells).insert_many(mine.keys())
             return {"table": table.to_wire(), "ops": len(mine),
                     "keys": self._key_bundle(), "certs": self._certificates()}
 
         if method == "fetch":
             mine = self._shareable()
-            ids = [op_id for op_id in payload.get("op_ids", []) if op_id in mine]
+            wanted = payload.get("op_ids", [])[: self.MAX_FETCH_IDS]
+            ids = [op_id for op_id in wanted if op_id in mine]
             frame = self.codec.encode([mine[op_id].as_dict() for op_id in ids])
             return {"frame": frame, "keys": self._key_bundle(), "certs": self._certificates(), "certs": self._certificates(),
                     "clocks": {i: self.clocks[i] for i in ids if i in self.clocks}}
@@ -491,6 +516,8 @@ class GossipAgent:
             "refused_inbound": self.refused_inbound,
             "refused_forged": self.refused_forged,
             "verified_ops": self.verified_ops,
+            "probe_refused": self.probe_refused,
+            "probe_verified": self.probe_verified,
             "identity": (self.identity.snapshot() if self.identity is not None
                          else {"signing": "off — every operation is believed"}),
             "bytes_saved": self.bytes_saved,

@@ -101,6 +101,22 @@ class WireCodec:
 
     MIN_COMPRESS_BYTES = 256
 
+    # Bounds on what a *peer* may cause this node to allocate.
+    #
+    # `/api/v1/mesh/exchange` is unauthenticated by design — a peer device has
+    # to be able to reach it — and it hands the frame straight here. Without a
+    # bound, `zlib.decompress` will expand whatever it is given: measured, a
+    # 51 KB request allocated 50 MB, which is about a thousandfold and makes a
+    # 5 MB request worth 5 GB. That is a remote denial of service reachable by
+    # anyone who can open a socket, and it costs one argument to close.
+    #
+    # The limits are generous against real traffic. An operation carrying a
+    # 256-dimension vector is roughly 900 bytes encoded, so 16 MB is some
+    # eighteen thousand operations in a single frame; anti-entropy sends the
+    # difference between two devices, not a corpus.
+    MAX_WIRE_BYTES = 8 * 1024 * 1024
+    MAX_FRAME_BYTES = 16 * 1024 * 1024
+
     # Fields worth eliding: low-cardinality labels that repeat across every
     # operation in a batch. `sensitivity` is on this list, which is why the
     # bug below mattered as much as it did.
@@ -171,9 +187,22 @@ class WireCodec:
 
     def decode(self, frame: dict[str, Any]) -> list[dict[str, Any]]:
         """Reconstruct a frame using only what the frame itself carries."""
-        blob = bytes.fromhex(frame["payload"])
+        payload = frame["payload"]
+        # Two hex characters per byte, checked before decoding rather than
+        # after, so an oversized frame costs a length comparison.
+        if len(payload) > self.MAX_WIRE_BYTES * 2:
+            raise ValueError(
+                f"frame is {len(payload) // 2:,} bytes on the wire, over the "
+                f"{self.MAX_WIRE_BYTES:,} byte limit")
+        blob = bytes.fromhex(payload)
         if frame.get("z"):
-            blob = zlib.decompress(blob)
+            engine = zlib.decompressobj()
+            blob = engine.decompress(blob, self.MAX_FRAME_BYTES)
+            if not engine.eof:
+                # `max_length` stops at the limit and keeps the rest buffered,
+                # so this is the expansion bomb rather than a truncated frame.
+                raise ValueError(
+                    f"frame expands past the {self.MAX_FRAME_BYTES:,} byte limit")
         shaped = json.loads(blob.decode("utf-8"))
         context: dict[str, Any] = {}
         out: list[dict[str, Any]] = []

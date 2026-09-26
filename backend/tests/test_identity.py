@@ -477,3 +477,110 @@ def test_an_older_operation_carrying_a_plain_vector_is_still_read():
 
     assert _body_vector({"dense": [0.25, 0.5]}) == [0.25, 0.5]
     assert _body_vector({}) is None
+
+
+def test_the_attack_route_is_not_the_one_unauthenticated_write():
+    """A route that pushes forged operations at a node needs ADMIN.
+
+    It did not have it. Every other write in the API is scoped; this one, whose
+    whole purpose is to hand a node something a peer should not be able to hand
+    it, was reachable by anyone who could reach the port.
+    """
+    from fastapi.testclient import TestClient
+
+    from aegis.api.security import principal
+    from aegis.core.tenancy import Scope
+    from aegis.main import app
+    from aegis.api.security import Principal
+
+    with TestClient(app) as client:
+        # A principal with WRITE but not ADMIN must be turned away.
+        app.dependency_overrides[principal] = lambda: Principal(
+            "default", {Scope.READ, Scope.WRITE})
+        try:
+            refused = client.post("/api/v1/mesh/attack", json={"kind": "honest"})
+        finally:
+            app.dependency_overrides.pop(principal, None)
+    assert refused.status_code == 403, refused.text
+
+
+def test_the_probe_does_not_teach_the_node_a_real_device_name():
+    """Trust-on-first-use is permanent, so a drill must not occupy a name.
+
+    The probe identities were `edge-victim` and `edge-attacker`, learned into
+    the node's real key store. Any fleet that ever shipped a device by one of
+    those names would have found it refused forever, by a demo.
+    """
+    from fastapi.testclient import TestClient
+
+    from aegis.main import app
+
+    with TestClient(app) as client:
+        client.post("/api/v1/mesh/attack", json={"kind": "honest"})
+        known = client.get("/api/v1/mesh/status").json()["identity"]["known_devices"]
+
+    assert not any(d in ("edge-victim", "edge-attacker") for d in known), known
+    assert any(d.startswith("probe:") for d in known), known
+
+
+def test_a_drill_is_not_counted_as_an_incident():
+    """An operator watching `refused_forged` must be able to tell them apart."""
+    from fastapi.testclient import TestClient
+
+    from aegis.main import app
+
+    with TestClient(app) as client:
+        before = client.get("/api/v1/mesh/status").json()
+        for kind in ("tamper", "impersonate", "unsigned"):
+            assert client.post("/api/v1/mesh/attack", json={"kind": kind}).json()[
+                "accepted"] is False
+        after = client.get("/api/v1/mesh/status").json()
+
+    assert after["refused_forged"] == before["refused_forged"], (
+        "three refused forgeries from a drill moved the counter that reports real ones")
+    assert after["probe_refused"] == before["probe_refused"] + 3
+
+
+def test_a_private_key_is_never_briefly_world_readable(tmp_path):
+    """`write_bytes` then `chmod` leaves a window. The window is enough.
+
+    Checked by watching the mode from the moment the file appears rather than
+    after the call returns, which is what a local attacker would be doing.
+    """
+    import os
+    import threading
+
+    from aegis.sync.identity import write_private_key
+
+    target = tmp_path / "key.pem"
+    temp = target.with_suffix(".pem.tmp")
+    seen: list[int] = []
+    stop = threading.Event()
+
+    def watch():
+        while not stop.is_set():
+            for path in (temp, target):
+                try:
+                    seen.append(os.stat(path).st_mode & 0o777)
+                except FileNotFoundError:
+                    pass
+
+    watcher = threading.Thread(target=watch, daemon=True)
+    watcher.start()
+    for _ in range(40):
+        write_private_key(target, b"-----BEGIN PRIVATE KEY-----\nnot a real key\n")
+    stop.set()
+    watcher.join(timeout=5)
+
+    assert seen, "the watcher never caught the file existing"
+    assert all(mode == 0o600 for mode in seen), sorted(set(seen))
+
+
+def test_a_failed_key_write_leaves_nothing_behind():
+    """A half-written key that a later boot would load is worse than no key."""
+    import pathlib
+
+    from aegis.sync.identity import write_private_key
+
+    with pytest.raises(Exception):
+        write_private_key(pathlib.Path("/proc/nonexistent/key.pem"), b"x")

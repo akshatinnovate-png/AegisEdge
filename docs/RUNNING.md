@@ -101,7 +101,7 @@ with the uplink down.
 
 ```bash
 cd backend
-python3 -m pytest -q                           # 319 tests
+python3 -m pytest -q                           # 344 tests
 python3 scripts/audit_determinism.py           # the determinism lint
 python3 scripts/simulate.py --seeds 200        # the simulator, ~2 min
 python3 scripts/simulate.py --seeds 200 --unsigned --no-shrink \

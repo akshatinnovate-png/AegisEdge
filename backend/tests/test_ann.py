@@ -223,13 +223,25 @@ def test_cost_model_calibration_is_reproducible():
     takes the noise floor instead of whatever the scheduler was doing. The
     absolute number is a property of the device; its *stability* is a property
     of the code, and that is what is asserted.
+
+    Compared as medians of five rather than two single samples, because this
+    test runs inside a suite that is itself loading the machine. Measured idle,
+    eight consecutive calibrations spread 1.13x; measured against a busy box,
+    two samples can differ by more than two, which failed this test for a
+    reason that had nothing to do with the code. A median of five survives
+    that, and still catches the 2.75x swing the original defect produced.
     """
+    from statistics import median
+
     from aegis.memory.ann import CostModel
 
-    first = CostModel().calibrate(dim=256, sample=2048)
-    second = CostModel().calibrate(dim=256, sample=2048)
-    ratio = second.hnsw_crossover / max(first.hnsw_crossover, 1)
-    assert 0.5 < ratio < 2.0, (first.hnsw_crossover, second.hnsw_crossover)
+    def sample() -> float:
+        return median(CostModel().calibrate(dim=256, sample=2048).hnsw_crossover
+                      for _ in range(5))
+
+    first, second = sample(), sample()
+    ratio = max(first, second) / max(min(first, second), 1)
+    assert ratio < 2.0, (first, second, ratio)
 
 
 def test_the_cost_model_has_the_shape_a_cost_model_must_have():
