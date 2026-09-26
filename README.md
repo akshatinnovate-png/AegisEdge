@@ -25,7 +25,7 @@ running console by `backend/scripts/capture_gif.py`; the button is in
 |---|---|
 | **1,599 q/s** unique, **6,176 q/s** repeated | on four cores, no GPU |
 | **60 writes acknowledged, SIGKILL, 60 recovered, 0 lost** | WAL replay in 126 ms |
-| **0 invariant failures across a 3,000-execution sweep** | 8.2 fleet-days, ~2M operations |
+| **0 invariant failures across a 3,000-execution sweep** | 8.1 fleet-days, 1.73M operations |
 
 Nothing here is mocked. Real pretrained weights compiled to ONNX at first boot,
 real Qdrant, real ONNX Runtime. The node ships **empty** — whatever you see, you

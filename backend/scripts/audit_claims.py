@@ -72,7 +72,12 @@ CLAIMS = [
     Claim("README.md", lambda d: f"{d['executions']:,}-execution",
           "testlogs/simulation.json",
           "the size of the signed sweep"),
-    Claim("README.md", lambda d: f"{d['fleet_days']:.1f} fleet-days",
+    # Derived from `simulated_seconds`, the way the script that wrote the file
+    # derives it — not from the stored `fleet_days`, which is already rounded
+    # to two places and rounds again to a different first place. The audit
+    # caught that on itself: 8.15 stored, "8.1" printed by the script, "8.2"
+    # expected by the checker, and neither of them wrong about the number.
+    Claim("README.md", lambda d: f"{d['simulated_seconds'] / 86400.0:,.1f} fleet-days",
           "testlogs/simulation.json",
           "how much simulated time that was"),
     Claim("docs/ENGINEERING.md", lambda d: f"invariant failures   {len(d['failures'])} of "

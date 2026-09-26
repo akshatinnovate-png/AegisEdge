@@ -3,10 +3,10 @@
   "steps": 400,
   "peers": 6,
   "signed": true,
-  "real_seconds": 4456.22,
-  "simulated_seconds": 704173.9,
+  "real_seconds": 5201.86,
+  "simulated_seconds": 703818.8,
   "fleet_days": 8.15,
-  "operations": 1973405,
+  "operations": 1733206,
   "failures": [],
   "claim": "no counterexample in these executions; this samples the space of orderings rather than covering it"
 }

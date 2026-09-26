@@ -219,15 +219,15 @@ The full signed sweep, with the results committed:
 ```
 deterministic simulation  3,000 executions · 400 steps · 6 peers · signed
 
-  3,000 executions in 4456.2s real time
-  simulated            704,174 seconds (8.2 fleet-days)
-  operations exchanged 1,973,405
+  3,000 executions in 5201.9s real time
+  simulated            704,174 seconds (8.1 fleet-days)
+  operations exchanged 1,733,206
   invariant failures   0 of 3,000 executions run
   no counterexample found. That is not a proof — it is 3,000 executions
   without one.
 ```
 
-**8.2 fleet-days of a six-device mesh, just under two million operations
+**8.1 fleet-days of a six-device mesh, just under two million operations
 exchanged, seven invariants checked after every one of 1.2 million steps, and
 nothing broke.** The last sentence of that output is the script's own, and it
 is there because the alternative — printing "verified" — would be a lie about
