@@ -18,7 +18,7 @@ paths are all relative to the repository root.
 ```bash
 git clone https://github.com/akshatinnovate-png/AegisEdge.git
 cd AegisEdge
-pip install -r backend/requirements.txt
+pip install -r backend/requirements.txt          # add -dev for the tests
 ```
 
 That pulls the pretrained weights and Qdrant with it. **Nothing is downloaded

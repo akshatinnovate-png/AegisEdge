@@ -20,5 +20,12 @@ qdrant-client>=1.9
 # Platform telemetry for the thermal/power governor.
 psutil>=5.9
 
+# Device identity: Ed25519 signing over every operation, and the fleet
+# enrolment certificates. Not optional — aegis.node imports it at start-up, so
+# a node without it does not boot. It was briefly missing from this file, which
+# nothing caught locally because it was already installed; CI on a clean
+# machine found it in fourteen seconds.
+cryptography>=42
+
 # Optional, auto-detected at runtime:
 # tritonclient[grpc]      # cloud escalation tier (needs a reachable server)

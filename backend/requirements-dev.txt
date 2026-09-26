@@ -1,0 +1,5 @@
+# Everything needed to run the tests, the lints and the harnesses — on top of
+# requirements.txt, which is what a device actually needs to run.
+-r requirements.txt
+
+pytest>=8.0
