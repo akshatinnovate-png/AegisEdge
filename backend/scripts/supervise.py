@@ -46,6 +46,15 @@ def main() -> None:
 
     backend = Path(__file__).resolve().parents[1]
     env = dict(os.environ)
+    # glibc opens up to eight arenas per core by default, and each fragments
+    # on its own. Measured on a 4,000-memory ingest: 43.8 KB of resident set
+    # per memory unbounded against 39.7 with two arenas, for no change in
+    # throughput. It is set here rather than in the node because it has to be
+    # in the environment before the process starts — libc reads it once.
+    #
+    # `setdefault`, not assignment: an operator who has tuned this for their
+    # own hardware should not have it overwritten by a default.
+    env.setdefault("MALLOC_ARENA_MAX", "2")
     if args.data_dir:
         env["AEGIS_DATA_DIR"] = args.data_dir
     if args.node_id:

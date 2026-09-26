@@ -114,6 +114,7 @@ python3 scripts/simulate.py --seeds 200 --unsigned --no-shrink \
 python3 scripts/bench.py                       # index recall and latency
 python3 scripts/repro_growth.py                # the one open defect, in two arms
 python3 scripts/scale_probe.py --to 10000      # the cost of a memory as the corpus grows
+python3 scripts/memory_breakdown.py            # ...and where that cost goes
 ```
 
 The node also checks the simulator's invariants against itself while it runs.
@@ -880,6 +881,67 @@ bound, and compaction — dropping bodies that the store can rebuild, keeping
 ids for idempotency — is the obvious next step and is not done.
 
 Reproduce the curve with `backend/scripts/scale_probe.py`.
+
+---
+
+## 3.6 Where a memory's resident cost actually goes
+
+§3.5 ends with a number rather than an explanation: a memory costs about
+50 KB of resident set, and the vectors now account for 2 KB of it. That is an
+uncomfortable place to leave a scale claim, so the rest was attributed.
+
+```bash
+cd backend && python3 scripts/memory_breakdown.py --count 6000
+```
+
+Ingest six thousand memories, then walk the node's own structures. A shared
+`seen` set runs across every subsystem, so an object two of them reference is
+charged once — which makes the individual rows approximate and the total
+sound, the right way round for this question.
+
+| | | per memory |
+|---|---:|---:|
+| vector index | 32.2 MB | 5.2 KB |
+| operation log | 19.6 MB | 3.2 KB |
+| `store.points` | 15.7 MB | 2.6 KB |
+| query understanding | 7.9 MB | 1.3 KB |
+| embedder geometry | 5.0 MB | 0.8 KB |
+| op log index, graph, mesh, merkle, sparse, cache | 3.4 MB | 0.5 KB |
+| **attributed** | **83.9 MB** | **13.7 KB** |
+| **unattributed — native, invisible to Python** | **203.7 MB** | **33.2 KB** |
+
+Three candidates were then removed one at a time and measured:
+
+| Removed | Resident change |
+|---|---:|
+| Embedded Qdrant's upsert (internal store write kept) | 2.9 KB/memory |
+| glibc arenas capped at two (`MALLOC_ARENA_MAX=2`) | 4.1 KB/memory |
+| `malloc_trim(0)` after the ingest | 1.6 KB/memory |
+
+**None of them is the bulk.** Roughly 25 KB per memory is native, grows with
+the corpus, and is not yet accounted for. That is written here because a scale
+section that reported only the things it had explained would be describing a
+different system than the one that runs.
+
+### What changed as a result
+
+`MALLOC_ARENA_MAX=2` is now set by `scripts/supervise.py` before the node
+starts — it has to be in the environment first, because libc reads it once.
+Measured on a 4,000-memory ingest: **43.8 KB per memory unbounded against 39.7
+with two arenas**, for no change in throughput. It is a `setdefault`, so an
+operator who has tuned it for their own hardware keeps their value.
+
+### What did not change, and why
+
+The operation log retains every write forever, so that a peer which has been
+offline for a month can still reconcile. Compacting it — dropping bodies the
+store can rebuild, keeping ids for idempotency — was the obvious next move and
+was the plan until this table existed. At **3.2 KB of 46.8**, it would buy
+about seven per cent, in exchange for a change to the part of the system that
+signatures, gossip and the `bodies-intact` invariant all depend on.
+
+Measuring first turned a confident plan into a bad trade. It stays on the open
+list, honestly sized.
 
 ---
 
@@ -1657,7 +1719,10 @@ Point it at a live backend:
 - [x] **Vectors stored as float32, not lists of Python floats** — 8,344 B to 1,136 on a point and 877 in an operation; 1.39x ingest, 2.6x better p95 and 277 MB less resident at ten thousand memories
 - [x] The wire codec no longer edits signed content — it was quantizing `dense` on the way out, so every real upsert carrying a vector failed verification at the receiver and was refused as a forgery
 - [x] `scripts/scale_probe.py` — the marginal cost of a memory, printed as the corpus grows
-- [ ] **Operation log compaction.** The log retains every write forever so a peer offline for a month can still reconcile — a deliberate property with an undeliberate bound. Dropping bodies the store can rebuild, keeping ids for idempotency, is the obvious next step and is not done
+- [x] Resident cost attributed subsystem by subsystem (`scripts/memory_breakdown.py`); embedded Qdrant, glibc arenas and allocator retention each isolated by removal
+- [x] `MALLOC_ARENA_MAX=2` set before the node starts — 43.8 to 39.7 KB per memory for no change in throughput
+- [ ] **~25 KB per memory is native, grows with the corpus, and is not accounted for.** The vector index, operation log, points, Qdrant, glibc arenas and allocator retention together explain about half of it
+- [ ] **Operation log compaction.** Retains every write forever so a peer offline for a month can reconcile — a deliberate property with an undeliberate bound. Measured at 3.2 KB of 46.8, it would buy ~7% in exchange for changing the part signatures, gossip and `bodies-intact` all depend on. Measuring first turned a confident plan into a bad trade
 - [ ] Ingest still decays with corpus size: 67.5 to 48.7 docs/s over ten thousand points, and resident memory still grows at ~50 KB per memory against the ~2 KB the vectors account for
 - [x] Sixteen defects found and fixed — twelve under stress, four under deterministic simulation — regression test each · **319 tests**
 - [x] The index-strategy guard reworked after it was found asserting a property of the *machine* rather than of the code; it now measures the machine and states, in the skip reason, which one it is on
