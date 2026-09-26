@@ -113,6 +113,7 @@ python3 scripts/simulate.py --seeds 200 --unsigned --no-shrink \
         --stop-after 200                       # the control, ~20 s
 python3 scripts/bench.py                       # index recall and latency
 python3 scripts/repro_growth.py                # the one open defect, in two arms
+python3 scripts/scale_probe.py --to 10000      # the cost of a memory as the corpus grows
 ```
 
 The node also checks the simulator's invariants against itself while it runs.
@@ -783,6 +784,102 @@ hardware that is roughly 2.8 KB per query; a node answering ten thousand
 queries a day grows about 28 MB a day. It is not a reason to avoid deploying
 this; it is a reason to restart nodes on a schedule until it is found, and
 that is a sentence an operator can act on.
+
+---
+
+## 3.5 Scale: where it broke, and what it costs now
+
+Every number in §2 was taken on a small corpus. "Edge" does not mean small —
+a body-cam fleet or a factory line generates millions of records — so the
+question is not how fast the node is at two thousand memories but which term
+in its cost grows with the corpus, and how far that carries.
+
+Two terms did, and both were the same mistake in two places.
+
+### A vector stored as a list of Python floats
+
+A 256-dimension vector costs **8,344 bytes** as a `list[float]` and **1,136**
+as a float32 array, because every element is a separate 24-byte object with a
+pointer to it. The node stored one on every `MemoryPoint` — and another,
+uncompressed, inside every `Operation` in a log that is never trimmed.
+
+Measured in one process, on the same vector:
+
+| | bytes | |
+|---|---:|---|
+| list of 256 Python floats | 8,344 | |
+| float32 ndarray | 1,136 | 7.3× |
+| int8 quantized, as an operation body carries it | 877 | 9.5× |
+| **per memory, before** (point list + op list) | **16,688** | |
+| **per memory, after** (point array + op codes) | **2,013** | **8.3×** |
+
+`MemoryPoint.dense` is float32 now. The trap that introduces is worth naming:
+`if point.dense` *raises* on an array of more than one element, so there is
+`has_dense`, and `__post_init__` normalises whatever a caller passes — points
+are built from the wire, from the WAL, from a peer's operation and from tests,
+and any one of those handing over a list would leave a point costing eight
+times what it should.
+
+### What that turned up underneath
+
+Operation bodies now carry the vector already quantized, rather than being
+quantized by the wire codec on the way out. The codec used to do it — a lossy,
+non-round-tripping transform, applied to content that is **signed**.
+
+The vector that was signed was therefore never the vector that arrived. Every
+real upsert carrying a vector failed verification at the receiver and was
+refused as a forgery: a mesh that would have looked, from the inside, like it
+was under attack by its own peers.
+
+Nothing caught it. Not the 332 tests — none had signed a body with a vector in
+it. Not the deterministic simulator — its operations carry text and a
+sensitivity label and no vector at all. It surfaced from a test written to
+check a *memory* saving, which is not where anybody would have gone looking.
+
+The fix is a principle rather than a patch: **the codec compresses, it does
+not edit.** Quantizing happens where the operation is built, which is the only
+place it can happen without the signature and the wire disagreeing. The wire
+is the same size it was; what changed is that what a peer checks is what the
+author signed.
+
+One number in the old codec test was flattering itself, and is now honest. It
+asserted a compression ratio above 5×, reachable only because `raw_bytes` was
+measured *before* the lossy transform and `wire_bytes` after it. Against the
+same content the ratio is 2.2×, and an operation carrying a 256-dimension
+vector costs about **325 bytes** on the wire.
+
+### The curve
+
+Identical methodology either side — ingest to 10,000 points, 2,500 at a time,
+sampling ingest rate, query latency and resident set at each step. This
+isolates the operation-body change; the float32 point change is in both arms.
+
+| Points | | ingest | query p50 | query p95 | resident |
+|---|---|---:|---:|---:|---:|
+| 2,500 | before | 59.9 /s | 19.8 ms | 27.8 ms | 455 MB |
+| | after | **67.5 /s** | 19.9 ms | **27.1 ms** | **385 MB** |
+| 5,000 | before | 55.4 /s | 23.7 ms | 34.4 ms | 629 MB |
+| | after | **58.4 /s** | **22.1 ms** | **33.1 ms** | **514 MB** |
+| 7,500 | before | 42.4 /s | 30.5 ms | 55.8 ms | 817 MB |
+| | after | **53.3 /s** | **28.9 ms** | **33.3 ms** | **602 MB** |
+| 10,000 | before | 35.0 /s | 64.6 ms | 170.9 ms | 1,041 MB |
+| | after | **48.7 /s** | **36.3 ms** | **64.9 ms** | **764 MB** |
+
+**At ten thousand memories: 1.39× the ingest rate, 2.6× better p95, and 277 MB
+less resident.** The marginal cost of a memory fell from 78.1 KB to 50.5 KB.
+
+### What is still true
+
+Ingest still decays with corpus size — 67.5 to 48.7 docs/s over ten thousand
+points — and resident memory still grows at 50 KB per memory, which is far
+more than the 2 KB the vectors now account for. Both are real and neither is
+fixed. The remaining bulk is the operation log, which no process trims: it
+retains every write forever so that a peer which has been offline for a month
+can still reconcile. That is a deliberate property with an undeliberate
+bound, and compaction — dropping bodies that the store can rebuild, keeping
+ids for idempotency — is the obvious next step and is not done.
+
+Reproduce the curve with `backend/scripts/scale_probe.py`.
 
 ---
 
@@ -1557,6 +1654,11 @@ Point it at a live backend:
 - [x] Triton escalation tier (client + policy; needs a live endpoint to light up)
 - [ ] Qdrant Edge wheel pinned in CI (adapter is in, falls back to the native store)
 - [x] Nine-phase stress battery (`scripts/stress.py`) — the numbers in Appendix 1 come from it
+- [x] **Vectors stored as float32, not lists of Python floats** — 8,344 B to 1,136 on a point and 877 in an operation; 1.39x ingest, 2.6x better p95 and 277 MB less resident at ten thousand memories
+- [x] The wire codec no longer edits signed content — it was quantizing `dense` on the way out, so every real upsert carrying a vector failed verification at the receiver and was refused as a forgery
+- [x] `scripts/scale_probe.py` — the marginal cost of a memory, printed as the corpus grows
+- [ ] **Operation log compaction.** The log retains every write forever so a peer offline for a month can still reconcile — a deliberate property with an undeliberate bound. Dropping bodies the store can rebuild, keeping ids for idempotency, is the obvious next step and is not done
+- [ ] Ingest still decays with corpus size: 67.5 to 48.7 docs/s over ten thousand points, and resident memory still grows at ~50 KB per memory against the ~2 KB the vectors account for
 - [x] Sixteen defects found and fixed — twelve under stress, four under deterministic simulation — regression test each · **319 tests**
 - [x] The index-strategy guard reworked after it was found asserting a property of the *machine* rather than of the code; it now measures the machine and states, in the skip reason, which one it is on
 - [x] RaBitQ cold tier — unbiased estimator, per-vector error bound, bound-driven rescore depth
