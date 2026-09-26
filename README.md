@@ -127,6 +127,13 @@ a pure function of one integer. The chain is the point:
 
 Each fix found the next bug. None was reachable by load testing.
 
+Then a **security pass over that same work** — written by the person who had
+just argued it was sound — found five more, two of them remotely exploitable:
+a decompression bomb on the unauthenticated peer endpoint (a 51 KB request
+allocated 50 MB), the same class again in the digest handler (one JSON integer
+worth 69 MB), and a demo route that was the only unauthenticated write in the
+API.
+
 The same seven invariants the simulator checks now run **against the live
 node**, every two seconds, on a rolling budget — `/api/v1/integrity/invariants`
 reports assertions beside violations.

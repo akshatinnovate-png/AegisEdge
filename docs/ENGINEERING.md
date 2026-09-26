@@ -685,3 +685,102 @@ list, honestly sized.
 
 ---
 
+---
+
+## 3.7 Reviewing my own security work
+
+The signing, the enrolment and the live invariants were written by the same
+person who then wrote the section saying they were sound. That is the
+arrangement under which bugs survive, so this is a pass over that code with the
+opposite intent: assume it is wrong, and find where.
+
+It found five things. Two of them are remotely exploitable.
+
+### A decompression bomb, on an unauthenticated endpoint
+
+`/api/v1/mesh/exchange` has no credential, by design — a peer device has to be
+able to reach it — and it handed the frame straight to `zlib.decompress` with
+no bound on the output.
+
+```
+wire bytes an attacker sends: 50,976
+peak RSS grew 50 MB from a 50,976-byte request
+```
+
+**About a thousandfold**, which makes a 5 MB request worth 5 GB. Anyone able to
+open a socket to the node could exhaust it. The limits are now 8 MB on the wire
+and 16 MB expanded, checked before decoding rather than after, using
+`decompressobj(...).decompress(data, max_length)` so the expansion stops at the
+ceiling instead of completing and then being measured. The same request now
+allocates nothing.
+
+A bound that also breaks anti-entropy would be the worse bug, so there is a
+test that a real 400-operation frame — each carrying a 256-dimension vector —
+still round-trips inside the limit.
+
+### The same class again, one handler over
+
+The digest handler took its table size from the peer:
+
+```python
+cells = int(payload.get("cells", 128))
+table = IBLT(cells).insert_many(mine.keys())
+```
+
+`{"cells": 3000000}` allocated 69 MB, linearly in the number. The fix is not a
+magic constant but the observation that **a difference table never needs more
+cells than the set it is reconciling** — so the request is bounded by what this
+node could actually fill, and by an absolute ceiling above that. A request for
+100 million cells now builds 128.
+
+Finding the first bug is worth less than finding its class. The fetch handler's
+`op_ids` list was unbounded for the same reason and is capped the same way.
+
+### The attack route was the one unauthenticated write in the API
+
+§3.2's demonstration — mount the simulator's attacks against the live node from
+the browser — shipped without a scope guard, while every other write in the API
+had one. A route whose entire purpose is to hand a node something a peer should
+not be able to hand it, and which teaches that node a key on the way, is a poor
+choice for the exception. It requires `ADMIN` now, and a test asserts that a
+principal holding `WRITE` is refused.
+
+### The probe was squatting real device names
+
+Its identities were `edge-victim` and `edge-attacker`, learned into the node's
+**real** trust store. Trust-on-first-use is permanent by design — that is what
+makes it useful — so any fleet that ever shipped a device by one of those names
+would have found it refused forever, by a demo. They are namespaced now, with
+this node's own id, which no real device will present.
+
+### A drill was indistinguishable from an incident
+
+Running the probe moved `refused_forged`: the counter an operator watches to
+learn they are under attack. A drill that looks exactly like an attack in your
+telemetry is worse than no drill, because it teaches people to ignore the
+alarm. Probe effects are accounted separately, and a test fails if three
+refused forgeries from a drill move the incident counter.
+
+### And two smaller ones
+
+Private keys were written and then `chmod`-ed, which leaves a window in which
+they exist at whatever the umask allows — commonly world-readable. For the
+fleet root — whoever holds it can enrol a device into the fleet, that window
+is worth closing. They are created with the mode already set, atomically. The
+test watches the file from the moment it appears rather than checking after the
+call returns, because after the call returns is exactly when the old code
+looked correct.
+
+And one of these tests was itself flaky. The calibration-stability guard
+compared two single timing samples: fine on an idle machine — eight consecutive
+runs spread 1.13× — and unreliable on the loaded one that the test suite itself
+creates. It compares medians of five now, which survives four deliberate CPU
+burners and still catches the 2.75× swing the original defect produced.
+
+### What this says about the rest
+
+Five findings in code written carefully, by someone who had just finished
+arguing it was correct. The honest conclusion is not that the code is now
+clean; it is that a second pass with adversarial intent is worth more than a
+first pass with careful intent, and that nothing here has had a *third*.
+
