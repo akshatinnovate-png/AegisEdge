@@ -304,9 +304,13 @@ async function refreshMeshIdentity() {
     const id = mesh.identity || {};
     P("atkDevice").textContent = id.device_id || "—";
     P("atkKeys").textContent = (id.known_devices || []).length || "—";
-    P("atkVerified").textContent = mesh.verified_ops ?? "—";
-    P("atkForged").textContent = mesh.refused_forged ?? "—";
-    P("atkPolicy").textContent = mesh.refused_inbound ?? "—";
+    // The *drill's* counters, not the incident ones. A probe deliberately no
+    // longer moves `refused_forged` — an operator watching that number has to
+    // be able to tell an exercise from an attack — so reading it here would
+    // show zero forever and make the panel look broken.
+    P("atkVerified").textContent = mesh.probe_verified ?? "—";
+    P("atkForged").textContent = mesh.probe_refused ?? "—";
+    P("atkPolicy").textContent = mesh.refused_forged ?? "—";
   } catch {
     ["atkDevice", "atkKeys", "atkVerified", "atkForged", "atkPolicy"]
       .forEach((k) => { P(k).textContent = "—"; });
