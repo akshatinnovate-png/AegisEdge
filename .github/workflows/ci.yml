@@ -41,6 +41,10 @@ jobs:
         # that produced them. It found drift on its first run.
         run: python3 scripts/audit_claims.py
 
+      - name: STATISTICS.md matches the repository
+        working-directory: backend
+        run: python3 scripts/statistics.py --check
+
       - name: Tests
         working-directory: backend
         run: python3 -m pytest -q

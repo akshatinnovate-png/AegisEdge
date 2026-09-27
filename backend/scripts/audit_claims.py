@@ -87,6 +87,31 @@ CLAIMS = [
 ]
 
 
+def duplicated_documents() -> list[str]:
+    """Appendix 2 reproduces backend/README.md, and the docs/ modules
+    reproduce the README's sections. Both are deliberate — the README is meant
+    to be readable in one pass, and the modules are meant to be linkable — and
+    both are how two copies of the same paragraph end up disagreeing.
+
+    So the copies are checked. Each `## ` section of every docs/ module must
+    appear in the README, and backend/README.md must appear in it whole.
+    """
+    problems: list[str] = []
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    backend = (ROOT / "backend/README.md").read_text(encoding="utf-8").strip()
+    if backend not in readme:
+        problems.append("Appendix 2 no longer matches backend/README.md")
+
+    for module in sorted((ROOT / "docs").glob("*.md")):
+        body = module.read_text(encoding="utf-8")
+        for heading in [line for line in body.splitlines() if line.startswith("## ")]:
+            if heading not in readme:
+                problems.append(f"{module.name} has a section the README does not: "
+                                f"{heading.strip()!r}")
+    return problems
+
+
 def main() -> int:
     print(f"{O}{B}documentation claims{R}  {len(CLAIMS)} checked against committed artefacts\n")
     failures = 0
@@ -97,6 +122,12 @@ def main() -> int:
         else:
             failures += 1
             print(f"  {O}DRIFT{R} {claim.describe}\n        {problem}")
+    for problem in duplicated_documents():
+        failures += 1
+        print(f"  {O}DRIFT{R} a copy has diverged from its source\n        {problem}")
+    if not failures:
+        print(f"  {G}ok{R}    the README, the docs modules and the backend README agree")
+
     print()
     if failures:
         print(f"{O}{B}{failures} claim(s) no longer match the results they came from.{R}")
