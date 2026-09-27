@@ -8,6 +8,7 @@ silently swapped.
 """
 from __future__ import annotations
 
+import time
 import uuid
 from pathlib import Path
 from typing import Any, Protocol
@@ -18,7 +19,12 @@ from .ann import CostModel
 from .filters import Filter
 from .index import CollectionIndex
 from .planner import PlanKind, QueryPlan
+from .qdrant_native import DENSE, HybridPath, NativePlan
 from .schema import MemoryPoint, Tier
+
+# Imported for the bake-off only: the native path fuses in the engine, so the
+# control needs the interpreter's fusion to compare against.
+from ..retrieval.fusion import reciprocal_rank_fusion
 
 
 class VectorStore(Protocol):
@@ -174,33 +180,33 @@ class StorageLocked(RuntimeError):
 
 
 class QdrantStore(NativeStore):
-    """Qdrant as the system of record, the adaptive index as the query path.
+    """Qdrant as the system of record *and* as the query engine.
 
-    Two honest choices are encoded here.
+    Every collection is provisioned with the shape the whole hybrid pipeline
+    needs: a named `dense` vector, a `lex` sparse vector, and — when the late
+    budget is paid for — a `late` multivector with a MAX_SIM comparator. That
+    means one `query_points` call can do dense recall, sparse recall, rank
+    fusion and late-interaction rerank inside the engine, which is what
+    `search_native()` does. See `qdrant_native.HybridPath`.
 
-    First, Qdrant owns persistence and the collection API — real `PointStruct`
-    upserts, real payloads, real filters — so the same adapter that runs
-    against an embedded instance runs against a Qdrant Server by changing one
-    setting.
+    The local adaptive index stays, and it is not decoration. Two reasons.
+    It is the control: `bake_off()` runs the same queries down both paths and
+    compares neighbours, ranking and latency, so "Qdrant is faster here" is a
+    measurement rather than a slogan. And it is the answer for what the engine
+    refuses — a filter with no faithful Qdrant form, a collection still on the
+    old single-vector schema — where the native path *declines* instead of
+    quietly answering a different question.
 
-    Second, the hot query path stays on the local adaptive index. The embedded
-    client's local mode is a pure-Python implementation intended for
-    development; this node's own index has a calibrated HNSW and an OPQ/IVF-PQ
-    tier, so routing hot queries through local mode would be slower and less
-    accurate. Against a real server the engine is Rust and that trade flips —
-    `search_remote()` exists for exactly that, and `verify_agreement()` proves
-    the two paths return the same neighbours rather than asking anyone to
-    assume it.
-
-    The active backend is reported verbatim in `/health`: `qdrant-server` when
-    a URL is configured, `qdrant-local` when embedded.
+    Which path a query took is reported per query, and the active backend
+    verbatim in `/health`: `qdrant-server` when a URL is configured,
+    `qdrant-local` when embedded.
     """
 
     def __init__(self, dim: int, collections: tuple[str, ...], path: str,
-                 url: str | None = None, api_key: str | None = None) -> None:
+                 url: str | None = None, api_key: str | None = None,
+                 late_tokens: int = 0) -> None:
         super().__init__(dim, collections, path)
         from qdrant_client import QdrantClient
-        from qdrant_client.models import Distance, VectorParams
 
         self.url = url
         if url:
@@ -225,24 +231,15 @@ class QdrantStore(NativeStore):
             self.backend = "qdrant-local"
 
         self.collections = collections
-        for name in collections:
-            if not self.client.collection_exists(name):
-                self.client.create_collection(
-                    collection_name=name,
-                    vectors_config=VectorParams(size=dim, distance=Distance.COSINE),
-                )
-        # Payload indexes are a server feature; local mode filters without them.
-        if url:
-            for name in collections:
-                for field_name, schema in (("ts", "float"), ("sensitivity", "keyword"),
-                                           ("tenant_id", "keyword"), ("model_version", "keyword")):
-                    try:
-                        self.client.create_payload_index(name, field_name=field_name,
-                                                         field_schema=schema)
-                    except Exception:
-                        pass                    # already present
+        self.hybrid = HybridPath(self.client, dim, collections, late_tokens=late_tokens,
+                                 server=bool(url))
+        self.provisioning = self.hybrid.provision()
+        self.late_provider = None               # set by the node when it has a reranker
         self.upserts = 0
         self.remote_searches = 0
+        self.native_searches = 0
+        self.native_refusals = 0
+        self.last_plan: NativePlan | None = None
 
     @staticmethod
     def _qdrant_id(point_id: str) -> str:
@@ -254,10 +251,19 @@ class QdrantStore(NativeStore):
         from qdrant_client.models import PointStruct
 
         payload = {**self._payload_of(point), "aegis_id": point.id, "text": point.text}
+        if self.hybrid.native(point.collection):
+            late = None
+            if self.late_provider is not None and self.hybrid.late_tokens:
+                try:
+                    late = self.late_provider(point.text)
+                except Exception:
+                    late = None                 # a missing residual degrades rank, not writes
+            vector = self.hybrid.vector_of(point.dense, point.sparse, late)
+        else:
+            vector = point.dense_list()         # a collection still on the old schema
         self.client.upsert(
             collection_name=point.collection,
-            points=[PointStruct(id=self._qdrant_id(point.id),
-                                vector=point.dense_list(), payload=payload)],
+            points=[PointStruct(id=self._qdrant_id(point.id), vector=vector, payload=payload)],
         )
         self.upserts += 1
 
@@ -279,14 +285,122 @@ class QdrantStore(NativeStore):
         merged: list[tuple[str, float]] = []
         for name in targets:
             try:
-                hits = self.client.query_points(collection_name=name,
-                                                query=list(np.asarray(query, dtype=np.float32)),
-                                                limit=k, with_payload=True).points
+                hits = self.client.query_points(
+                    collection_name=name,
+                    query=np.asarray(query, dtype=np.float32).tolist(),
+                    using=DENSE if self.hybrid.native(name) else None,
+                    limit=k, with_payload=True).points
             except Exception:
                 continue
             merged.extend((h.payload.get("aegis_id", str(h.id)), float(h.score)) for h in hits)
         merged.sort(key=lambda row: -row[1])
         return merged[:k]
+
+    def migrate_schema(self, points: list[MemoryPoint], force: bool = False) -> dict[str, Any]:
+        """Move a legacy single-vector collection onto the hybrid schema.
+
+        Recreating a collection deletes it first, which is only safe because
+        Qdrant is not the only copy: every memory is also in the write-ahead
+        log and the local index, and `points` is that copy being handed back.
+        The guard is the part that matters — if Qdrant holds more points for a
+        collection than the caller is offering to rewrite, the difference is
+        data only Qdrant has, and this refuses rather than deleting it.
+
+        `force` overrides that refusal, and says in the report that it did.
+        """
+        from qdrant_client.models import SparseVectorParams
+
+        report: dict[str, Any] = {"migrated": [], "skipped": [], "refused": [], "points": 0}
+        by_collection: dict[str, list[MemoryPoint]] = {}
+        for point in points:
+            by_collection.setdefault(point.collection, []).append(point)
+
+        for name in self.collections:
+            if self.hybrid.schema.get(name, "").startswith("hybrid"):
+                report["skipped"].append({"collection": name, "reason": "already hybrid"})
+                continue
+            mine = by_collection.get(name, [])
+            try:
+                held = int(getattr(self.client.get_collection(name), "points_count", 0) or 0)
+            except Exception:
+                held = 0
+            if held > len(mine) and not force:
+                report["refused"].append({
+                    "collection": name, "in_qdrant": held, "offered": len(mine),
+                    "reason": ("Qdrant holds points this migration was not given; "
+                               "recreating would delete them"),
+                })
+                continue
+            self.client.delete_collection(name)
+            self.client.create_collection(
+                collection_name=name,
+                vectors_config=self.hybrid._vectors_config(),
+                sparse_vectors_config={"lex": SparseVectorParams()},
+            )
+            self.hybrid.schema[name] = ("hybrid-late" if self.hybrid.late_tokens else "hybrid")
+            for point in mine:
+                self.upsert(point)
+            report["migrated"].append({"collection": name, "rewritten": len(mine),
+                                       "was_holding": held, "forced": bool(force and held > len(mine))})
+            report["points"] += len(mine)
+        self.hybrid._index_payloads()
+        report["schema"] = dict(self.hybrid.schema)
+        return report
+
+    def search_native(self, collection: str, dense: np.ndarray, sparse: dict[int, float],
+                      k: int, *, fetch: int | None = None, spec: Filter | None = None,
+                      late: np.ndarray | None = None, mode: str = "hybrid",
+                      ) -> tuple[list[tuple[str, float]], NativePlan]:
+        """Run the whole hybrid pipeline in the engine, in one call.
+
+        On a refusal the hits are empty and `plan.fell_back` says why; the
+        caller must read that flag rather than the list, because "the engine
+        declined" and "there are no matching memories" are different answers
+        and conflating them is how a filtered search quietly goes wrong.
+        """
+        hits, plan = self.hybrid.query(collection, dense, sparse, k, fetch=fetch,
+                                       spec=spec, late=late, mode=mode)
+        plan.engine = self.backend
+        self.last_plan = plan
+        if plan.fell_back:
+            self.native_refusals += 1
+        else:
+            self.native_searches += 1
+        return hits, plan
+
+    def bake_off(self, collection: str, dense: np.ndarray, sparse: dict[int, float],
+                 k: int = 5, *, spec: Filter | None = None) -> dict[str, Any]:
+        """The same query down both paths, with the disagreement named.
+
+        Rank-biased overlap is reported alongside plain overlap because the two
+        failure modes are different: the paths can retrieve the same set and
+        order it differently, and for a top-k answer the order is the product.
+        """
+        t0 = time.perf_counter()
+        allow = None
+        if spec is not None and not spec.is_empty():
+            _, allow = self.plan(collection, spec, k)
+        local_hits = self.search_dense(collection, dense, k, allow=allow)
+        local_sparse = self.search_sparse(collection, sparse, k, allow=allow)
+        local_ms = (time.perf_counter() - t0) * 1000
+
+        native_hits, plan = self.search_native(collection, dense, sparse, k, spec=spec)
+        local = [hit.point_id for hit in reciprocal_rank_fusion(local_hits, local_sparse)][:k]
+        native = [pid for pid, _ in native_hits]
+        shared = set(local) & set(native)
+        agreement = len(shared) / max(len(local) or 1, 1)
+        # rank agreement: average, over prefixes, of how much of the local
+        # top-i the engine also put in its top-i
+        prefixes = [len(set(local[:i]) & set(native[:i])) / i
+                    for i in range(1, min(len(local), len(native)) + 1)]
+        return {
+            "k": k, "local": local, "native": native,
+            "overlap": round(agreement, 3),
+            "rank_agreement": round(sum(prefixes) / len(prefixes), 3) if prefixes else 0.0,
+            "local_ms": round(local_ms, 3), "native_ms": round(plan.total_ms, 3),
+            "speedup": round(local_ms / plan.total_ms, 2) if plan.total_ms > 0 else None,
+            "plan": plan.as_dict(), "backend": self.backend,
+        }
 
     def verify_agreement(self, collection: str, query: np.ndarray, k: int = 5) -> dict[str, Any]:
         """Do the local index and Qdrant return the same neighbours?"""
@@ -310,6 +424,10 @@ class QdrantStore(NativeStore):
         report["qdrant"] = {
             "backend": self.backend, "url": self.url,
             "upserts": self.upserts, "remote_searches": self.remote_searches,
+            "native_searches": self.native_searches,
+            "native_refusals": self.native_refusals,
+            "hybrid": self.hybrid.snapshot(),
+            "provisioning": self.provisioning,
             "collections": {
                 name: getattr(self.client.get_collection(name), "points_count", None)
                 for name in self.collections
@@ -320,7 +438,7 @@ class QdrantStore(NativeStore):
 
 def build_store(dim: int, collections: tuple[str, ...], path: str,
                 url: str | None = None, api_key: str | None = None,
-                required: bool = True) -> VectorStore:
+                required: bool = True, late_tokens: int = 0) -> VectorStore:
     """Open the vector store.
 
     Qdrant is a hard requirement by default: a node that silently falls back to
@@ -329,7 +447,7 @@ def build_store(dim: int, collections: tuple[str, ...], path: str,
     `AEGIS_REQUIRE_QDRANT=0` to allow the internal store explicitly.
     """
     try:
-        return QdrantStore(dim, collections, path, url, api_key)
+        return QdrantStore(dim, collections, path, url, api_key, late_tokens)
     except Exception as exc:
         if isinstance(exc, StorageLocked):
             raise

@@ -180,8 +180,13 @@ class EdgeNode:
             understanding=self.understanding,
             adapter=self.adapter if self.settings.learning.enabled else None,
             graph=self.graph, conformal=self.conformal, diversity=self.diversity, slo=self.slo,
-            energy=self.energy,
+            energy=self.energy, query_path=self.settings.qdrant_query_path,
         )
+        # The reranker already computes per-token vectors; when a late budget is
+        # configured, the same call supplies the residual Qdrant stores for
+        # engine-side MaxSim, so nothing is embedded twice.
+        if getattr(self.settings, "qdrant_late_tokens", 0) and hasattr(self.store.store, "hybrid"):
+            self.store.store.late_provider = lambda text: self.reranker.session.token_embeddings(text)[0]
         self.agent = ReasoningAgent(self.pipeline, self.store, self.bus)
 
         # -- renewal

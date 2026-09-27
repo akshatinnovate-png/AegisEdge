@@ -232,3 +232,44 @@ async def test_the_cache_does_not_serve_one_scope_an_answer_from_another(node):
     assert scoped.results == []
     filtered = await node.pipeline.search(query, k=5, filters={"collection": "procedural"})
     assert filtered.results == []
+
+
+@pytest.mark.asyncio
+async def test_a_cached_answer_still_carries_its_confidence_and_its_trace(node):
+    """The fastest answer is the one most likely to be read. It has to explain itself.
+
+    Both cache layers used to return `confidence: {}` and, in the exact layer,
+    `trace: {}` — so asking the same question twice produced a result with no
+    calibrated guarantee and no account of how it was reached. The suite only
+    ever caught it under one test ordering, which is why it is pinned here.
+    """
+    await node.remember("Coolant pressure below 1.8 bar is a hard stop", collection="semantic")
+    first = await node.pipeline.search("coolant pressure hard stop", k=3)
+    assert "guarantee" in first.confidence
+
+    second = await node.pipeline.search("coolant pressure hard stop", k=3)
+    assert second.cached and second.stages.get("cache") == "exact"
+    assert "guarantee" in second.confidence, "a cache hit lost its calibrated guarantee"
+    assert second.confidence["guarantee"] == first.confidence["guarantee"]
+    assert second.trace.get("name") == "search", "a cache hit returned no trace"
+    assert second.diversity == first.diversity
+
+
+@pytest.mark.asyncio
+async def test_sparse_ranking_does_not_penalise_a_long_memory_twice(node):
+    """BM25 weights already normalise length; the scorer must not do it again.
+
+    Found by the Qdrant bake-off: the local sparse index divided by the
+    document's L2 norm on top of the encoder's own length normalisation, so a
+    long memory sank for being long and the engine's ranking — a plain impact
+    dot product — disagreed with ours on a third of the top-k.
+    """
+    long_text = ("valve actuator log: " + " ".join(f"step {i} nominal" for i in range(40))
+                 + " coolant pressure alarm on pump 12")
+    long_id = (await node.remember(long_text, collection="episodic")).id
+    for i in range(10):
+        await node.remember(f"unrelated shift note {i} about the gantry", collection="episodic")
+
+    query = node.sparse.encode("coolant pressure alarm pump 12")
+    hits = node.store.store.search_sparse("episodic", query, 5)
+    assert hits and hits[0][0] == long_id, "the only matching memory lost on length"

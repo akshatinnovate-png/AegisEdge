@@ -84,6 +84,28 @@ CLAIMS = [
                                            f"{d['executions']:,}",
           "testlogs/simulation.json",
           "the signed sweep's result, quoted as the script printed it"),
+    # The bake-off's two headline rows. The latency one is the reason the
+    # router exists; the agreement one is the reason it is allowed to route at
+    # all, since a faster path that answered differently would not be a choice.
+    Claim("README.md", lambda d: f"| latency p50 | **{d['local_ms']['p50']:.2f} ms** | "
+                                 f"{d['native_ms']['p50']:.2f} ms |",
+          "testlogs/qdrant-bakeoff.json",
+          "the bake-off's p50, both paths"),
+    Claim("README.md", lambda d: f"| latency p95 | **{d['local_ms']['p95']:.2f} ms** | "
+                                 f"{d['native_ms']['p95']:.2f} ms |",
+          "testlogs/qdrant-bakeoff.json",
+          "the bake-off's p95, both paths"),
+    Claim("README.md", lambda d: f"same top-5 only **{d['overlap']:.0%}** of the time",
+          "testlogs/qdrant-bakeoff.json",
+          "how often the two paths returned the same answer"),
+    Claim("README.md", lambda d: f"| interpreter's fusion re-run on the engine's RRF constant "
+                                 f"| **{d['same_constant_overlap']:.3f}** |",
+          "testlogs/qdrant-bakeoff.json",
+          "that the difference is entirely the fusion constant"),
+    Claim("docs/ENGINEERING.md", lambda d: f"engine p95 seen               "
+                                           f"{d['router']['engine_p95_ms']:.1f} ms",
+          "testlogs/qdrant-bakeoff.json",
+          "what the router measured, quoted as the script printed it"),
 ]
 
 

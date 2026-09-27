@@ -89,6 +89,15 @@ class Settings:
     require_qdrant: bool = field(default_factory=lambda: _env("require_qdrant", True))
     qdrant_url: str = field(default_factory=lambda: _env("qdrant_url", ""))
     qdrant_api_key: str = field(default_factory=lambda: _env("qdrant_api_key", ""))
+    # Which path runs a hybrid query. "auto" reads the bake-off's finding: the
+    # engine when it is a Qdrant Server, the local adaptive index when Qdrant
+    # is the embedded pure-Python local mode. "engine" and "index" force it,
+    # which is how `scripts/qdrant_bakeoff.py` gets to measure both.
+    qdrant_query_path: str = field(default_factory=lambda: _env("qdrant_query_path", "auto"))
+    # Tokens kept per memory for engine-side MaxSim. 0 means no late vector at
+    # all: a full residual is tokens x dim floats, which at 32 tokens and 256
+    # dimensions is 32 KB per memory against the ~2 KB a memory costs today.
+    qdrant_late_tokens: int = field(default_factory=lambda: _env("qdrant_late_tokens", 0))
     telemetry_interval_s: float = field(default_factory=lambda: _env("telemetry_interval_s", 2.0))
     scheduler_concurrency: int = field(default_factory=lambda: _env("scheduler_concurrency", 3))
     mesh_enabled: bool = field(default_factory=lambda: _env("mesh_enabled", True))

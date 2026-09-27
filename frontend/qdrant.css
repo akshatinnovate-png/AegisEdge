@@ -1,0 +1,98 @@
+/* ============================================================
+   AegisEdge — the Qdrant engine panel
+   The query plan is drawn from the plan the engine returned. When a
+   stage ran in this process rather than in the engine it is drawn
+   outside the engine boundary, because that is where it ran.
+   ============================================================ */
+
+.card--qdrant{position:relative}
+@media(min-width:900px){ .card--qdrant{grid-column:span 6} }
+
+.qd__top{
+  display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;
+  margin:-4px 0 14px;font-size:9.5px;letter-spacing:.16em;color:var(--fg-faint);
+}
+.qd__badge{
+  color:var(--ink);background:var(--o);border-radius:2px;
+  padding:2px 7px;letter-spacing:.18em;font-weight:600;
+}
+.qd__badge--idx{background:transparent;color:var(--o);border:1px solid var(--line)}
+.qd__badge--warn{background:var(--warn);color:var(--ink)}
+
+.qd__body{display:grid;gap:16px;grid-template-columns:1fr}
+@media(min-width:820px){ .qd__body{grid-template-columns:minmax(0,1.35fr) minmax(0,1fr)} }
+
+/* ── the plan graphic ───────────────────────────────────── */
+
+.qd__planwrap{position:relative;border:1px solid var(--line-soft);border-radius:3px;
+  background:linear-gradient(180deg,rgba(255,120,26,.045),transparent 60%);overflow:hidden}
+.qd__plan{display:block;width:100%;height:auto}
+
+.qd-engine{fill:rgba(255,120,26,.045);stroke:var(--o);stroke-width:1;
+  stroke-dasharray:3 4;opacity:.75}
+.qd-engine--idle{stroke:rgba(255,255,255,.14)}
+.qd-engine-label{font:600 7.5px var(--mono);letter-spacing:.22em;fill:var(--o)}
+
+.qd-node rect{fill:rgba(8,6,5,.86);stroke:var(--line);stroke-width:1}
+.qd-node text.t{font:600 8px var(--mono);letter-spacing:.14em;fill:var(--fg)}
+.qd-node text.d{font:400 6.6px var(--mono);letter-spacing:.04em;fill:var(--fg-faint)}
+.qd-node text.ms{font:600 7.5px var(--mono);fill:var(--o-hot)}
+.qd-node.on rect{stroke:var(--o);filter:drop-shadow(0 0 7px rgba(255,120,26,.5))}
+.qd-node.off rect{stroke:rgba(255,255,255,.1);opacity:.5}
+.qd-node.off text{opacity:.55}
+
+.qd-edge{stroke:rgba(255,255,255,.16);stroke-width:1;fill:none}
+.qd-edge.on{stroke:var(--o);stroke-width:1.3}
+.qd-spark{fill:var(--o-hot)}
+
+.qd-flow{
+  stroke:var(--o-hot);stroke-width:1.4;fill:none;stroke-dasharray:5 78;
+  animation:qd-flow 1.5s linear infinite;opacity:.95;
+}
+@keyframes qd-flow{ to{stroke-dashoffset:-83} }
+@media(prefers-reduced-motion:reduce){
+  .qd-flow{animation:none;opacity:0}
+}
+
+.qd__caption{
+  padding:8px 10px 10px;font-size:9.5px;letter-spacing:.06em;color:var(--fg-faint);
+  border-top:1px dashed rgba(255,255,255,.07);
+}
+.qd__caption b{color:var(--fg)}
+
+/* ── the race ───────────────────────────────────────────── */
+
+.qd__race{display:grid;gap:9px;align-content:start}
+.qd__racehead{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.qd__racehead h4{
+  margin:0;font-size:9px;letter-spacing:.22em;color:var(--o);font-weight:500;
+}
+.qd-lane{display:grid;grid-template-columns:78px 1fr 62px;gap:8px;align-items:center;
+  font-size:10px}
+.qd-lane span{color:var(--fg-faint);letter-spacing:.06em}
+.qd-lane b{font-variant-numeric:tabular-nums;text-align:right;color:var(--fg)}
+.qd-lane i{
+  display:block;height:6px;border-radius:2px;width:0;
+  background:linear-gradient(90deg,var(--o-deep),var(--o-hot));
+  box-shadow:0 0 9px rgba(255,120,26,.6);
+  transition:width .7s cubic-bezier(.2,.8,.2,1);
+}
+.qd-lane--idx i{background:linear-gradient(90deg,#1f6b3d,var(--ok));
+  box-shadow:0 0 9px rgba(73,209,122,.45)}
+
+.qd__verdict{
+  font-size:9.5px;letter-spacing:.06em;color:var(--fg-dim);
+  border-left:2px solid var(--o);padding:6px 0 6px 10px;
+}
+.qd__verdict.ok{border-left-color:var(--ok)}
+
+.qd__facethead{
+  margin:10px 0 0;font-size:8.5px;letter-spacing:.2em;color:var(--fg-faint);font-weight:500;
+}
+.qd__facets{display:grid;gap:5px;margin-top:4px}
+.qd-facet{display:grid;grid-template-columns:96px 1fr 38px;gap:8px;align-items:center;
+  font-size:10px}
+.qd-facet span{color:var(--fg-faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qd-facet i{display:block;height:4px;border-radius:2px;width:0;background:var(--o-deep);
+  transition:width .6s ease}
+.qd-facet b{text-align:right;font-variant-numeric:tabular-nums}

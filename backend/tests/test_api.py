@@ -77,7 +77,14 @@ def test_ingest_then_search_finds_it(client):
 
 def test_search_reports_stage_latencies(client):
     body = client.post("/api/v1/search", json={"query": "coolant pressure", "k": 3}).json()
-    assert {"embed_ms", "dense_ms", "sparse_ms", "fusion_ms"} <= set(body["stages"])
+    stages = set(body["stages"])
+    assert "embed_ms" in stages
+    # Recall and fusion are timed by whichever path ran them. The engine runs
+    # all four stages in one `query_points` call and returns one timing for it,
+    # so it reports `engine_ms` and does not invent a per-stage split; the local
+    # index times each stage itself.
+    assert ({"dense_ms", "sparse_ms", "fusion_ms"} <= stages) or ("engine_ms" in stages)
+    assert body["plan"]["engine"]["route"]["path"] in {"engine", "index"}
     assert body["latency_ms"] > 0
 
 

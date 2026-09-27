@@ -36,7 +36,7 @@ into modules for linking, and CI fails if the copies ever disagree:
 
 | | |
 |---|---|
-| [docs/ENGINEERING.md](docs/ENGINEERING.md) | The thirty-one defects, the simulator, signing and enrolment, live invariants, the scale investigation, and two review passes |
+| [docs/ENGINEERING.md](docs/ENGINEERING.md) | The thirty-four defects, the simulator, signing and enrolment, live invariants, the scale investigation, two review passes, and the Qdrant bake-off |
 | [docs/MEASUREMENTS.md](docs/MEASUREMENTS.md) | Every measured number and the harness that produced it |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System shape, feature plan, API surface, and all 104 modules |
 | [docs/RUNNING.md](docs/RUNNING.md) | Install, the three modes, two real devices, and how to check every claim |
@@ -304,7 +304,7 @@ guardrail.
 ## 3. What the stress runs broke
 
 The point of a stress test is the things it breaks. Sixteen of this project's
-thirty-one defects are below, each found by pushing until something gave way
+thirty-four defects are below, each found by pushing until something gave way
 and then reading what actually happened rather than what was supposed to. All
 are fixed, with a regression test each — and one finding that is still open,
 because not finding the cause is also a result.
@@ -1204,6 +1204,182 @@ code has had two.
 
 ---
 
+## 3.9 Making Qdrant the query engine — and measuring whether it should be
+
+Qdrant was the system of record: real collections, real payloads, real
+persistence, and the hot query path deliberately somewhere else. The
+justification was in the docstring and it was not wrong, but it had never been
+tested, and "we assume the library is slower here" is exactly the kind of
+sentence this document is supposed to not contain.
+
+So the whole pipeline was rewritten as one Qdrant call, and then measured
+against the one it replaces.
+
+### Four stages, one call
+
+The node's hybrid retrieval is dense recall, sparse recall, reciprocal rank
+fusion, and a late-interaction rerank. Every one of those is a thing Qdrant
+does natively, so `aegis/memory/qdrant_native.py` expresses all four as a
+single `query_points`:
+
+```
+prefetch(dense, limit=fetch)  ┐
+prefetch(lex,   limit=fetch)  ┴─→ FusionQuery(RRF) ─→ query(late, MaxSim)
+```
+
+Every collection is now provisioned for that shape: a named `dense` vector, a
+`lex` sparse vector, and — when the late budget is paid for — a `late`
+multivector with a `MAX_SIM` comparator, binary-quantized, with its HNSW graph
+disabled because a multivector is only ever reached through a prefetch and a
+graph over it would be built and never traversed.
+
+### The problem with fusing inside the engine
+
+A fused result is one ordering. The engine does not say which half of hybrid
+retrieval found a memory, and "matched by dense and sparse" is one of the few
+things an operator inspecting a result actually wants to know — it is the
+difference between "the wording was close" and "the part number matched".
+
+Asking for the two per-space orderings afterwards would be two more round
+trips, which is the cost the single call was supposed to remove. They ride back
+in the same batch instead: `query_batch_points` sends the fused query and both
+per-space queries as one request, so the attribution costs a larger response
+and no extra trip. `plan.queries_in_call` is 3; `plan.calls` is 1.
+
+### Then the measurement, which said no
+
+`scripts/qdrant_bakeoff.py` runs the same queries down both paths on the same
+corpus. At **2,000 points, 64 queries, k=5**, on the embedded client:
+
+| | local index | qdrant engine |
+|---|---|---|
+| latency p50 | **2.52 ms** | 60.74 ms |
+| latency p95 | **3.73 ms** | 76.46 ms |
+| dense recall@5 vs exact brute force | 1.000 | 1.000 |
+
+The engine is twenty-four times slower here, and this is the expected answer
+rather than a disappointment: the embedded client's local mode is a pure-Python
+implementation intended for development, while this node's own index is a
+calibrated HNSW with a quantized cold tier. Against a Qdrant Server the engine
+is compiled and the four round trips are real, and the trade flips — which is
+why the path exists and why the script is the thing that decides.
+
+### The disagreement, attributed rather than averaged
+
+The two paths returned the same top-5 only **52%** of the time. A number like
+that is worthless on its own: it could be a recall bug, a scoring bug, or
+nothing at all. So the bake-off decomposes it.
+
+| | agreement |
+|---|---|
+| dense space alone | **1.000** |
+| sparse space alone | **1.000** |
+| interpreter's fusion re-run on the engine's RRF constant | **1.000** |
+| engine-side pre-filter vs engine-side unfiltered | **1.000** |
+
+Every stage is identical. The entire top-k difference is the fusion constant:
+Qdrant's RRF is unweighted with a constant of 1, this node's weights dense
+above sparse with a constant of 60. That is a parameter, not a defect, and the
+script's verdict line says so in those words — computed from the table, not
+typed into it.
+
+### Which found a defect in our own sparse scorer
+
+The sparse spaces did not agree at first: **0.717**. The cause was ours. The
+encoder's BM25 weights already carry a length normalisation, and
+`SparseIndex.search` then divided by the document's L2 norm as well — so a long
+memory sank for being long, twice. Qdrant's sparse index computes the impact
+dot product, which is also the textbook BM25 score. Dropping the second
+normalisation moved sparse agreement to **1.000** and is pinned by
+`test_sparse_ranking_does_not_penalise_a_long_memory_twice`.
+
+That is the bake-off paying for itself: a comparison against an independent
+implementation of the same idea found a ranking bug that no self-consistent
+test could have.
+
+### So the node routes, rather than picking a side
+
+`aegis/retrieval/routing.py` sends a query to the engine while the engine's own
+measured p95 leaves room under the query objective — a quarter of it, because
+retrieval is one stage of a request that also embeds, reranks, scores and
+serialises — and to the local index when it does not. A Qdrant Server skips the
+weighing entirely: one call beats four. A degraded node takes the faster path,
+because undercutting the SLO ladder while it sheds features would defeat what
+it is defending. And because a path that stops being used stops being measured,
+one query in thirty-two goes back to the path that lost, so the decision is
+revisited rather than frozen at boot.
+
+Run against the same 2,000-point corpus, 24 live queries through the pipeline
+split like this:
+
+```
+to the engine                    4      the warm-up, while it is being measured
+to the local index              15      once its p95 was known
+recall budget                 37.5 ms   25% of the 150 ms query objective
+engine p95 seen               70.6 ms
+last decision: engine p95 70.6 ms exceeds the 38 ms recall budget
+```
+
+Nineteen, not twenty-four, because five were answered from the semantic cache
+and never reached the router at all.
+
+### Two things the engine is not allowed to be asked
+
+**A filter it cannot express faithfully.** `translate()` maps our filter tree
+onto Qdrant's and returns `None` — meaning *stay on the local index* — for
+anything it cannot express exactly: `CONTAINS`, which reads both substrings and
+list membership in our payloads; `EXISTS`, which is not Qdrant's is-null; a
+negation inside an OR. A native search that quietly dropped a restriction would
+answer a filtered query with unfiltered results, so an untranslatable filter is
+a refusal, never a widening. `plan.fell_back` carries the reason, and the caller
+reads that rather than the empty result list, because "the engine declined" and
+"there are no matching memories" are different answers.
+
+**An allow-set.** When the planner resolves a filter to explicit ids — which is
+how tenancy works — the router is not consulted at all. Qdrant filters on
+payload; it cannot be handed a set of ids to restrict to. That is correctness,
+not latency, and it is pinned by
+`test_a_tenancy_allow_set_is_never_handed_to_the_engine`.
+
+### Late interaction is priced, not enabled
+
+Storing a full ColBERT residual per memory is `tokens × dim` floats: at 128
+tokens and 256 dimensions, 128 KB against the ~2 KB a memory costs today. So
+the late vector is pruned to a token budget — keeping the tokens *furthest*
+from the document's own centroid, since MaxSim's value is carried by a
+document's unusual tokens — binary-quantized, and off by default.
+`AEGIS_QDRANT_LATE_TOKENS=32` turns it on, `/api/v1/qdrant` reports the bytes
+per memory it costs, and the reranker's existing token vectors supply it so
+nothing is embedded twice.
+
+### Migration is deliberate, because a recreate deletes data
+
+A node created before this schema holds one unnamed vector per collection.
+Nothing is silently rewritten at boot: such a collection is classified
+`legacy`, keeps the local-index path, and is left alone.
+`scripts/qdrant_migrate.py --apply` moves it, and it can only do that honestly
+because Qdrant is not the only copy — the write-ahead log and the local index
+hold every memory, and the migration hands them back. If Qdrant holds more
+points for a collection than the node can supply, that difference is data only
+Qdrant has, and the migration refuses to touch that collection unless `--force`
+says otherwise.
+
+### What the console shows
+
+The `QDRANT · QUERY ENGINE` panel draws the plan the engine actually executed:
+the two prefetches, the fusion, the MaxSim stage, and an engine boundary that
+goes dim and releases the stages when the query ran on the local index instead.
+There is no millisecond on any individual stage, because the engine runs all of
+them in one call and returns one timing for it; splitting that total four ways
+would put a number on the screen that nothing measured. `RACE BOTH PATHS` runs
+the bake-off for one query live.
+
+It also says `48 PAYLOAD IDX INERT (LOCAL MODE)` — the embedded client warns
+that payload indexes have no effect there, and reporting them as live would be
+the one lie this console exists to avoid.
+
+---
+
 ## 4. On-device representation learning
 
 The node can fit a better embedding space for its own corpus than the one it
@@ -1511,7 +1687,10 @@ Four properties the diagram is making claims about, each checked by a test:
 | Feature | Detail |
 |---|---|
 | Qdrant is required | Qdrant is a **hard dependency**, embedded by default and reported verbatim in `/health` as `qdrant-local` or `qdrant-server`. A node that silently falls back to an internal store while claiming to be Qdrant-backed is telling its operator something untrue about where their data lives. `AEGIS_REQUIRE_QDRANT=0` allows the internal store *explicitly*. |
-| Two paths, verified to agree | Qdrant owns persistence and the collection API; the local adaptive index serves hot queries. `verify_agreement()` proves the two return the same neighbours instead of asking anyone to assume it — **100% overlap** measured. |
+| The engine runs the pipeline | Dense recall, sparse recall, RRF fusion and MaxSim rerank are **one `query_points` call**, not four stages in Python. The two per-space orderings ride back in the same batch, so "matched by dense and sparse" survives fusing inside the engine without a second round trip. |
+| Two paths, measured against each other | The local adaptive index remains as the control. `scripts/qdrant_bakeoff.py` runs the same queries down both paths: dense, sparse and fusion agree **1.000** stage for stage, and the whole top-k difference is attributable to the fusion constant. It also found a ranking defect in our own sparse scorer. |
+| The node routes on measurement, not opinion | A query goes to the engine while the engine's measured p95 fits a quarter of the query objective, and to the local index when it does not; a Qdrant Server always takes the engine. One query in thirty-two goes back to the losing path, so the decision is revisited rather than frozen at boot. |
+| A refusal is never a widening | A filter with no faithful Qdrant form, and any query the planner resolved to an explicit id set (which is how tenancy works), stays on the local index. `plan.fell_back` carries the reason, and the caller reads that rather than an empty result list. |
 | Same code, server or embedded | `AEGIS_QDRANT_URL=http://host:6333` moves the same adapter onto a Qdrant Server, where the engine is Rust and the trade-off flips. |
 | Single-writer, stated | Embedded Qdrant takes an exclusive lock on its directory. A second node on the same `AEGIS_DATA_DIR` gets a message that says so, not a `BlockingIOError` from three libraries down. |
 | Hybrid vectors | Every point carries a **dense** vector (`bge-small-en-v1.5`, 384d) *and* a **sparse** vector (SPLADE-mini / BM25 fallback) so lexical rare-token matches survive offline. |
@@ -1844,6 +2023,9 @@ local simulation when the backend is absent.
 | `GET` | `/api/v1/space/anisotropy` | Measured conditioning of the stored vectors |
 | `POST` | `/api/v1/space/evaluate` | Score candidate spaces against the shipped one — measures, never arms |
 | `POST` | `/api/v1/space/arm` | Switch a fitted transform on; refused while any vector is still in the old space |
+| `GET` | `/api/v1/qdrant` | The engine: named vectors, collection schemas, which payload indexes are actually live, the routing policy with both paths' measured p95, and the plan the last query executed |
+| `POST` | `/api/v1/qdrant/bakeoff` | Run one query down both paths and report the difference: overlap, rank agreement, and each path's latency |
+| `GET` | `/api/v1/qdrant/facets` | Payload value counts computed by the engine rather than by a scan in this process |
 | `WS` | `/api/v1/stream` | Multiplexed live telemetry, sync events, reasoning traces |
 
 Full surface at `/docs` once the node is running.
@@ -1984,7 +2166,7 @@ Point it at a live backend:
 - [ ] **~25 KB per memory is native, grows with the corpus, and is not accounted for.** The vector index, operation log, points, Qdrant, glibc arenas and allocator retention together explain about half of it
 - [ ] **Operation log compaction.** Retains every write forever so a peer offline for a month can reconcile — a deliberate property with an undeliberate bound. Measured at 3.2 KB of 46.8, it would buy ~7% in exchange for changing the part signatures, gossip and `bodies-intact` all depend on. Measuring first turned a confident plan into a bad trade
 - [ ] Ingest still decays with corpus size: 67.5 to 48.7 docs/s over ten thousand points, and resident memory still grows at ~50 KB per memory against the ~2 KB the vectors account for
-- [x] Thirty-one defects found and fixed — twelve under stress, four under deterministic simulation, five in a security review of that work, ten in a correctness review of it — regression test each · **347 tests**
+- [x] Thirty-four defects found and fixed — twelve under stress, four under deterministic simulation, five in a security review of that work, ten in a correctness review of it, three by racing Qdrant's engine against this node's own index — regression test each · **371 tests**
 - [x] The index-strategy guard reworked after it was found asserting a property of the *machine* rather than of the code; it now measures the machine and states, in the skip reason, which one it is on
 - [x] RaBitQ cold tier — unbiased estimator, per-vector error bound, bound-driven rescore depth
 - [x] Corpus-fitted embedding geometry — streaming covariance, Ledoit–Wolf shrinkage, rank-limited whitening
@@ -2083,8 +2265,10 @@ python3 scripts/demo.py                          # full lifecycle, no server
 python3 scripts/bench.py                         # index recall + latency on this machine
 python3 scripts/stress.py --phases all --out ../testlogs   # the nine-phase battery
 python3 scripts/strategy_bakeoff.py              # flat vs HNSW vs IVF-PQ, same corpus
+python3 scripts/qdrant_bakeoff.py                # the engine's hybrid path vs this node's index
+python3 scripts/qdrant_migrate.py --apply        # move old collections onto the hybrid schema
 python3 scripts/geometry_eval.py                 # embedding-space sweep with ground truth
-python3 -m pytest tests -q                       # 247 tests
+python3 -m pytest tests -q                       # 371 tests
 ```
 
 Open `http://localhost:8000/docs` for the live OpenAPI surface, or point the
@@ -2097,9 +2281,9 @@ frontend at it (it defaults to `http://localhost:8000`).
 | `aegis/node.py` | Composition root — every subsystem is built and supervised here |
 | `aegis/config.py` | All configuration, env-overridable (`AEGIS_*`) |
 | `aegis/core/` | HLC clock, event bus, supervisor, metrics, breaker, backoff, token bucket, QoS scheduler, span tracing, **tenancy**, **SLO ladder**, **swappable ambient environment (virtual clock + seeded RNG)** |
-| `aegis/memory/` | Schema, WAL, quantizers, **RaBitQ cold codes + columnar codebook**, **growable matrices**, HNSW, OPQ / IVF-PQ, adaptive index + cost model, filters & payload index, query planner, memmap cold tier, **immutable segments + manifest**, **fsck/scrub/PITR**, **self-healing repair**, **bitemporal knowledge graph**, Qdrant Edge adapter, compactor, consolidation |
+| `aegis/memory/` | Schema, WAL, quantizers, **RaBitQ cold codes + columnar codebook**, **growable matrices**, HNSW, OPQ / IVF-PQ, adaptive index + cost model, filters & payload index, query planner, memmap cold tier, **immutable segments + manifest**, **fsck/scrub/PITR**, **self-healing repair**, **bitemporal knowledge graph**, **Qdrant hybrid schema and native query path — named dense/sparse/late vectors, engine-side RRF and MaxSim in one call**, compactor, consolidation |
 | `aegis/inference/` | ONNX session + EP ladder, micro-batcher, embedder, **corpus geometry (whitening)**, **token lexicon**, **adaptation gate**, sparse encoder, reranker, classifier, thermal governor, model registry, Triton client |
-| `aegis/retrieval/` | RRF fusion, scoring, namespaced semantic cache, contradiction detection, query understanding (BK-tree, expansion, intent), late interaction (MaxSim), **conformal prediction**, **MMR diversity**, pipeline, agent |
+| `aegis/retrieval/` | RRF fusion, scoring, namespaced semantic cache, contradiction detection, query understanding (BK-tree, expansion, intent), late interaction (MaxSim), **conformal prediction**, **MMR diversity**, **latency-aware routing between the engine and the local index**, pipeline, agent |
 | `aegis/sync/` | CRDT op log, Merkle digests, **IBLT set reconciliation**, **vector clocks + causal delivery**, **P2P gossip mesh**, **Ed25519 device identity + operation signing**, **wire codec**, durable queue, connectivity oracle, transports, conflict arbiter, engine |
 | `aegis/sim/` | **Deterministic simulation** — a virtual world of N peers, weighted fault and Byzantine actions, seven invariants checked after every step |
 | `aegis/learning/` | **On-device retrieval adapter**, **differential privacy**, **federated secure aggregation** |
@@ -2134,6 +2318,8 @@ registry. Subsequent boots load the serialized optimized graph.
 | `AEGIS_QDRANT_URL` | point the store at a Qdrant Server instead of the embedded instance |
 | `AEGIS_CLOUD_URL` | the sync coordinator: a Qdrant URL, or empty for a real embedded Qdrant under `<data_dir>/cloud` |
 | `AEGIS_REQUIRE_QDRANT=0` | explicitly allow the internal store (it will say so in `/health`) |
+| `AEGIS_QDRANT_QUERY_PATH` | `auto` (route on measured latency), `engine` or `index` to pin one path |
+| `AEGIS_QDRANT_LATE_TOKENS` | tokens kept per memory for engine-side MaxSim; `0` (default) stores no late vector |
 | `AEGIS_REQUIRE_AUTH=1` | enforce API keys and tenant resolution on every route |
 | `AEGIS_DATA_DIR` | one node per directory — embedded Qdrant is single-writer |
 

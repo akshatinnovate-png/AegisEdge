@@ -10,8 +10,10 @@ python3 scripts/demo.py                          # full lifecycle, no server
 python3 scripts/bench.py                         # index recall + latency on this machine
 python3 scripts/stress.py --phases all --out ../testlogs   # the nine-phase battery
 python3 scripts/strategy_bakeoff.py              # flat vs HNSW vs IVF-PQ, same corpus
+python3 scripts/qdrant_bakeoff.py                # the engine's hybrid path vs this node's index
+python3 scripts/qdrant_migrate.py --apply        # move old collections onto the hybrid schema
 python3 scripts/geometry_eval.py                 # embedding-space sweep with ground truth
-python3 -m pytest tests -q                       # 247 tests
+python3 -m pytest tests -q                       # 371 tests
 ```
 
 Open `http://localhost:8000/docs` for the live OpenAPI surface, or point the
@@ -24,9 +26,9 @@ frontend at it (it defaults to `http://localhost:8000`).
 | `aegis/node.py` | Composition root — every subsystem is built and supervised here |
 | `aegis/config.py` | All configuration, env-overridable (`AEGIS_*`) |
 | `aegis/core/` | HLC clock, event bus, supervisor, metrics, breaker, backoff, token bucket, QoS scheduler, span tracing, **tenancy**, **SLO ladder**, **swappable ambient environment (virtual clock + seeded RNG)** |
-| `aegis/memory/` | Schema, WAL, quantizers, **RaBitQ cold codes + columnar codebook**, **growable matrices**, HNSW, OPQ / IVF-PQ, adaptive index + cost model, filters & payload index, query planner, memmap cold tier, **immutable segments + manifest**, **fsck/scrub/PITR**, **self-healing repair**, **bitemporal knowledge graph**, Qdrant Edge adapter, compactor, consolidation |
+| `aegis/memory/` | Schema, WAL, quantizers, **RaBitQ cold codes + columnar codebook**, **growable matrices**, HNSW, OPQ / IVF-PQ, adaptive index + cost model, filters & payload index, query planner, memmap cold tier, **immutable segments + manifest**, **fsck/scrub/PITR**, **self-healing repair**, **bitemporal knowledge graph**, **Qdrant hybrid schema and native query path — named dense/sparse/late vectors, engine-side RRF and MaxSim in one call**, compactor, consolidation |
 | `aegis/inference/` | ONNX session + EP ladder, micro-batcher, embedder, **corpus geometry (whitening)**, **token lexicon**, **adaptation gate**, sparse encoder, reranker, classifier, thermal governor, model registry, Triton client |
-| `aegis/retrieval/` | RRF fusion, scoring, namespaced semantic cache, contradiction detection, query understanding (BK-tree, expansion, intent), late interaction (MaxSim), **conformal prediction**, **MMR diversity**, pipeline, agent |
+| `aegis/retrieval/` | RRF fusion, scoring, namespaced semantic cache, contradiction detection, query understanding (BK-tree, expansion, intent), late interaction (MaxSim), **conformal prediction**, **MMR diversity**, **latency-aware routing between the engine and the local index**, pipeline, agent |
 | `aegis/sync/` | CRDT op log, Merkle digests, **IBLT set reconciliation**, **vector clocks + causal delivery**, **P2P gossip mesh**, **Ed25519 device identity + operation signing**, **wire codec**, durable queue, connectivity oracle, transports, conflict arbiter, engine |
 | `aegis/sim/` | **Deterministic simulation** — a virtual world of N peers, weighted fault and Byzantine actions, seven invariants checked after every step |
 | `aegis/learning/` | **On-device retrieval adapter**, **differential privacy**, **federated secure aggregation** |
@@ -61,6 +63,8 @@ registry. Subsequent boots load the serialized optimized graph.
 | `AEGIS_QDRANT_URL` | point the store at a Qdrant Server instead of the embedded instance |
 | `AEGIS_CLOUD_URL` | the sync coordinator: a Qdrant URL, or empty for a real embedded Qdrant under `<data_dir>/cloud` |
 | `AEGIS_REQUIRE_QDRANT=0` | explicitly allow the internal store (it will say so in `/health`) |
+| `AEGIS_QDRANT_QUERY_PATH` | `auto` (route on measured latency), `engine` or `index` to pin one path |
+| `AEGIS_QDRANT_LATE_TOKENS` | tokens kept per memory for engine-side MaxSim; `0` (default) stores no late vector |
 | `AEGIS_REQUIRE_AUTH=1` | enforce API keys and tenant resolution on every route |
 | `AEGIS_DATA_DIR` | one node per directory — embedded Qdrant is single-writer |
 

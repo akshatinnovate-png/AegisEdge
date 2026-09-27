@@ -9,18 +9,18 @@ stale.
 
 | | |
 |---|---:|
-| Modules in `backend/aegis` | 104 |
-| Lines of node code | 18,314 |
-| Test files | 25 |
-| Lines of test code | 4,617 |
-| Tests | 347 |
-| Harnesses and tools in `backend/scripts` | 17 |
-| Lines of harness code | 3,679 |
-| Frontend — HTML, CSS and JS, no build step | 2,134 |
-| Lines of documentation | 5,356 |
-| Commits | 48 |
+| Modules in `backend/aegis` | 107 |
+| Lines of node code | 19,321 |
+| Test files | 27 |
+| Lines of test code | 4,991 |
+| Tests | 371 |
+| Harnesses and tools in `backend/scripts` | 19 |
+| Lines of harness code | 4,096 |
+| Frontend — HTML, CSS and JS, no build step | 2,582 |
+| Lines of documentation | 5,724 |
+| Commits | 49 |
 
-Test code is about 25% the size of the code it
+Test code is about 26% the size of the code it
 tests. That is not a target; it is what happened when every defect had to
 arrive with the test that would have caught it.
 

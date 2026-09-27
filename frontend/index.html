@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="styles.css" />
 <link rel="stylesheet" href="use.css" />
 <link rel="stylesheet" href="prove.css" />
+<link rel="stylesheet" href="qdrant.css" />
 </head>
 <body data-mode="console">
 
@@ -418,6 +419,48 @@ e.g. bay 3 conveyor vibration crossed 4.2 mm/s at 02:14, bearing signature match
         <ol class="results" id="results"></ol>
       </article>
 
+
+      <!-- qdrant -->
+      <article class="card card--qdrant" id="qdPanel">
+        <h3>QDRANT · QUERY ENGINE</h3>
+        <div class="qd__top" id="qdBadges"></div>
+
+        <div class="qd__body">
+          <div>
+            <div class="qd__planwrap">
+              <svg class="qd__plan" id="qdPlan" viewBox="0 0 520 190"
+                   role="img" aria-label="The query plan Qdrant executed"></svg>
+              <div class="qd__caption" id="qdCaption">contacting node…</div>
+            </div>
+            <div class="kv"><span>query path</span><b id="qdPath">—</b></div>
+            <div class="kv"><span>named vectors</span><b id="qdVectors">—</b></div>
+            <div class="kv"><span>late interaction</span><b id="qdLate">—</b></div>
+            <div class="kv"><span>points in qdrant</span><b id="qdPoints">—</b></div>
+            <div class="kv"><span>last query</span><b id="qdLastQuery">—</b></div>
+          </div>
+
+          <div class="qd__race">
+            <div class="qd__racehead">
+              <h4>ENGINE vs LOCAL INDEX</h4>
+              <button class="btn" id="qdRaceBtn" type="button">RACE BOTH PATHS</button>
+            </div>
+            <div class="qd-lane qd-lane--idx">
+              <span>local index</span><i id="qdLaneIdx"></i><b id="qdMsIdx">—</b>
+            </div>
+            <div class="qd-lane">
+              <span>qdrant engine</span><i id="qdLaneEng"></i><b id="qdMsEng">—</b>
+            </div>
+            <div class="qd__verdict" id="qdVerdict">
+              the same query, both paths, measured here — not quoted from a README
+            </div>
+            <h4 class="qd__facethead" id="qdFacetHead" hidden>
+              SENSITIVITY · COUNTED BY THE ENGINE
+            </h4>
+            <div class="qd__facets" id="qdFacets"></div>
+          </div>
+        </div>
+      </article>
+
       <!-- events -->
       <article class="card card--log">
         <h3>EVENT STREAM</h3>
@@ -437,5 +480,6 @@ e.g. bay 3 conveyor vibration crossed 4.2 mm/s at 02:14, bearing signature match
 <script src="app.js"></script>
 <script src="use.js"></script>
 <script src="prove.js"></script>
+<script src="qdrant.js"></script>
 </body>
 </html>

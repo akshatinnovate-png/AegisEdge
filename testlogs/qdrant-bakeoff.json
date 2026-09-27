@@ -1,0 +1,113 @@
+{
+  "backend": "qdrant-local",
+  "points": 2000,
+  "queries": 64,
+  "k": 5,
+  "refusals": 0,
+  "local_ms": {
+    "p50": 2.524,
+    "p95": 3.731
+  },
+  "native_ms": {
+    "p50": 60.741,
+    "p95": 76.456
+  },
+  "overlap": 0.522,
+  "rank_agreement": 0.532,
+  "dense_overlap": 1.0,
+  "sparse_overlap": 1.0,
+  "same_constant_overlap": 1.0,
+  "dense_recall_at_k": {
+    "interpreter": 1.0,
+    "engine": 1.0
+  },
+  "pre_filter_overlap": 1.0,
+  "faster": false,
+  "same_pipeline": true,
+  "verdict": "engine computes the same pipeline but is slower here: keep it available, default unchanged",
+  "hybrid": {
+    "schema": {
+      "episodic": "hybrid",
+      "semantic": "hybrid",
+      "procedural": "hybrid",
+      "sensor": "hybrid"
+    },
+    "payload_indexes": {
+      "episodic.aegis_id": "ignored-by-local-mode",
+      "episodic.collection": "ignored-by-local-mode",
+      "episodic.sensitivity": "ignored-by-local-mode",
+      "episodic.sync_class": "ignored-by-local-mode",
+      "episodic.model_version": "ignored-by-local-mode",
+      "episodic.device_id": "ignored-by-local-mode",
+      "episodic.tenant_id": "ignored-by-local-mode",
+      "episodic.source": "ignored-by-local-mode",
+      "episodic.ts": "ignored-by-local-mode",
+      "episodic.confidence": "ignored-by-local-mode",
+      "episodic.stale": "ignored-by-local-mode",
+      "episodic.pinned": "ignored-by-local-mode",
+      "semantic.aegis_id": "ignored-by-local-mode",
+      "semantic.collection": "ignored-by-local-mode",
+      "semantic.sensitivity": "ignored-by-local-mode",
+      "semantic.sync_class": "ignored-by-local-mode",
+      "semantic.model_version": "ignored-by-local-mode",
+      "semantic.device_id": "ignored-by-local-mode",
+      "semantic.tenant_id": "ignored-by-local-mode",
+      "semantic.source": "ignored-by-local-mode",
+      "semantic.ts": "ignored-by-local-mode",
+      "semantic.confidence": "ignored-by-local-mode",
+      "semantic.stale": "ignored-by-local-mode",
+      "semantic.pinned": "ignored-by-local-mode",
+      "procedural.aegis_id": "ignored-by-local-mode",
+      "procedural.collection": "ignored-by-local-mode",
+      "procedural.sensitivity": "ignored-by-local-mode",
+      "procedural.sync_class": "ignored-by-local-mode",
+      "procedural.model_version": "ignored-by-local-mode",
+      "procedural.device_id": "ignored-by-local-mode",
+      "procedural.tenant_id": "ignored-by-local-mode",
+      "procedural.source": "ignored-by-local-mode",
+      "procedural.ts": "ignored-by-local-mode",
+      "procedural.confidence": "ignored-by-local-mode",
+      "procedural.stale": "ignored-by-local-mode",
+      "procedural.pinned": "ignored-by-local-mode",
+      "sensor.aegis_id": "ignored-by-local-mode",
+      "sensor.collection": "ignored-by-local-mode",
+      "sensor.sensitivity": "ignored-by-local-mode",
+      "sensor.sync_class": "ignored-by-local-mode",
+      "sensor.model_version": "ignored-by-local-mode",
+      "sensor.device_id": "ignored-by-local-mode",
+      "sensor.tenant_id": "ignored-by-local-mode",
+      "sensor.source": "ignored-by-local-mode",
+      "sensor.ts": "ignored-by-local-mode",
+      "sensor.confidence": "ignored-by-local-mode",
+      "sensor.stale": "ignored-by-local-mode",
+      "sensor.pinned": "ignored-by-local-mode"
+    },
+    "vectors": [
+      "dense",
+      "lex"
+    ],
+    "late_tokens": 0,
+    "late_bytes_per_point": 0,
+    "late_points": 0,
+    "quantize_late": true,
+    "server": false,
+    "native_queries": 260,
+    "refusals": 0
+  },
+  "router": {
+    "to_engine": 4,
+    "to_index": 15,
+    "policy": "auto",
+    "objective_ms": 150.0,
+    "recall_budget_ms": 37.5,
+    "engine_p95_ms": 70.625,
+    "index_p95_ms": 6.333,
+    "queries": 19,
+    "samples": 0,
+    "last": {
+      "path": "index",
+      "reason": "engine p95 70.6 ms exceeds the 38 ms recall budget",
+      "sampled": false
+    }
+  }
+}

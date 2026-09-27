@@ -372,6 +372,9 @@ $("searchForm").addEventListener("submit", async (e) => {
   });
 
   log("search", `"${q}" → ${payload.results.length} hits in ${ms} ms`);
+  // The Qdrant panel draws the plan this query actually ran. It listens rather
+  // than polls so the graphic moves on the query, not on a timer.
+  document.dispatchEvent(new CustomEvent("aegis:search", { detail: { query: q, payload } }));
 });
 
 $("syncBtn").addEventListener("click", async () => {

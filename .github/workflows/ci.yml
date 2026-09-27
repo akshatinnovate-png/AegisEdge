@@ -95,3 +95,49 @@ jobs:
         with:
           name: simulation
           path: /tmp/*.json
+
+  bakeoff:
+    name: qdrant engine vs local index
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install
+        run: pip install -r backend/requirements.txt
+
+      - name: The two query paths must still compute the same pipeline
+        working-directory: backend
+        # Latency is a machine's business and this runner is not the target, so
+        # nothing here asserts which path is faster. What it asserts is that
+        # they still agree: if Qdrant's dense recall, its sparse recall, or its
+        # fusion ever stops matching ours, the router would be choosing between
+        # two different answers rather than two speeds — and the whole reason
+        # the engine is allowed to serve queries is that it does not.
+        run: |
+          python3 scripts/qdrant_bakeoff.py --points 400 --queries 24 \
+                  --json /tmp/bakeoff.json
+          python3 - <<'PY'
+          import json, sys
+          d = json.load(open("/tmp/bakeoff.json"))
+          print(f"dense {d['dense_overlap']}, sparse {d['sparse_overlap']}, "
+                f"same-constant {d['same_constant_overlap']}, "
+                f"pre-filter {d['pre_filter_overlap']}, refusals {d['refusals']}")
+          if not d["same_pipeline"]:
+              sys.exit("the engine and the local index no longer compute the same "
+                       "pipeline: " + d["verdict"])
+          if d["dense_recall_at_k"]["engine"] < 0.99:
+              sys.exit("the engine's dense recall fell below exact brute force")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bakeoff
+          path: /tmp/bakeoff.json

@@ -22,10 +22,16 @@ from ..core.tracing import TRACER
 from ..memory.filters import Filter
 
 
-# The only fields a cached answer is ever read back for. Everything else in a
-# `RetrievalResult` is per-request narration: the trace, the explanations, the
-# stage timings. Storing them is memory spent on data the reader throws away.
-CACHEABLE_FIELDS = frozenset({"results", "escalated", "escalation", "mode", "plan"})
+# The only fields a cached answer is ever read back for — plus the two that
+# are properties of the *answer* rather than of the work that produced it.
+# `confidence` and `diversity` are computed from the returned set, so a repeat
+# of the same question in the same namespace has the same guarantee and the
+# same spread; dropping them made a cache hit answer with an empty confidence
+# block, which is the one place an operator looks to decide whether to trust
+# the result. Everything else — the trace, the stage timings, the graph
+# traversal — is this query's own narration and is never restored.
+CACHEABLE_FIELDS = frozenset({"results", "escalated", "escalation", "mode", "plan",
+                              "confidence", "diversity"})
 
 
 def _filter_key(filters: dict[str, Any] | None) -> str:
@@ -56,7 +62,8 @@ def _cpu_seconds() -> float:
 from ..memory.schema import MemoryPoint, Sensitivity
 from ..memory.store import MemoryStore
 from .cache import SemanticCache
-from .fusion import reciprocal_rank_fusion
+from .fusion import FusedHit, reciprocal_rank_fusion
+from .routing import PathRouter
 from .scoring import Scorer
 
 COMPLEX_MARKERS = ("why", "compare", "explain", "summarise", "summarize", "trend", "root cause", "how many")
@@ -94,7 +101,7 @@ class RetrievalPipeline:
                  bus: EventBus, half_life_days: float = 21.0,
                  understanding=None, adapter=None,
                  graph=None, conformal=None, diversity=None, slo=None,
-                 energy=None) -> None:
+                 energy=None, query_path: str = "auto") -> None:
         self.store = store
         self.sparse = sparse
         self.reranker = reranker
@@ -115,6 +122,12 @@ class RetrievalPipeline:
         self.degraded_queries = 0
         self.relaxed_inferences = 0
         self.queries_from_cache = 0
+        self.route: dict[str, Any] = {}
+        self.router = PathRouter(
+            query_path,
+            objective_ms=(slo.objective.target_ms if slo is not None else 150.0) or 150.0)
+        self.engine_queries = 0
+        self.engine_refusals = 0
 
     async def _relax(self, result, inferred, query, k, collection, mode, explain,
                      allow_escalation, filters, tenant_id, stages):
@@ -149,6 +162,112 @@ class RetrievalPipeline:
         }
         relaxed.stages = {**stages, **relaxed.stages}
         return relaxed
+
+    def _engine_query(self, collection, vector, search_text, k, fetch, spec, mode, allow):
+        """Ask Qdrant to run the whole hybrid pipeline, or return None.
+
+        None means *use the local index* — the router sent this query there, the
+        store is not Qdrant, an allow-set from a resolved filter has to be
+        honoured id-by-id, or the engine declined. It never means "no results":
+        that distinction is the whole reason this returns None rather than an
+        empty list.
+        """
+        store = self.store.store
+        available = hasattr(store, "search_native")
+        if allow is not None:
+            # The planner resolved the filter to an explicit id set — usually
+            # tenancy. Qdrant filters on payload, not on a set of ids handed to
+            # it, so honouring that set means the local index. The router is not
+            # consulted, because this is correctness rather than latency.
+            self.route = {"path": "index", "reason": "filter resolved to an explicit id set"}
+            return None
+        decision = self.router.choose(
+            engine_available=available,
+            server=available and store.backend == "qdrant-server",
+            degraded=self.slo is not None and int(self.slo.level) > 0,
+        )
+        self.route = decision.as_dict()
+        if decision.path != "engine":
+            return None
+        sparse_query = self.sparse.encode(search_text)
+        # Recall still happens; it happens in the engine. The span keeps its name
+        # so a trace is comparable across the two paths, with where it ran as a
+        # child rather than as a different tree.
+        with TRACER.span("recall") as recall_span:
+            with TRACER.span("qdrant_native") as span:
+                hits, plan = store.search_native(collection, vector, sparse_query,
+                                                 max(k * 3, 12), fetch=fetch, spec=spec,
+                                                 mode=mode)
+                span.set(hits=len(hits), fell_back=plan.fell_back or "",
+                         queries_in_call=plan.queries_in_call)
+            recall_span.set(where="engine", fetch=fetch, hits=len(hits))
+        if plan.fell_back:
+            self.engine_refusals += 1
+            self.route = {**self.route, "path": "index", "declined": plan.fell_back}
+            return None
+        self.router.observe("engine", plan.total_ms)
+        self.engine_queries += 1
+        # The engine returns one fused ordering. Rebuilding FusedHit rows from
+        # it keeps every stage downstream — rerank, scoring, explanation —
+        # identical whichever path produced the candidates.
+        fused = []
+        for rank, (point_id, score) in enumerate(hits, start=1):
+            row = plan.attribution.get(point_id, {})
+            hit = FusedHit(point_id=point_id, rrf=score,
+                           dense_rank=row.get("dense_rank"), sparse_rank=row.get("sparse_rank"),
+                           dense_score=row.get("dense_score", 0.0),
+                           sparse_score=row.get("sparse_score", 0.0))
+            if hit.dense_rank:
+                hit.contributors.append("dense")
+            if hit.sparse_rank:
+                hit.contributors.append("sparse")
+            if not hit.contributors:
+                # Fused by the engine and outside the top of either per-space
+                # ordering we asked back. Saying "fused" is the truth; claiming
+                # a space would not be.
+                hit.contributors.append("qdrant-fused")
+                hit.dense_rank = rank
+            fused.append(hit)
+        return fused, {**plan.as_dict(), "route": self.route}, sparse_query
+
+    def _interpreter_recall(self, result, collection, vector, search_text, k, fetch, mode, allow):
+        """Dense recall, sparse recall and fusion, in this process.
+
+        This is the path the bake-off measures the engine against, and the one
+        that answers everything the engine declines, so it is not a fallback in
+        the apologetic sense — it is the control.
+        """
+        store = self.store.store
+        engine_plan: dict[str, Any] = {}
+        last = getattr(store, "last_plan", None)
+        if last is not None and last.fell_back:
+            engine_plan = {"declined": last.fell_back, "engine": last.engine}
+        t0 = time.perf_counter()
+        with TRACER.span("recall") as recall_span:
+            with TRACER.span("dense") as span:
+                dense = (store.search_dense(collection, vector, fetch, allow=allow)
+                         if mode != "sparse" else [])
+                span.set(hits=len(dense))
+            result.stages["dense_ms"] = round((time.perf_counter() - t0) * 1000, 3)
+
+            t0 = time.perf_counter()
+            with TRACER.span("sparse") as span:
+                sparse_query = self.sparse.encode(search_text)
+                sparse = (store.search_sparse(collection, sparse_query, fetch, allow=allow)
+                          if mode != "dense" else [])
+                span.set(hits=len(sparse), terms=len(sparse_query))
+            result.stages["sparse_ms"] = round((time.perf_counter() - t0) * 1000, 3)
+            recall_span.set(fetch=fetch, allow=len(allow) if allow is not None else None)
+
+        t0 = time.perf_counter()
+        fused = reciprocal_rank_fusion(dense, sparse)[: max(k * 3, 12)]
+        result.stages["fusion_ms"] = round((time.perf_counter() - t0) * 1000, 3)
+        # The path not taken still has to be measurable, or the router would be
+        # comparing a live number against one frozen at boot.
+        self.router.observe("index", sum(result.stages.get(key, 0.0) for key in
+                                         ("dense_ms", "sparse_ms", "fusion_ms")))
+        engine_plan = {**engine_plan, "route": getattr(self, "route", {})}
+        return fused, sparse_query, engine_plan
 
     async def search(self, query: str, k: int = 5, collection: str = "*",
                      mode: str = "hybrid", explain: bool = True,
@@ -213,6 +332,12 @@ class RetrievalPipeline:
             out.understanding = result.understanding
             out.latency_ms = (time.perf_counter() - t_start) * 1000
             out.stages = {**result.stages, "cache": "exact"}
+            # The fastest answer still has to be explainable. Without this the
+            # exact layer returned `"trace": {}` — a repeated question, the one
+            # most likely to be the one an operator is staring at, came back
+            # with no account of itself at all.
+            out.trace = root.as_dict()
+            out.degradation = result.degradation
             self.queries_from_cache += 1
             if self.slo is not None:
                 self.slo.observe(out.latency_ms, ok=True)
@@ -310,26 +435,25 @@ class RetrievalPipeline:
         t0 = time.perf_counter()
         fetch = max(k * 6, 24) if allowed("wide_fetch") else max(k * 2, 10)
         fetch = max(fetch, result.plan.get("fetch_k", fetch)) if result.plan else fetch
-        with TRACER.span("recall") as recall_span:
-            with TRACER.span("dense") as span:
-                dense = (self.store.store.search_dense(collection, vector, fetch, allow=allow)
-                         if mode != "sparse" else [])
-                span.set(hits=len(dense))
-            result.stages["dense_ms"] = round((time.perf_counter() - t0) * 1000, 3)
 
-            t0 = time.perf_counter()
-            with TRACER.span("sparse") as span:
-                sparse_query = self.sparse.encode(search_text)
-                sparse = (self.store.store.search_sparse(collection, sparse_query, fetch, allow=allow)
-                          if mode != "dense" else [])
-                span.set(hits=len(sparse), terms=len(sparse_query))
-            result.stages["sparse_ms"] = round((time.perf_counter() - t0) * 1000, 3)
-            recall_span.set(fetch=fetch, allow=len(allow) if allow is not None else None)
-
-        # 3. fuse the two orderings
-        t0 = time.perf_counter()
-        fused = reciprocal_rank_fusion(dense, sparse)[: max(k * 3, 12)]
-        result.stages["fusion_ms"] = round((time.perf_counter() - t0) * 1000, 3)
+        # 2a. the engine path: recall in both spaces and fuse them in one
+        # Qdrant call. It is tried first when policy allows, and it either
+        # answers or says why it declined — a refusal falls through to the
+        # stages below rather than returning a thinner answer.
+        engine = self._engine_query(collection, vector, search_text, k, fetch, spec, mode, allow)
+        if engine is not None:
+            # 2a+3 in one call: both recalls and the fusion ran in the engine.
+            fused, engine_plan, sparse_query = engine
+            # One call, one timing: the engine does not itemise its stages, and
+            # `dense_ms`/`sparse_ms`/`fusion_ms` are therefore absent rather than
+            # guessed. Which path ran is in `plan.engine.route`.
+            result.stages["engine_ms"] = engine_plan["total_ms"]
+            result.plan = {**result.plan, "engine": engine_plan}
+        else:
+            fused, sparse_query, engine_plan = self._interpreter_recall(
+                result, collection, vector, search_text, k, fetch, mode, allow)
+            if engine_plan:
+                result.plan = {**result.plan, "engine": engine_plan}
 
         candidates: list[tuple[str, str, float]] = []
         post_filtering = bool(filters) and allow is None

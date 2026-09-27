@@ -65,6 +65,7 @@ class MemoryStore:
             settings.memory.dim, settings.memory.collections, str(data_dir),
             url=settings.qdrant_url or None, api_key=settings.qdrant_api_key or None,
             required=settings.require_qdrant,
+            late_tokens=settings.qdrant_late_tokens,
         )
         self.points: dict[str, MemoryPoint] = {}
         self.tombstones: dict[str, float] = {}

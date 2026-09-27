@@ -56,6 +56,20 @@ class SparseIndex:
         self.norms.pop(point_id, None)
 
     def search(self, sparse: dict[int, float], k: int, allow: set[str] | None = None) -> list[tuple[str, float]]:
+        """Impact dot product, scaled by the query's norm only.
+
+        The document norm used to divide this score too, and that was a defect
+        the Qdrant bake-off found: the encoder's BM25 weights already carry a
+        length normalisation (`length_norm` in `SparseEncoder.encode`), so
+        dividing by the document's L2 norm normalised length a second time and
+        pushed long memories down for being long. A dot product over impacts is
+        both the textbook BM25 score and what Qdrant's sparse index computes,
+        which is why the two paths now agree.
+
+        The query norm stays. It is constant across documents so it cannot
+        change the ranking, and it keeps the score in a range the fusion
+        weights and the UI were calibrated against.
+        """
         if not sparse:
             return []
         accumulator: dict[str, float] = defaultdict(float)
@@ -65,7 +79,7 @@ class SparseIndex:
                 if allow is not None and point_id not in allow:
                     continue
                 accumulator[point_id] += query_weight * weight
-        scored = [(pid, s / (query_norm * self.norms.get(pid, 1.0))) for pid, s in accumulator.items()]
+        scored = [(pid, s / query_norm) for pid, s in accumulator.items()]
         scored.sort(key=lambda x: -x[1])
         return scored[:k]
 
