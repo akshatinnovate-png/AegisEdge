@@ -96,3 +96,37 @@
 .qd-facet i{display:block;height:4px;border-radius:2px;width:0;background:var(--o-deep);
   transition:width .6s ease}
 .qd-facet b{text-align:right;font-variant-numeric:tabular-nums}
+
+/* ── the projected corpus ───────────────────────────────────── */
+
+@media(min-width:900px){ .card--vmap{grid-column:span 3} .card--qdrant{grid-column:span 3} }
+
+.vm__wrap{position:relative;border:1px solid var(--line-soft);border-radius:3px;
+  background:radial-gradient(120% 90% at 50% 10%,rgba(255,120,26,.06),transparent 62%);
+  overflow:hidden}
+.vm__plot{display:block;width:100%;height:auto}
+
+.vm-dot{fill:var(--o-deep);opacity:0;animation:vm-in .5s ease forwards}
+.vm-dot--stale{fill:none;stroke:var(--fg-faint);stroke-width:.8}
+.vm-dot--hit{fill:var(--o-hot);filter:drop-shadow(0 0 6px rgba(255,160,64,.85))}
+@keyframes vm-in{to{opacity:.85}}
+
+.vm-link{stroke:rgba(255,120,26,.35);stroke-width:.9;stroke-dasharray:2 3}
+.vm-qring{fill:none;stroke:var(--ok);stroke-width:1.2;opacity:.85;
+  animation:vm-pulse 2.4s ease-in-out infinite}
+.vm-q{fill:var(--ok)}
+@keyframes vm-pulse{50%{r:13;opacity:.35}}
+.vm-rank{font:600 8px var(--mono);fill:var(--fg)}
+
+@media(prefers-reduced-motion:reduce){
+  .vm-dot{animation:none;opacity:.85}
+  .vm-qring{animation:none}
+}
+
+.vm__head{display:flex;justify-content:space-between;align-items:center;gap:12px;
+  flex-wrap:wrap;margin:-4px 0 12px}
+.vm__meta{flex:1 1 180px;min-width:0;font-size:9.5px;letter-spacing:.1em;color:var(--fg-faint)}
+.vm__head .btn{flex:0 0 auto}
+.vm__caption{padding:8px 10px 10px;font-size:9.5px;letter-spacing:.05em;
+  color:var(--fg-faint);border-top:1px dashed rgba(255,255,255,.07)}
+.vm__caption b{color:var(--fg)}

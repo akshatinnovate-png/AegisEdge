@@ -480,6 +480,37 @@ class HybridPath:
         self.queries += 1
         return results, plan
 
+    def sample(self, collection: str, limit: int = 600) -> tuple[list[str], np.ndarray,
+                                                                 list[dict[str, Any]]]:
+        """Read points back out of Qdrant, vectors included.
+
+        The console's map is drawn from what the engine holds rather than from
+        the node's own copy on purpose: a picture of the corpus that came from
+        the process drawing it would agree with itself no matter what Qdrant
+        actually stored.
+        """
+        if not self.native(collection):
+            return [], np.zeros((0, self.dim), dtype=np.float32), []
+        try:
+            rows, _ = self.client.scroll(collection_name=collection, limit=limit,
+                                         with_vectors=True, with_payload=True)
+        except Exception:
+            return [], np.zeros((0, self.dim), dtype=np.float32), []
+        ids: list[str] = []
+        vectors: list[list[float]] = []
+        payloads: list[dict[str, Any]] = []
+        for row in rows:
+            vector = row.vector.get(DENSE) if isinstance(row.vector, dict) else row.vector
+            if vector is None:
+                continue
+            payload = row.payload or {}
+            ids.append(str(payload.get("aegis_id") or row.id))
+            vectors.append(list(vector))
+            payloads.append(payload)
+        if not vectors:
+            return [], np.zeros((0, self.dim), dtype=np.float32), []
+        return ids, np.asarray(vectors, dtype=np.float32), payloads
+
     def facet(self, collection: str, key: str, limit: int = 10) -> list[dict[str, Any]]:
         """Payload value counts from the engine, for the inspection UI."""
         try:

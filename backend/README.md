@@ -13,7 +13,7 @@ python3 scripts/strategy_bakeoff.py              # flat vs HNSW vs IVF-PQ, same 
 python3 scripts/qdrant_bakeoff.py                # the engine's hybrid path vs this node's index
 python3 scripts/qdrant_migrate.py --apply        # move old collections onto the hybrid schema
 python3 scripts/geometry_eval.py                 # embedding-space sweep with ground truth
-python3 -m pytest tests -q                       # 371 tests
+python3 -m pytest tests -q                       # 375 tests
 ```
 
 Open `http://localhost:8000/docs` for the live OpenAPI surface, or point the

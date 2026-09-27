@@ -12,7 +12,10 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..core.tenancy import Scope
+import numpy as np
+
 from ..memory.filters import Filter
+from ..retrieval.projection import project, scale
 from ..node import EdgeNode
 from .deps import get_node
 from .models import SearchRequest
@@ -96,3 +99,49 @@ async def facets(collection: str = "episodic", key: str = "sensitivity",
     return {"collection": collection, "key": key,
             "hits": store.hybrid.facet(collection, key, limit),
             "computed_by": store.backend}
+
+
+@router.get("/qdrant/map")
+async def vector_map(collection: str = "episodic", limit: int = 600, query: str = "",
+                     k: int = 5, node: EdgeNode = Depends(get_node)) -> dict:
+    """The corpus as the engine holds it, projected to two dimensions.
+
+    Any two-dimensional picture of a 256-dimensional space is a lie of
+    compression, so `explained_variance` comes back with it: it is the share of
+    variance the two axes actually carry, and without it an operator would read
+    adjacency on the screen as similarity in the space.
+    """
+    store = _store(node)
+    if collection not in store.collections:
+        raise HTTPException(status_code=404, detail=f"no collection {collection!r}")
+    ids, vectors, payloads = store.hybrid.sample(collection, max(1, min(limit, 5_000)))
+    if not ids:
+        return {"collection": collection, "points": [], "sampled": 0,
+                "explained_variance": 0.0, "backend": store.backend,
+                "detail": "nothing stored in this collection yet"}
+
+    projection = project(vectors)
+    hits: dict[str, int] = {}
+    query_point = None
+    if query:
+        vector = node.embedder.embed_sync([query])[0]
+        sparse = node.sparse.encode(query)
+        found, plan = store.search_native(collection, vector, sparse, k)
+        if plan.fell_back:
+            found = store.search_dense(collection, np.asarray(vector, dtype=np.float32), k)
+        hits = {point_id: rank for rank, (point_id, _) in enumerate(found, start=1)}
+        query_point = projection.project(vector)
+
+    placed = scale(projection.coords, query_point)
+    points = [
+        {"id": point_id, "xy": xy, "rank": hits.get(point_id),
+         "sensitivity": payload.get("sensitivity"), "stale": bool(payload.get("stale")),
+         "text": (payload.get("text") or "")[:120]}
+        for point_id, xy, payload in zip(ids, placed["points"], payloads)
+    ]
+    return {
+        "collection": collection, "backend": store.backend,
+        "sampled": len(points), "explained_variance": projection.explained,
+        "points": points, "query": placed["query"], "query_text": query,
+        "matched": len(hits),
+    }

@@ -461,6 +461,21 @@ e.g. bay 3 conveyor vibration crossed 4.2 mm/s at 02:14, bearing signature match
         </div>
       </article>
 
+
+      <!-- the corpus, projected -->
+      <article class="card card--vmap" id="vmPanel">
+        <h3>THE CORPUS, AS QDRANT HOLDS IT</h3>
+        <div class="vm__head">
+          <span class="vm__meta" id="vmMeta">—</span>
+          <button class="btn" id="vmReloadBtn" type="button">RESAMPLE</button>
+        </div>
+        <div class="vm__wrap">
+          <svg class="vm__plot" id="vmPlot" viewBox="0 0 460 300"
+               role="img" aria-label="Stored vectors projected to two dimensions"></svg>
+          <div class="vm__caption" id="vmCaption">contacting node…</div>
+        </div>
+      </article>
+
       <!-- events -->
       <article class="card card--log">
         <h3>EVENT STREAM</h3>
@@ -481,5 +496,6 @@ e.g. bay 3 conveyor vibration crossed 4.2 mm/s at 02:14, bearing signature match
 <script src="use.js"></script>
 <script src="prove.js"></script>
 <script src="qdrant.js"></script>
+<script src="vectormap.js"></script>
 </body>
 </html>

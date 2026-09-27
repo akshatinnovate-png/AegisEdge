@@ -1378,6 +1378,16 @@ It also says `48 PAYLOAD IDX INERT (LOCAL MODE)` — the embedded client warns
 that payload indexes have no effect there, and reporting them as live would be
 the one lie this console exists to avoid.
 
+Beside it, `THE CORPUS, AS QDRANT HOLDS IT` plots the stored vectors — scrolled
+back out of the engine rather than read from this process's own copy, because a
+picture of the corpus sourced from the thing drawing it would agree with itself
+whatever Qdrant actually stored. The query is marked, its retrieved neighbours
+are numbered and joined to it, and the caption carries the number that keeps the
+plot honest: **the two axes hold about 23% of the variance**. The numbered hits
+are the nearest in 256 dimensions, which is exactly why they are visibly *not*
+the nearest on the page. A vector plot without that sentence is the most
+common way this kind of picture misleads.
+
 ---
 
 ## 4. On-device representation learning
@@ -2026,6 +2036,7 @@ local simulation when the backend is absent.
 | `GET` | `/api/v1/qdrant` | The engine: named vectors, collection schemas, which payload indexes are actually live, the routing policy with both paths' measured p95, and the plan the last query executed |
 | `POST` | `/api/v1/qdrant/bakeoff` | Run one query down both paths and report the difference: overlap, rank agreement, and each path's latency |
 | `GET` | `/api/v1/qdrant/facets` | Payload value counts computed by the engine rather than by a scan in this process |
+| `GET` | `/api/v1/qdrant/map` | The corpus as Qdrant holds it, projected to two dimensions, with the share of variance those two axes actually carry |
 | `WS` | `/api/v1/stream` | Multiplexed live telemetry, sync events, reasoning traces |
 
 Full surface at `/docs` once the node is running.
@@ -2166,7 +2177,7 @@ Point it at a live backend:
 - [ ] **~25 KB per memory is native, grows with the corpus, and is not accounted for.** The vector index, operation log, points, Qdrant, glibc arenas and allocator retention together explain about half of it
 - [ ] **Operation log compaction.** Retains every write forever so a peer offline for a month can reconcile — a deliberate property with an undeliberate bound. Measured at 3.2 KB of 46.8, it would buy ~7% in exchange for changing the part signatures, gossip and `bodies-intact` all depend on. Measuring first turned a confident plan into a bad trade
 - [ ] Ingest still decays with corpus size: 67.5 to 48.7 docs/s over ten thousand points, and resident memory still grows at ~50 KB per memory against the ~2 KB the vectors account for
-- [x] Thirty-four defects found and fixed — twelve under stress, four under deterministic simulation, five in a security review of that work, ten in a correctness review of it, three by racing Qdrant's engine against this node's own index — regression test each · **371 tests**
+- [x] Thirty-four defects found and fixed — twelve under stress, four under deterministic simulation, five in a security review of that work, ten in a correctness review of it, three by racing Qdrant's engine against this node's own index — regression test each · **375 tests**
 - [x] The index-strategy guard reworked after it was found asserting a property of the *machine* rather than of the code; it now measures the machine and states, in the skip reason, which one it is on
 - [x] RaBitQ cold tier — unbiased estimator, per-vector error bound, bound-driven rescore depth
 - [x] Corpus-fitted embedding geometry — streaming covariance, Ledoit–Wolf shrinkage, rank-limited whitening
@@ -2268,7 +2279,7 @@ python3 scripts/strategy_bakeoff.py              # flat vs HNSW vs IVF-PQ, same 
 python3 scripts/qdrant_bakeoff.py                # the engine's hybrid path vs this node's index
 python3 scripts/qdrant_migrate.py --apply        # move old collections onto the hybrid schema
 python3 scripts/geometry_eval.py                 # embedding-space sweep with ground truth
-python3 -m pytest tests -q                       # 371 tests
+python3 -m pytest tests -q                       # 375 tests
 ```
 
 Open `http://localhost:8000/docs` for the live OpenAPI surface, or point the

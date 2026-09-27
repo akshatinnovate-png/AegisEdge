@@ -196,3 +196,53 @@ def test_migration_refuses_to_delete_points_only_qdrant_holds(tmp_path):
         assert forced["migrated"][0]["forced"] is True
     finally:
         store.close()
+
+
+def test_a_projection_says_how_much_it_threw_away():
+    """A 2-D picture of a 256-D space is a compression. It has to admit it."""
+    from aegis.retrieval.projection import project, scale
+
+    rng = np.random.default_rng(5)
+    vectors = rng.normal(size=(200, 64)).astype(np.float32)
+    projection = project(vectors)
+    assert projection.coords.shape == (200, 2)
+    # Isotropic noise in 64 dimensions cannot have most of its variance in two.
+    assert 0.0 < projection.explained < 0.2
+
+    query = projection.project(rng.normal(size=64).astype(np.float32))
+    placed = scale(projection.coords, query)
+    assert len(placed["points"]) == 200
+    # everything, the query included, lands inside the unit box it defines
+    assert all(0.0 <= x <= 1.0 and 0.0 <= y <= 1.0 for x, y in placed["points"])
+    assert all(0.0 <= v <= 1.0 for v in placed["query"])
+
+
+def test_the_query_is_projected_through_the_corpus_basis_not_refitted():
+    """Refitting to include the query would bend the space around it."""
+    from aegis.retrieval.projection import project
+
+    rng = np.random.default_rng(6)
+    vectors = rng.normal(size=(60, 16)).astype(np.float32)
+    projection = project(vectors)
+    first = projection.coords.copy()
+    projection.project(rng.normal(size=16).astype(np.float32) * 50)   # a far-away query
+    assert np.array_equal(projection.coords, first)
+
+
+def test_a_projection_of_nothing_is_not_a_projection_of_something():
+    from aegis.retrieval.projection import project, scale
+
+    empty = project(np.zeros((0, 8), dtype=np.float32))
+    assert empty.coords.shape == (0, 2) and empty.explained == 0.0
+    assert scale(empty.coords)["points"] == []
+    # One point has no variance to explain, and must not claim it has all of it.
+    assert project(np.ones((1, 8), dtype=np.float32)).explained == 0.0
+
+
+def test_the_map_is_sampled_from_what_qdrant_holds(store):
+    rng = _fill(store, 25)
+    ids, vectors, payloads = store.hybrid.sample("episodic", 50)
+    assert len(ids) == 25 and vectors.shape == (25, 16) and len(payloads) == 25
+    assert all(pid.startswith("m") for pid in ids)
+    assert payloads[0]["text"].startswith("pump")
+    assert rng is not None

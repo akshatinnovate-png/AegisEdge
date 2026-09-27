@@ -1082,3 +1082,13 @@ the bake-off for one query live.
 It also says `48 PAYLOAD IDX INERT (LOCAL MODE)` — the embedded client warns
 that payload indexes have no effect there, and reporting them as live would be
 the one lie this console exists to avoid.
+
+Beside it, `THE CORPUS, AS QDRANT HOLDS IT` plots the stored vectors — scrolled
+back out of the engine rather than read from this process's own copy, because a
+picture of the corpus sourced from the thing drawing it would agree with itself
+whatever Qdrant actually stored. The query is marked, its retrieved neighbours
+are numbered and joined to it, and the caption carries the number that keeps the
+plot honest: **the two axes hold about 23% of the variance**. The numbered hits
+are the nearest in 256 dimensions, which is exactly why they are visibly *not*
+the nearest on the page. A vector plot without that sentence is the most
+common way this kind of picture misleads.
