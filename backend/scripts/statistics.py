@@ -18,6 +18,23 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 TARGET = ROOT / "STATISTICS.md"
+DEFECT_LEDGER = ROOT / "testlogs/defects.json"
+
+# The one place the defect tally lives. It used to be typed into the template
+# below *and* into the README, which is how STATISTICS.md came to say thirty-one
+# while the README said thirty-five — both written truthfully, months apart.
+# `audit_claims.py` now checks the README against this ledger.
+DEFECTS: tuple[tuple[str, int], ...] = (
+    ("Load and stress testing", 12),
+    ("Deterministic simulation", 4),
+    ("A security review of that work", 5),
+    ("A correctness review of it", 10),
+    ("Racing Qdrant's engine against this node's own index", 3),
+    ("Asking what a dying link should carry first", 1),
+)
+WORDS = {31: "Thirty-one", 32: "Thirty-two", 33: "Thirty-three", 34: "Thirty-four",
+         35: "Thirty-five", 36: "Thirty-six", 37: "Thirty-seven", 38: "Thirty-eight",
+         39: "Thirty-nine", 40: "Forty"}
 O, R, B, D, G = "\033[38;5;208m", "\033[0m", "\033[1m", "\033[2m", "\033[32m"
 
 
@@ -55,6 +72,8 @@ def render() -> str:
     documentation = count("cat README.md docs/*.md backend/README.md | wc -l")
     commits = count("git rev-list --count HEAD")
     suite = tests()
+    defect_rows = "\n".join(f"| {name} | {n} |" for name, n in DEFECTS)
+    defect_total = sum(n for _, n in DEFECTS)
 
     return f"""# Project statistics
 
@@ -100,11 +119,8 @@ run, on the same seeds with the same attacks, that finds something.
 
 | Found by | Count |
 |---|---:|
-| Load and stress testing | 12 |
-| Deterministic simulation | 4 |
-| A security review of that work | 5 |
-| A correctness review of it | 10 |
-| **Total, each with a regression test** | **31** |
+{defect_rows}
+| **Total, each with a regression test** | **{defect_total}** |
 
 Four remain open and are described in the README rather than closed quietly:
 an unexplained ~25 KB per memory, a ~2.8 KB/query growth with a one-variable
@@ -131,10 +147,20 @@ def main() -> int:
     args = parser.parse_args()
 
     fresh = render()
+    total = sum(n for _, n in DEFECTS)
+    ledger = {"total": total, "word": WORDS.get(total, str(total)),
+              "by_source": {name: n for name, n in DEFECTS}}
     if not args.check:
         TARGET.write_text(fresh, encoding="utf-8")
-        print(f"{G}wrote{R} {TARGET.relative_to(ROOT)}")
+        DEFECT_LEDGER.write_text(json.dumps(ledger, indent=2) + "\n", encoding="utf-8")
+        print(f"{G}wrote{R} {TARGET.relative_to(ROOT)} and "
+              f"{DEFECT_LEDGER.relative_to(ROOT)}")
         return 0
+    committed = (json.loads(DEFECT_LEDGER.read_text()) if DEFECT_LEDGER.exists() else None)
+    if committed != ledger:
+        print(f"{O}{B}testlogs/defects.json is stale.{R} Run "
+              f"{B}python3 backend/scripts/statistics.py{R} and commit the result.")
+        return 1
 
     current = TARGET.read_text(encoding="utf-8") if TARGET.exists() else ""
     if current == fresh:

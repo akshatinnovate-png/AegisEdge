@@ -1,0 +1,12 @@
+{
+  "total": 35,
+  "word": "Thirty-five",
+  "by_source": {
+    "Load and stress testing": 12,
+    "Deterministic simulation": 4,
+    "A security review of that work": 5,
+    "A correctness review of it": 10,
+    "Racing Qdrant's engine against this node's own index": 3,
+    "Asking what a dying link should carry first": 1
+  }
+}

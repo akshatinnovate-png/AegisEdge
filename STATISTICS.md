@@ -15,10 +15,10 @@ stale.
 | Lines of test code | 5,217 |
 | Tests | 385 |
 | Harnesses and tools in `backend/scripts` | 20 |
-| Lines of harness code | 4,313 |
+| Lines of harness code | 4,348 |
 | Frontend — HTML, CSS and JS, no build step | 2,887 |
 | Lines of documentation | 5,998 |
-| Commits | 51 |
+| Commits | 52 |
 
 Test code is about 26% the size of the code it
 tests. That is not a target; it is what happened when every defect had to
@@ -46,7 +46,9 @@ run, on the same seeds with the same attacks, that finds something.
 | Deterministic simulation | 4 |
 | A security review of that work | 5 |
 | A correctness review of it | 10 |
-| **Total, each with a regression test** | **31** |
+| Racing Qdrant's engine against this node's own index | 3 |
+| Asking what a dying link should carry first | 1 |
+| **Total, each with a regression test** | **35** |
 
 Four remain open and are described in the README rather than closed quietly:
 an unexplained ~25 KB per memory, a ~2.8 KB/query growth with a one-variable

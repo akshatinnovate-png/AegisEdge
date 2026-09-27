@@ -136,6 +136,15 @@ CLAIMS = [
                                  f"randomness from the environment",
           "testlogs/determinism.json",
           "how many modules the determinism lint actually covers"),
+    # Also already drifted: STATISTICS.md said thirty-one while the README said
+    # thirty-five. Both were written truthfully, at different times, which is
+    # the only way a count in prose ever goes wrong.
+    Claim("README.md", lambda d: f"{d['word']} defects found and fixed",
+          "testlogs/defects.json",
+          "the defect tally, against the ledger STATISTICS.md renders from"),
+    Claim("docs/ENGINEERING.md", lambda d: f"{d['word'].lower()} defects are below",
+          "testlogs/defects.json",
+          "the same tally where the engineering log opens with it"),
 ]
 
 
