@@ -36,7 +36,7 @@ into modules for linking, and CI fails if the copies ever disagree:
 
 | | |
 |---|---|
-| [docs/ENGINEERING.md](docs/ENGINEERING.md) | The thirty-four defects, the simulator, signing and enrolment, live invariants, the scale investigation, two review passes, and the Qdrant bake-off |
+| [docs/ENGINEERING.md](docs/ENGINEERING.md) | The thirty-five defects, the simulator, signing and enrolment, live invariants, the scale investigation, two review passes, the Qdrant bake-off and the egress scheduler |
 | [docs/MEASUREMENTS.md](docs/MEASUREMENTS.md) | Every measured number and the harness that produced it |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System shape, feature plan, API surface, and all 104 modules |
 | [docs/RUNNING.md](docs/RUNNING.md) | Install, the three modes, two real devices, and how to check every claim |
@@ -304,7 +304,7 @@ guardrail.
 ## 3. What the stress runs broke
 
 The point of a stress test is the things it breaks. Sixteen of this project's
-thirty-four defects are below, each found by pushing until something gave way
+thirty-five defects are below, each found by pushing until something gave way
 and then reading what actually happened rather than what was supposed to. All
 are fixed, with a regression test each — and one finding that is still open,
 because not finding the cause is also a result.
@@ -438,7 +438,7 @@ python3 scripts/audit_determinism.py
 #   skip  aegis/sync/transport.py     (network clients own their own timeouts)
 #   skip  aegis/core/determinism.py   (it *is* the environment)
 #
-#   12 simulated modules draw time and randomness from the environment.
+#   14 simulated modules draw time and randomness from the environment.
 ```
 
 It is an AST pass, not a grep, and each exemption carries the reason it is
@@ -1390,6 +1390,131 @@ common way this kind of picture misleads.
 
 ---
 
+## 3.10 Egress was a drain. On an intermittent link, that is the wrong shape.
+
+The problem statement says intermittent connectivity and local-vs-cloud
+decisions. The sync engine had the first half right — durable queue, resumable
+cursor, Merkle digests, backoff — and had never really been asked the second.
+Its egress loop was four lines: while the queue has anything in it, lease a
+batch, send it, repeat. In the order the writes happened.
+
+That is the correct algorithm for a link that stays up. This node's entire
+premise is a link that does not.
+
+On an intermittent link the question is not *whether* to sync — the queue is
+durable, everything goes eventually — but **what goes first**, because the
+prefix that lands before the link drops is the part that was worth sending. FIFO
+answers that with "whatever happened to be written first", which is an answer,
+just not one about value.
+
+### Looking for that, I found something worse
+
+Building the measurement meant queueing realistic traffic: writes, reads,
+deletes, second writes to the same point. The deletes kept vanishing from the
+plan. They were being classified as *superseded* — and chasing that found a
+defect that had nothing to do with scheduling.
+
+`record_local` stamped every operation with `point.hlc`. That field is written
+once, at ingest, and never again. So a tombstone carried **the timestamp of the
+write it was deleting**, and resolution is `dominates()` — strictly
+happens-after. A delete that ties with its own upsert does not dominate it.
+
+The node rejected its own delete:
+
+```
+delete op hlc: 1790509144046.00000.edge-07
+point  hlc:    1790509144046.00000.edge-07     # identical
+oplog tombstones: 0   rejected_stale: 1
+sync: {'state': 'CONVERGED', 'pushed': 1}
+```
+
+`CONVERGED`, queue drained, nothing logged. And on a peer, the same tombstone
+did not merely fail — it landed inside the 1000 ms concurrency window and was
+filed as a **genuine conflict for a human to arbitrate**:
+
+| | author tombstones | peer tombstones | peer verdict |
+|---|---|---|---|
+| tombstone reuses the point's HLC | 0 | 0 | conflicted |
+| tombstone stamped at delete time | 1 | 1 | accepted |
+
+A memory someone asked to be forgotten stayed on every other device in the
+fleet, and the node reported success. For a system whose whole egress story is
+about what may leave a device, that is the worst defect in it.
+
+The fix is one line of intent — an operation is stamped when it happens, not
+when the point was born — and `HybridClock.now()` is strictly monotone against
+every stamp it has issued, so the new one always wins. Pinned by
+`test_a_tombstone_that_reuses_the_points_clock_never_deletes_anything`, which
+asserts the broken behaviour *and* the fixed one, because a regression test that
+only checks the fix cannot tell you the bug was real.
+
+### Then the scheduler
+
+`aegis/sync/egress.py` makes three decisions, each measurable.
+
+**Redundant operations are never sent.** Two queued operations on the same point
+mean the older one is dead on arrival — LWW resolves by HLC, so applying it
+changes nothing — and FIFO pays full price to transmit a no-op. They are *held*,
+not dropped: an operation leaves the durable queue only once the operation that
+supersedes it is acknowledged. A tombstone is never suppressed this way, for the
+reason the section above exists.
+
+**The rest are ordered by value per byte.** Cost is the real encoded size, from
+the wire codec, through a private instance so that pricing the queue does not
+report traffic as sent. Value comes from what the node already knows: a delete
+or a redaction is an obligation rather than a convenience, a memory that gets
+retrieved is one another device will want, a point inside a Merkle range the
+last cycle found divergent closes a known gap.
+
+**Nothing starves.** Value ordering alone will never send a dull operation while
+interesting ones keep arriving, so anything that has waited longer than
+`STARVATION_S` is promoted ahead of the ordering entirely. The wait is bounded
+by a number rather than by hope.
+
+Reordering egress is only sound because the merge at the far end is
+order-independent — resolution is by HLC, not by arrival. That is a property of
+the CRDT rather than an assumption about it, and
+`test_the_merge_is_order_independent_which_is_what_lets_egress_reorder` runs the
+same operations forward, backward and shuffled and compares the final state.
+
+### What it is worth
+
+`scripts/egress_bakeoff.py` builds a real queue on a real node and cuts the link
+after a fixed number of bytes. **321 operations, 289 KB if all of them went, a
+link that carries 16 KB and then drops:**
+
+| | FIFO | value-first |
+|---|---|---|
+| operations landed | 18 | 18 |
+| value landed | 49.5 | **387.7** |
+| deletes landed | **0 of 7** | **7 of 7** |
+| share of the queue's total worth | 4.0% | **31.4%** |
+
+Same bytes, same starvation rule, same queue — the ordering is the only
+variable. FIFO left every single deletion un-propagated.
+
+Separately, and to both orderings' benefit, **14 operations were superseded
+before they left, saving 12.7 KB** that FIFO would have spent transmitting
+no-ops.
+
+One queue and one drop point give one number; a different budget gives a
+different one, which is why the budget is an argument and not a constant.
+
+### What the console shows
+
+`EGRESS — WHAT THE LINK WOULD CARRY` prices the queue without sending anything:
+the link and its budget, the operations that would go now, and the reason each
+one earned its place in the words the planner used — *"a delete the cloud has
+not applied is a wrong state, not a stale one"*, *"retrieved 6x locally — the
+fleet will want it"*, *"waited 143s — promoted ahead of the ordering"*.
+
+Beside it is what the same bytes would have carried in write order. When the
+whole queue fits the link the panel says so plainly: both orderings carry the
+same value, because ordering only decides anything once the link is too small
+for the queue.
+
+---
+
 ## 4. On-device representation learning
 
 The node can fit a better embedding space for its own corpus than the one it
@@ -2037,6 +2162,7 @@ local simulation when the backend is absent.
 | `POST` | `/api/v1/qdrant/bakeoff` | Run one query down both paths and report the difference: overlap, rank agreement, and each path's latency |
 | `GET` | `/api/v1/qdrant/facets` | Payload value counts computed by the engine rather than by a scan in this process |
 | `GET` | `/api/v1/qdrant/map` | The corpus as Qdrant holds it, projected to two dimensions, with the share of variance those two axes actually carry |
+| `GET` | `/api/v1/sync/egress` | The queue priced against the link that exists right now — what would go, in what order, why, and what the same bytes would have carried in write order. Sends nothing |
 | `WS` | `/api/v1/stream` | Multiplexed live telemetry, sync events, reasoning traces |
 
 Full surface at `/docs` once the node is running.
@@ -2177,7 +2303,7 @@ Point it at a live backend:
 - [ ] **~25 KB per memory is native, grows with the corpus, and is not accounted for.** The vector index, operation log, points, Qdrant, glibc arenas and allocator retention together explain about half of it
 - [ ] **Operation log compaction.** Retains every write forever so a peer offline for a month can reconcile — a deliberate property with an undeliberate bound. Measured at 3.2 KB of 46.8, it would buy ~7% in exchange for changing the part signatures, gossip and `bodies-intact` all depend on. Measuring first turned a confident plan into a bad trade
 - [ ] Ingest still decays with corpus size: 67.5 to 48.7 docs/s over ten thousand points, and resident memory still grows at ~50 KB per memory against the ~2 KB the vectors account for
-- [x] Thirty-four defects found and fixed — twelve under stress, four under deterministic simulation, five in a security review of that work, ten in a correctness review of it, three by racing Qdrant's engine against this node's own index — regression test each · **375 tests**
+- [x] Thirty-five defects found and fixed — twelve under stress, four under deterministic simulation, five in a security review of that work, ten in a correctness review of it, three by racing Qdrant's engine against this node's own index, one by asking what a dying link should carry first — regression test each · **385 tests**
 - [x] The index-strategy guard reworked after it was found asserting a property of the *machine* rather than of the code; it now measures the machine and states, in the skip reason, which one it is on
 - [x] RaBitQ cold tier — unbiased estimator, per-vector error bound, bound-driven rescore depth
 - [x] Corpus-fitted embedding geometry — streaming covariance, Ledoit–Wolf shrinkage, rank-limited whitening
@@ -2278,8 +2404,9 @@ python3 scripts/stress.py --phases all --out ../testlogs   # the nine-phase batt
 python3 scripts/strategy_bakeoff.py              # flat vs HNSW vs IVF-PQ, same corpus
 python3 scripts/qdrant_bakeoff.py                # the engine's hybrid path vs this node's index
 python3 scripts/qdrant_migrate.py --apply        # move old collections onto the hybrid schema
+python3 scripts/egress_bakeoff.py                # value-first vs write-order on a link that drops
 python3 scripts/geometry_eval.py                 # embedding-space sweep with ground truth
-python3 -m pytest tests -q                       # 375 tests
+python3 -m pytest tests -q                       # 385 tests
 ```
 
 Open `http://localhost:8000/docs` for the live OpenAPI surface, or point the
@@ -2295,7 +2422,7 @@ frontend at it (it defaults to `http://localhost:8000`).
 | `aegis/memory/` | Schema, WAL, quantizers, **RaBitQ cold codes + columnar codebook**, **growable matrices**, HNSW, OPQ / IVF-PQ, adaptive index + cost model, filters & payload index, query planner, memmap cold tier, **immutable segments + manifest**, **fsck/scrub/PITR**, **self-healing repair**, **bitemporal knowledge graph**, **Qdrant hybrid schema and native query path — named dense/sparse/late vectors, engine-side RRF and MaxSim in one call**, compactor, consolidation |
 | `aegis/inference/` | ONNX session + EP ladder, micro-batcher, embedder, **corpus geometry (whitening)**, **token lexicon**, **adaptation gate**, sparse encoder, reranker, classifier, thermal governor, model registry, Triton client |
 | `aegis/retrieval/` | RRF fusion, scoring, namespaced semantic cache, contradiction detection, query understanding (BK-tree, expansion, intent), late interaction (MaxSim), **conformal prediction**, **MMR diversity**, **latency-aware routing between the engine and the local index**, pipeline, agent |
-| `aegis/sync/` | CRDT op log, Merkle digests, **IBLT set reconciliation**, **vector clocks + causal delivery**, **P2P gossip mesh**, **Ed25519 device identity + operation signing**, **wire codec**, durable queue, connectivity oracle, transports, conflict arbiter, engine |
+| `aegis/sync/` | CRDT op log, Merkle digests, **IBLT set reconciliation**, **vector clocks + causal delivery**, **P2P gossip mesh**, **Ed25519 device identity + operation signing**, **wire codec**, durable queue, **value-per-byte egress scheduling with supersession and a starvation ceiling**, connectivity oracle, transports, conflict arbiter, engine |
 | `aegis/sim/` | **Deterministic simulation** — a virtual world of N peers, weighted fault and Byzantine actions, seven invariants checked after every step |
 | `aegis/learning/` | **On-device retrieval adapter**, **differential privacy**, **federated secure aggregation** |
 | `aegis/renewal/` | Freshness sweeps, dual-space migrator, scheduler |

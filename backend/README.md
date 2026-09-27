@@ -12,8 +12,9 @@ python3 scripts/stress.py --phases all --out ../testlogs   # the nine-phase batt
 python3 scripts/strategy_bakeoff.py              # flat vs HNSW vs IVF-PQ, same corpus
 python3 scripts/qdrant_bakeoff.py                # the engine's hybrid path vs this node's index
 python3 scripts/qdrant_migrate.py --apply        # move old collections onto the hybrid schema
+python3 scripts/egress_bakeoff.py                # value-first vs write-order on a link that drops
 python3 scripts/geometry_eval.py                 # embedding-space sweep with ground truth
-python3 -m pytest tests -q                       # 375 tests
+python3 -m pytest tests -q                       # 385 tests
 ```
 
 Open `http://localhost:8000/docs` for the live OpenAPI surface, or point the
@@ -29,7 +30,7 @@ frontend at it (it defaults to `http://localhost:8000`).
 | `aegis/memory/` | Schema, WAL, quantizers, **RaBitQ cold codes + columnar codebook**, **growable matrices**, HNSW, OPQ / IVF-PQ, adaptive index + cost model, filters & payload index, query planner, memmap cold tier, **immutable segments + manifest**, **fsck/scrub/PITR**, **self-healing repair**, **bitemporal knowledge graph**, **Qdrant hybrid schema and native query path — named dense/sparse/late vectors, engine-side RRF and MaxSim in one call**, compactor, consolidation |
 | `aegis/inference/` | ONNX session + EP ladder, micro-batcher, embedder, **corpus geometry (whitening)**, **token lexicon**, **adaptation gate**, sparse encoder, reranker, classifier, thermal governor, model registry, Triton client |
 | `aegis/retrieval/` | RRF fusion, scoring, namespaced semantic cache, contradiction detection, query understanding (BK-tree, expansion, intent), late interaction (MaxSim), **conformal prediction**, **MMR diversity**, **latency-aware routing between the engine and the local index**, pipeline, agent |
-| `aegis/sync/` | CRDT op log, Merkle digests, **IBLT set reconciliation**, **vector clocks + causal delivery**, **P2P gossip mesh**, **Ed25519 device identity + operation signing**, **wire codec**, durable queue, connectivity oracle, transports, conflict arbiter, engine |
+| `aegis/sync/` | CRDT op log, Merkle digests, **IBLT set reconciliation**, **vector clocks + causal delivery**, **P2P gossip mesh**, **Ed25519 device identity + operation signing**, **wire codec**, durable queue, **value-per-byte egress scheduling with supersession and a starvation ceiling**, connectivity oracle, transports, conflict arbiter, engine |
 | `aegis/sim/` | **Deterministic simulation** — a virtual world of N peers, weighted fault and Byzantine actions, seven invariants checked after every step |
 | `aegis/learning/` | **On-device retrieval adapter**, **differential privacy**, **federated secure aggregation** |
 | `aegis/renewal/` | Freshness sweeps, dual-space migrator, scheduler |

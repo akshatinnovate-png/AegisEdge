@@ -1,0 +1,35 @@
+{
+  "queued": 321,
+  "total_bytes": 295966,
+  "budget": 16384,
+  "fifo": {
+    "ops": 18,
+    "bytes": 16097,
+    "value": 49.54497223216668,
+    "obligations": 0,
+    "redundant_suppressed": 14,
+    "redundant_bytes": 12993,
+    "deferred": 289
+  },
+  "value": {
+    "ops": 18,
+    "bytes": 15793,
+    "value": 387.70157135948955,
+    "obligations": 7,
+    "redundant_suppressed": 14,
+    "redundant_bytes": 12993,
+    "deferred": 289
+  },
+  "whole": {
+    "ops": 307,
+    "bytes": 282973,
+    "value": 1232.8224267026192,
+    "obligations": 7,
+    "redundant_suppressed": 14,
+    "redundant_bytes": 12993,
+    "deferred": 0
+  },
+  "share_fifo": 0.0402,
+  "share_value": 0.3145,
+  "verdict": "value-first landed 27% more of the queue's worth in the same bytes, and 7 more delete(s) reached the cloud"
+}

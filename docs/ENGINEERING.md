@@ -7,7 +7,7 @@
 ## 3. What the stress runs broke
 
 The point of a stress test is the things it breaks. Sixteen of this project's
-thirty-four defects are below, each found by pushing until something gave way
+thirty-five defects are below, each found by pushing until something gave way
 and then reading what actually happened rather than what was supposed to. All
 are fixed, with a regression test each — and one finding that is still open,
 because not finding the cause is also a result.
@@ -141,7 +141,7 @@ python3 scripts/audit_determinism.py
 #   skip  aegis/sync/transport.py     (network clients own their own timeouts)
 #   skip  aegis/core/determinism.py   (it *is* the environment)
 #
-#   12 simulated modules draw time and randomness from the environment.
+#   14 simulated modules draw time and randomness from the environment.
 ```
 
 It is an AST pass, not a grep, and each exemption carries the reason it is
@@ -1092,3 +1092,128 @@ plot honest: **the two axes hold about 23% of the variance**. The numbered hits
 are the nearest in 256 dimensions, which is exactly why they are visibly *not*
 the nearest on the page. A vector plot without that sentence is the most
 common way this kind of picture misleads.
+
+---
+
+## 3.10 Egress was a drain. On an intermittent link, that is the wrong shape.
+
+The problem statement says intermittent connectivity and local-vs-cloud
+decisions. The sync engine had the first half right — durable queue, resumable
+cursor, Merkle digests, backoff — and had never really been asked the second.
+Its egress loop was four lines: while the queue has anything in it, lease a
+batch, send it, repeat. In the order the writes happened.
+
+That is the correct algorithm for a link that stays up. This node's entire
+premise is a link that does not.
+
+On an intermittent link the question is not *whether* to sync — the queue is
+durable, everything goes eventually — but **what goes first**, because the
+prefix that lands before the link drops is the part that was worth sending. FIFO
+answers that with "whatever happened to be written first", which is an answer,
+just not one about value.
+
+### Looking for that, I found something worse
+
+Building the measurement meant queueing realistic traffic: writes, reads,
+deletes, second writes to the same point. The deletes kept vanishing from the
+plan. They were being classified as *superseded* — and chasing that found a
+defect that had nothing to do with scheduling.
+
+`record_local` stamped every operation with `point.hlc`. That field is written
+once, at ingest, and never again. So a tombstone carried **the timestamp of the
+write it was deleting**, and resolution is `dominates()` — strictly
+happens-after. A delete that ties with its own upsert does not dominate it.
+
+The node rejected its own delete:
+
+```
+delete op hlc: 1790509144046.00000.edge-07
+point  hlc:    1790509144046.00000.edge-07     # identical
+oplog tombstones: 0   rejected_stale: 1
+sync: {'state': 'CONVERGED', 'pushed': 1}
+```
+
+`CONVERGED`, queue drained, nothing logged. And on a peer, the same tombstone
+did not merely fail — it landed inside the 1000 ms concurrency window and was
+filed as a **genuine conflict for a human to arbitrate**:
+
+| | author tombstones | peer tombstones | peer verdict |
+|---|---|---|---|
+| tombstone reuses the point's HLC | 0 | 0 | conflicted |
+| tombstone stamped at delete time | 1 | 1 | accepted |
+
+A memory someone asked to be forgotten stayed on every other device in the
+fleet, and the node reported success. For a system whose whole egress story is
+about what may leave a device, that is the worst defect in it.
+
+The fix is one line of intent — an operation is stamped when it happens, not
+when the point was born — and `HybridClock.now()` is strictly monotone against
+every stamp it has issued, so the new one always wins. Pinned by
+`test_a_tombstone_that_reuses_the_points_clock_never_deletes_anything`, which
+asserts the broken behaviour *and* the fixed one, because a regression test that
+only checks the fix cannot tell you the bug was real.
+
+### Then the scheduler
+
+`aegis/sync/egress.py` makes three decisions, each measurable.
+
+**Redundant operations are never sent.** Two queued operations on the same point
+mean the older one is dead on arrival — LWW resolves by HLC, so applying it
+changes nothing — and FIFO pays full price to transmit a no-op. They are *held*,
+not dropped: an operation leaves the durable queue only once the operation that
+supersedes it is acknowledged. A tombstone is never suppressed this way, for the
+reason the section above exists.
+
+**The rest are ordered by value per byte.** Cost is the real encoded size, from
+the wire codec, through a private instance so that pricing the queue does not
+report traffic as sent. Value comes from what the node already knows: a delete
+or a redaction is an obligation rather than a convenience, a memory that gets
+retrieved is one another device will want, a point inside a Merkle range the
+last cycle found divergent closes a known gap.
+
+**Nothing starves.** Value ordering alone will never send a dull operation while
+interesting ones keep arriving, so anything that has waited longer than
+`STARVATION_S` is promoted ahead of the ordering entirely. The wait is bounded
+by a number rather than by hope.
+
+Reordering egress is only sound because the merge at the far end is
+order-independent — resolution is by HLC, not by arrival. That is a property of
+the CRDT rather than an assumption about it, and
+`test_the_merge_is_order_independent_which_is_what_lets_egress_reorder` runs the
+same operations forward, backward and shuffled and compares the final state.
+
+### What it is worth
+
+`scripts/egress_bakeoff.py` builds a real queue on a real node and cuts the link
+after a fixed number of bytes. **321 operations, 289 KB if all of them went, a
+link that carries 16 KB and then drops:**
+
+| | FIFO | value-first |
+|---|---|---|
+| operations landed | 18 | 18 |
+| value landed | 49.5 | **387.7** |
+| deletes landed | **0 of 7** | **7 of 7** |
+| share of the queue's total worth | 4.0% | **31.4%** |
+
+Same bytes, same starvation rule, same queue — the ordering is the only
+variable. FIFO left every single deletion un-propagated.
+
+Separately, and to both orderings' benefit, **14 operations were superseded
+before they left, saving 12.7 KB** that FIFO would have spent transmitting
+no-ops.
+
+One queue and one drop point give one number; a different budget gives a
+different one, which is why the budget is an argument and not a constant.
+
+### What the console shows
+
+`EGRESS — WHAT THE LINK WOULD CARRY` prices the queue without sending anything:
+the link and its budget, the operations that would go now, and the reason each
+one earned its place in the words the planner used — *"a delete the cloud has
+not applied is a wrong state, not a stale one"*, *"retrieved 6x locally — the
+fleet will want it"*, *"waited 143s — promoted ahead of the ordering"*.
+
+Beside it is what the same bytes would have carried in write order. When the
+whole queue fits the link the panel says so plainly: both orderings carry the
+same value, because ordering only decides anything once the link is too small
+for the queue.

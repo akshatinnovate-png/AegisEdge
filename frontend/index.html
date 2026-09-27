@@ -476,6 +476,20 @@ e.g. bay 3 conveyor vibration crossed 4.2 mm/s at 02:14, bearing signature match
         </div>
       </article>
 
+
+      <!-- egress -->
+      <article class="card card--egress" id="egPanel">
+        <h3>EGRESS — WHAT THE LINK WOULD CARRY</h3>
+        <div class="eg__head">
+          <span class="eg__link" id="egLink">—</span>
+          <button class="btn" id="egRefreshBtn" type="button">RE-PRICE THE QUEUE</button>
+        </div>
+        <div class="bar"><i id="egBar" style="width:0%"></i></div>
+        <div class="eg__budget" id="egBudget">—</div>
+        <div class="eg__rows" id="egRows"></div>
+        <div class="eg__caption" id="egCaption">contacting node…</div>
+      </article>
+
       <!-- events -->
       <article class="card card--log">
         <h3>EVENT STREAM</h3>
@@ -497,5 +511,6 @@ e.g. bay 3 conveyor vibration crossed 4.2 mm/s at 02:14, bearing signature match
 <script src="prove.js"></script>
 <script src="qdrant.js"></script>
 <script src="vectormap.js"></script>
+<script src="egress.js"></script>
 </body>
 </html>

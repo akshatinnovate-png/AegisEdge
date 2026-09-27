@@ -12,7 +12,9 @@ without going through `aegis.core.determinism`.
 """
 from __future__ import annotations
 
+import argparse
 import ast
+import json
 import sys
 from pathlib import Path
 
@@ -105,6 +107,10 @@ def offences(path: Path) -> list[tuple[int, str, str]]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--json", type=str, default="",
+                        help="write the module count where audit_claims.py can check it")
+    args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     failures = 0
     checked = 0
@@ -125,6 +131,12 @@ def main() -> int:
         print("A single one makes a seed stop reproducing, silently.")
         return 1
     print(f"\n{checked} simulated modules draw time and randomness from the environment.")
+    if args.json:
+        # The count is quoted in the documentation, and a quoted number that
+        # nothing checks is a number that goes stale. It already had: the
+        # README said twelve while the answer was fourteen.
+        Path(args.json).write_text(json.dumps({"modules": checked,
+                                               "exempt": len(EXEMPT)}, indent=2))
     return 0
 
 

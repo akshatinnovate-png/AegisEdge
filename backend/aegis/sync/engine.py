@@ -31,6 +31,7 @@ from ..policy.engine import PolicyEngine
 from ..policy.redaction import RedactionVault
 from .conflict import ConflictArbiter, Resolution
 from .compression import dequantize_vector, quantize_vector
+from .egress import EgressPlanner
 from .crdt import OpKind, OpLog, Operation
 from .merkle import MerkleTree
 from .oracle import ConnectivityOracle, LinkState
@@ -108,6 +109,9 @@ class SyncEngine:
         self.bytes_saved = 0
         self.resumptions = 0
         self.coalesced = 0
+        self.egress = EgressPlanner(settings.node_id)
+        self.suppressed_ops = 0
+        self.suppressed_bytes = 0
         self._lock = asyncio.Lock()
         self._inflight: asyncio.Future | None = None
 
@@ -116,9 +120,32 @@ class SyncEngine:
     # -- recording local mutations ----------------------------------------
 
     def record_local(self, point: MemoryPoint, kind: OpKind = OpKind.UPSERT) -> Operation | None:
-        """Turn a local mutation into a queued CRDT op, if policy allows egress."""
-        op = Operation(kind=kind, point_id=point.id, hlc=point.hlc or self.clock.now().pack(),
+        """Turn a local mutation into a queued CRDT op, if policy allows egress.
+
+        The operation is stamped **now**, never with the point's existing HLC.
+
+        It used to reuse `point.hlc`, which is written once at ingest and never
+        again. Every later mutation therefore carried the timestamp of the
+        write it was replacing, and resolution is `dominates()` — strictly
+        happens-after. A tombstone that ties with the upsert it deletes does
+        not dominate it, so it lost, and the node's own op log rejected its own
+        delete: `tombstones: 0, rejected_stale: 1`, while the cycle reported
+        CONVERGED and the queue drained clean.
+
+        The memory stayed on the far end. For a node whose whole egress story
+        is about what may leave a device, a delete that does not propagate is
+        the worst defect in the system, and nothing failed to announce it.
+
+        `HybridClock.now()` is strictly monotone against every stamp it has
+        issued, so the new one always dominates the point's own.
+        """
+        stamp = self.clock.now().pack()
+        op = Operation(kind=kind, point_id=point.id, hlc=stamp,
                        device_id=self.settings.node_id, body=self._egress_body(point))
+        if kind is not OpKind.DELETE:
+            # The point and the operation describing it must agree, or the
+            # Merkle digest and the op log would disagree about its version.
+            point.hlc = stamp
         self.oplog.append(op)
         self.tree.set(point.id, op.hlc)
         if kind is not OpKind.DELETE and not self.policy.may_egress(point):
@@ -266,24 +293,85 @@ class SyncEngine:
                     "progress": self.progress}
 
     async def _push(self) -> int:
+        """Send what is worth the link, newest-per-point only, value first.
+
+        The whole queue is leased so the planner can see it; everything the
+        plan does not send is handed straight back, so a crash between lease
+        and push loses nothing that was not already durable.
+        """
         sent = 0
+        cap = min(self.settings.sync.batch_ops, self.policy.egress_batch)
         while self.queue.pending:
-            batch = self.queue.lease(min(self.settings.sync.batch_ops, self.policy.egress_batch))
-            if not batch:
+            leased = self.queue.lease(len(self.queue.pending))
+            if not leased:
                 break
-            await self.bandwidth.take(min(len(batch) * 1800, self.bandwidth.capacity))
+            plan = self.egress.plan(
+                leased, link=self._egress_link(), points=self.store.points,
+                divergent=self._divergent_point_ids(),
+            )
+            batch = plan.send[:cap]
+            deferred = plan.deferred + plan.send[cap:]
+            if not batch:
+                self.queue.nack(deferred + plan.redundant)
+                break
+            # Real bytes, not an 1800-per-op guess: the planner already priced
+            # every operation to decide the order, so the budget it spends and
+            # the tokens taken here are the same number.
+            await self.bandwidth.take(min(max(plan.planned_bytes, 1),
+                                          self.bandwidth.capacity))
             try:
                 result = await self.transport.push(batch)
             except Exception:
-                self.queue.nack(batch)               # nothing is lost on a failed lease
+                self.queue.nack(leased)              # nothing is lost on a failed lease
                 raise
-            self.queue.ack(result.get("accepted", []))
+            accepted = list(result.get("accepted", []))
+            self.queue.ack(accepted)
             rejected = [op for op in batch if op.op_id in set(result.get("rejected", []))]
             self.queue.ack([op.op_id for op in rejected])   # cloud already had newer
-            sent += len(result.get("accepted", []))
-            self.pushed += len(result.get("accepted", []))
+            # A superseded operation is released only now, and only because the
+            # operation that supersedes it was accepted. Acking it any earlier
+            # would drop a write whenever the newer one never landed.
+            landed = set(accepted) | {op.op_id for op in rejected}
+            released = [op_id for keeper, ids in plan.releases.items() if keeper in landed
+                        for op_id in ids]
+            held = [op for op in plan.redundant if op.op_id not in set(released)]
+            if released:
+                self.queue.ack(released)
+                self.suppressed_ops += len(released)
+                self.suppressed_bytes += plan.redundant_bytes
+            self.queue.nack(deferred + held)
+            sent += len(accepted)
+            self.pushed += len(accepted)
             METRICS.gauge("sync.queue_depth", self.queue.depth)
+            if deferred or held:
+                break                                # the budget for this cycle is spent
         return sent
+
+    def _egress_link(self) -> str:
+        """The link the planner should price against.
+
+        Reaching this point means a session was established and the transport
+        is answering, so the link is not offline whatever the oracle's last
+        probe says — probes run on their own interval and can be seconds stale.
+        Evidence in hand outranks a measurement that has not been taken yet, so
+        a lagging OFFLINE is treated as the most cautious *live* state rather
+        than as a reason to send nothing and spin.
+        """
+        link = self.oracle.state.value
+        return "degraded" if link == "offline" else link
+
+    def _divergent_point_ids(self) -> set[str]:
+        """Which points sit in a Merkle range the last cycle found divergent.
+
+        An operation that closes a gap the previous cycle actually identified is
+        worth more than one that does not, and this is where that is known.
+        """
+        if not self.divergent:
+            return set()
+        ranges = set(self.divergent)
+        return {point_id
+                for bucket in ranges
+                for point_id in self.tree.leaves.get(bucket, {})}
 
     async def _pull(self) -> tuple[int, int]:
         applied = conflicts = 0
@@ -403,6 +491,7 @@ class SyncEngine:
             "zero_rtt_resumed": self.zero_rtt,
             "resumptions": self.resumptions,
             "coalesced": self.coalesced,
+            "egress": self.egress.snapshot(),
             "cycles": self.cycles,
             "pushed": self.pushed,
             "pulled": self.pulled,

@@ -106,6 +106,36 @@ CLAIMS = [
                                            f"{d['router']['engine_p95_ms']:.1f} ms",
           "testlogs/qdrant-bakeoff.json",
           "what the router measured, quoted as the script printed it"),
+    # The egress scheduler's headline. The deletes row is the one that matters:
+    # a number of operations is a throughput claim, a number of un-propagated
+    # deletions is a correctness one.
+    Claim("README.md", lambda d: f"| value landed | {d['fifo']['value']:.1f} | "
+                                 f"**{d['value']['value']:.1f}** |",
+          "testlogs/egress-bakeoff.json",
+          "what each ordering landed in the same bytes"),
+    Claim("README.md", lambda d: f"| deletes landed | **{d['fifo']['obligations']} of "
+                                 f"{d['whole']['obligations']}** | "
+                                 f"**{d['value']['obligations']} of "
+                                 f"{d['whole']['obligations']}** |",
+          "testlogs/egress-bakeoff.json",
+          "how many deletions each ordering got through the link"),
+    Claim("README.md", lambda d: f"| share of the queue's total worth | "
+                                 f"{d['share_fifo']:.1%} | **{d['share_value']:.1%}** |",
+          "testlogs/egress-bakeoff.json",
+          "the share of the queue's worth that survived the drop"),
+    Claim("README.md", lambda d: f"**{d['value']['redundant_suppressed']} operations were "
+                                 f"superseded\nbefore they left, saving "
+                                 f"{d['value']['redundant_bytes'] / 1024:.1f} KB**",
+          "testlogs/egress-bakeoff.json",
+          "the bytes never spent on operations that were already no-ops"),
+    # This one is here because it had already drifted: the README quoted twelve
+    # modules while the lint was checking fourteen. Nothing was wrong with the
+    # code; the prose had simply stopped being true, which is the entire failure
+    # mode this script exists for.
+    Claim("README.md", lambda d: f"{d['modules']} simulated modules draw time and "
+                                 f"randomness from the environment",
+          "testlogs/determinism.json",
+          "how many modules the determinism lint actually covers"),
 ]
 
 

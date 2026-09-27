@@ -15,6 +15,39 @@ async def status(node: EdgeNode = Depends(get_node)) -> dict:
     return node.sync.status()
 
 
+@router.get("/egress")
+async def egress(node: EdgeNode = Depends(get_node)) -> dict:
+    """What the queue is worth, and what the current link would carry of it.
+
+    Priced without sending anything: this is the same plan a cycle would make,
+    so an operator can see which memories are about to leave and why before
+    one does.
+    """
+    queued = list(node.sync.queue.pending)
+    plan = node.sync.egress.plan(
+        queued, link=node.sync._egress_link(), points=node.store.points,
+        divergent=node.sync._divergent_point_ids(),
+    )
+    control = node.sync.egress.plan(
+        queued, link=node.sync._egress_link(), points=node.store.points,
+        divergent=node.sync._divergent_point_ids(), order="fifo",
+    )
+    by_id = {a.op.op_id: a for a in plan.assessments}
+    return {
+        "link": plan.link,
+        "queued": len(queued),
+        "plan": plan.as_dict(),
+        # The control, priced the same way: what the same bytes would have
+        # carried in the order the writes happened.
+        "fifo_value": round(sum(by_id[op.op_id].value for op in control.send
+                                if op.op_id in by_id), 2),
+        "value": round(sum(by_id[op.op_id].value for op in plan.send
+                           if op.op_id in by_id), 2),
+        "queue": node.sync.queue.snapshot(),
+        "counters": node.sync.egress.snapshot(),
+    }
+
+
 @router.post("/trigger")
 async def trigger(body: SyncTriggerRequest | None = None, node: EdgeNode = Depends(get_node)) -> dict:
     result = await node.sync.reconcile(trigger=(body.reason if body else "manual"))

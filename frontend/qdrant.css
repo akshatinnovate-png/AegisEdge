@@ -130,3 +130,34 @@
 .vm__caption{padding:8px 10px 10px;font-size:9.5px;letter-spacing:.05em;
   color:var(--fg-faint);border-top:1px dashed rgba(255,255,255,.07)}
 .vm__caption b{color:var(--fg)}
+
+/* ── egress queue ───────────────────────────────────────────── */
+
+@media(min-width:900px){ .card--egress{grid-column:span 6} }
+
+.eg__head{display:flex;justify-content:space-between;align-items:center;gap:12px;
+  flex-wrap:wrap;margin:-4px 0 10px}
+.eg__link{flex:1 1 200px;min-width:0;font-size:9.5px;letter-spacing:.14em;color:var(--fg-faint)}
+.eg__budget{font-size:9.5px;letter-spacing:.06em;color:var(--fg-dim);margin:2px 0 12px}
+
+.eg__rows{display:grid;gap:6px}
+.eg-row{display:grid;grid-template-columns:86px 1fr 110px 56px;gap:10px;align-items:center;
+  font-size:10px;opacity:0;animation:eg-in .45s ease forwards}
+@keyframes eg-in{to{opacity:1}}
+@media(prefers-reduced-motion:reduce){ .eg-row{animation:none;opacity:1} }
+
+.eg-kind{font-size:8px;letter-spacing:.18em;text-align:center;padding:3px 0;border-radius:2px;
+  border:1px solid var(--line);color:var(--o)}
+.eg-kind--delete{background:var(--o);color:var(--ink);border-color:var(--o);font-weight:600}
+.eg-why{color:var(--fg-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.eg-meter{display:block;height:5px;border-radius:2px;background:rgba(255,255,255,.07);
+  overflow:hidden}
+.eg-meter b{display:block;height:100%;border-radius:2px;
+  background:linear-gradient(90deg,var(--o-deep),var(--o-hot));
+  box-shadow:0 0 8px rgba(255,120,26,.55)}
+.eg-num{text-align:right;font-variant-numeric:tabular-nums;color:var(--fg)}
+.eg-empty{font-size:10px;color:var(--fg-faint);padding:6px 0}
+
+.eg__caption{margin-top:12px;padding-top:8px;font-size:9.5px;letter-spacing:.05em;
+  color:var(--fg-faint);border-top:1px dashed rgba(255,255,255,.07)}
+.eg__caption b{color:var(--fg)}

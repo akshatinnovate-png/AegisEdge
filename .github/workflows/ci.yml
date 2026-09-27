@@ -31,7 +31,17 @@ jobs:
         # This one runs first and on its own. If simulated code has started
         # reaching past the ambient environment, every result below it is
         # about a different program than the one the seeds describe.
-        run: python3 scripts/audit_determinism.py
+        run: |
+          python3 scripts/audit_determinism.py --json /tmp/determinism.json
+          python3 - <<'PY'
+          import json, sys
+          fresh = json.load(open("/tmp/determinism.json"))["modules"]
+          committed = json.load(open("../testlogs/determinism.json"))["modules"]
+          print(f"determinism lint covers {fresh} modules; the committed artefact says {committed}")
+          if fresh != committed:
+              sys.exit("testlogs/determinism.json is stale — re-run the lint with --json "
+                       "so the number the documentation quotes is the number that ran")
+          PY
 
       - name: Documentation claims match the committed results
         working-directory: backend
@@ -97,7 +107,7 @@ jobs:
           path: /tmp/*.json
 
   bakeoff:
-    name: qdrant engine vs local index
+    name: bake-offs — engine vs index, value vs write order
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -136,8 +146,33 @@ jobs:
               sys.exit("the engine's dense recall fell below exact brute force")
           PY
 
+      - name: A dying link must still carry the obligations
+        working-directory: backend
+        # Not a performance gate — the value numbers move with the corpus and
+        # the machine. This asserts the one thing that is not a preference: a
+        # link with room for only part of the queue must spend that room on the
+        # deletions first, because a memory someone asked to be forgotten
+        # outliving the link is a correctness failure and a slow update is not.
+        run: |
+          python3 scripts/egress_bakeoff.py --points 300 --budget 16384 \
+                  --json /tmp/egress.json
+          python3 - <<'PY'
+          import json, sys
+          d = json.load(open("/tmp/egress.json"))
+          total = d["whole"]["obligations"]
+          got = d["value"]["obligations"]
+          print(f"deletes: value-first {got}/{total}, fifo {d['fifo']['obligations']}/{total}")
+          if total and got < total:
+              sys.exit(f"value-first left {total - got} deletion(s) on the edge")
+          if d["value"]["value"] < d["fifo"]["value"]:
+              sys.exit("write order carried more value than value order — "
+                       "the scheduler is not doing what it claims")
+          PY
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: bakeoff
-          path: /tmp/bakeoff.json
+          path: |
+            /tmp/bakeoff.json
+            /tmp/egress.json
