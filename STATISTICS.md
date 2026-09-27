@@ -18,7 +18,7 @@ stale.
 | Lines of harness code | 4,348 |
 | Frontend — HTML, CSS and JS, no build step | 2,887 |
 | Lines of documentation | 5,998 |
-| Commits | 52 |
+| Commits | 53 |
 
 Test code is about 26% the size of the code it
 tests. That is not a target; it is what happened when every defect had to
