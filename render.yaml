@@ -59,10 +59,18 @@ services:
         value: "1"
 
       # The console is served from another origin, so the node has to allow it.
-      # Replace with the Netlify site's URL once it exists — "*" is the default
-      # and is fine for a demo, wrong for anything else.
+      #
+      # A real value rather than a prompt, deliberately. Left blank at Blueprint
+      # time this would be the empty string, not unset — and the node splits it
+      # on commas into `allow_origins = [""]`, which admits no origin at all.
+      # The console would be CORS-blocked and the node would look broken while
+      # being perfectly healthy.
+      #
+      # Narrow it to the Netlify site's exact URL in the Render dashboard once
+      # the site has its final name. "*" is right for a demo and wrong for
+      # anything holding real data.
       - key: AEGIS_CORS_ORIGINS
-        sync: false
+        value: "*"
 
       # Set this and issue keys, and every route requires one. Leave it off for
       # a judge-facing demo; turn it on for anything with real data in it.
