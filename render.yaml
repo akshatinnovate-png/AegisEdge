@@ -36,7 +36,24 @@ services:
       pip install -r backend/requirements.txt &&
       cd backend &&
       python -c "from pathlib import Path; from aegis.inference.onnx_runtime import provision; provision(Path('models'))"
-    startCommand: cd backend && uvicorn aegis.main:app --host 0.0.0.0 --port $PORT
+    # The device identity is written before the node starts, if one is supplied.
+    #
+    # The node keeps its Ed25519 key at <data_dir>/device_key.pem and generates
+    # one when it is missing. On an ephemeral filesystem that means a new
+    # identity on every restart — and a peer that has already learned the old
+    # key refuses everything the node sends as a forgery, which is
+    # trust-on-first-use working exactly as designed and a mesh that stops
+    # converging after the first sleep. Measured: unpinned, two boots gave two
+    # different keys; pinned, they gave the same one.
+    #
+    # Leave AEGIS_DEVICE_KEY_PEM unset and the node generates its own, which is
+    # right for a single node with no peers.
+    startCommand: >-
+      mkdir -p "$AEGIS_DATA_DIR";
+      if [ -n "$AEGIS_DEVICE_KEY_PEM" ]; then
+      printf '%s\n' "$AEGIS_DEVICE_KEY_PEM" > "$AEGIS_DATA_DIR/device_key.pem";
+      chmod 600 "$AEGIS_DATA_DIR/device_key.pem"; fi;
+      cd backend && exec uvicorn aegis.main:app --host 0.0.0.0 --port $PORT
 
     healthCheckPath: /api/v1/health
 
@@ -62,6 +79,17 @@ services:
 
       - key: AEGIS_NODE_ID
         value: edge-render-01
+
+      # Peers are other node processes reached over HTTP, not objects in this
+      # one. Without this the mesh link is in-process and the two devices in
+      # the console's USE IT mode cannot see each other at all.
+      - key: AEGIS_MESH_TRANSPORT
+        value: http
+
+      # Set this to keep the device's identity across restarts. See the note on
+      # startCommand above for why it matters on an ephemeral filesystem.
+      - key: AEGIS_DEVICE_KEY_PEM
+        sync: false
 
       # Qdrant is a hard requirement; a node that silently fell back to the
       # internal store would be telling its operator something untrue about
@@ -94,4 +122,56 @@ services:
       - key: AEGIS_QDRANT_URL
         sync: false
       - key: AEGIS_QDRANT_API_KEY
+        sync: false
+
+  # The second device.
+  #
+  # USE IT demonstrates two devices reconciling directly with no cloud between
+  # them, which is the part of the problem statement that is easiest to claim
+  # and hardest to show. It needs two node processes, so here is the second
+  # one: same code, same blueprint, its own identity and its own memories.
+  #
+  # Verified locally before it was written down: two separate processes peer
+  # over HTTP, one ingests, the other finds it, and the receiving node reports
+  # the operation as signature-verified rather than merely arrived.
+  - type: web
+    name: aegisedge-node-b
+    runtime: python
+    plan: free
+    region: oregon
+    branch: main
+    numInstances: 1
+
+    buildCommand: >-
+      pip install -r backend/requirements.txt &&
+      cd backend &&
+      python -c "from pathlib import Path; from aegis.inference.onnx_runtime import provision; provision(Path('models'))"
+
+    startCommand: >-
+      mkdir -p "$AEGIS_DATA_DIR";
+      if [ -n "$AEGIS_DEVICE_KEY_PEM" ]; then
+      printf '%s\n' "$AEGIS_DEVICE_KEY_PEM" > "$AEGIS_DATA_DIR/device_key.pem";
+      chmod 600 "$AEGIS_DATA_DIR/device_key.pem"; fi;
+      cd backend && exec uvicorn aegis.main:app --host 0.0.0.0 --port $PORT
+
+    healthCheckPath: /api/v1/health
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: AEGIS_DATA_DIR
+        value: /opt/render/project/src/backend/.aegis
+      - key: AEGIS_MODEL_DIR
+        value: /opt/render/project/src/backend/models
+      - key: AEGIS_NODE_ID
+        value: edge-render-02
+      - key: AEGIS_REQUIRE_QDRANT
+        value: "1"
+      - key: AEGIS_CORS_ORIGINS
+        value: "*"
+      - key: AEGIS_MESH_TRANSPORT
+        value: http
+      - key: AEGIS_DEVICE_KEY_PEM
+        sync: false
+      - key: AEGIS_REQUIRE_AUTH
         sync: false

@@ -84,6 +84,43 @@ Scale by running **more nodes with their own disks** and letting them find each
 other over the mesh. That is what the sync engine is for, and it is the shape
 the whole system was designed around.
 
+### The second device, and why identity has to be pinned
+
+`render.yaml` describes **two** services. The second one, `aegisedge-node-b`,
+exists because the console's `USE IT` mode demonstrates two devices reconciling
+directly with no cloud between them — the part of the problem statement that is
+easiest to claim and hardest to show. It needs two node processes.
+
+They peer over HTTP, which is why both carry `AEGIS_MESH_TRANSPORT=http`. With
+the in-process default they could not see each other at all.
+
+**Both need `AEGIS_DEVICE_KEY_PEM` set**, and that is not optional here. The
+node keeps its Ed25519 key at `<data_dir>/device_key.pem` and generates one when
+it is missing — so on an ephemeral filesystem it gets a *new identity on every
+restart*. A peer that already learned the old key then refuses everything the
+node sends as a forgery. That is trust-on-first-use working exactly as designed,
+and it is also a mesh that silently stops converging after the first sleep.
+
+Measured, because it is the kind of thing that is easy to assume either way:
+unpinned, two boots from a wiped directory produced two different public keys;
+pinned, they produced the same one. The start command writes the PEM at mode
+`0600` before the node boots, and skips the whole thing when the variable is
+unset — which is the right behaviour for a single node with no peers.
+
+Generate a keypair per device with:
+
+```bash
+python3 -c "
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives import serialization
+print(Ed25519PrivateKey.generate().private_bytes(
+    serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+    serialization.NoEncryption()).decode())"
+```
+
+Paste each into that service's `AEGIS_DEVICE_KEY_PEM` in the Render dashboard
+and mark it secret.
+
 ---
 
 ## 2. The console, on Netlify
@@ -91,11 +128,21 @@ the whole system was designed around.
 **Add new site → import this repository.** `netlify.toml` does the rest:
 publish `frontend/`, no build command, revalidating cache headers.
 
-Set one environment variable in **Site configuration → Environment variables**:
+Set these in **Site configuration → Environment variables**:
 
-```
-AEGIS_API_URL = https://aegisedge-node.onrender.com
-```
+| Key | Value | Why |
+|---|---|---|
+| `AEGIS_API_URL` | `https://aegisedge-node.onrender.com` | The node the console reads |
+| `AEGIS_DEVICE_A_URL` | `https://aegisedge-node.onrender.com` | `USE IT`'s first device |
+| `AEGIS_DEVICE_B_URL` | `https://aegisedge-node-b.onrender.com` | `USE IT`'s second device |
+
+None of them may be marked **secret** — a secret value is not readable at
+request time, so the edge function would get nothing and the console would sit
+there reporting the node unreachable.
+
+The two device URLs are read together: set both and the deployed console points
+`USE IT` at the deployed pair, set neither and it keeps its local defaults
+rather than being handed a half-configured mesh.
 
 `netlify/edge-functions/aegis-config.ts` injects that into the document head
 ahead of every console script, because `app.js` reads `window.AEGIS_API` once at
@@ -124,13 +171,10 @@ is the WebSocket, and it is the reason for the direct-connection setup below.
 
 Two harmless errors, worth knowing so they are not mistaken for a broken deploy:
 
-- **`localhost:8201` and `localhost:8202`, connection refused.** The `USE IT`
-  mode has a two-device mesh demonstration that talks to two *other* nodes at
-  those fixed local addresses. It is a local-only demo — run three nodes on one
-  machine and it works; deployed, those two devices do not exist. Every other
-  mode is unaffected, and the single deployed node is fully functional,
-  including its own mesh endpoints.
 - **`/favicon.ico`, 404.** There is no favicon in the repository.
+- **`localhost:8201` / `localhost:8202`, connection refused** — only if you did
+  *not* set `AEGIS_DEVICE_A_URL` and `AEGIS_DEVICE_B_URL`. Those are `USE IT`'s
+  local development defaults. Set both and it points at the deployed pair.
 
 Everything else was checked against a deployed-shaped setup — console on one
 origin, node on another, talking over CORS: all fifteen console panels populate,
