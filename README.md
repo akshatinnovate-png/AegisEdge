@@ -39,13 +39,42 @@ into modules for linking, and CI fails if the copies ever disagree:
 | [docs/ENGINEERING.md](docs/ENGINEERING.md) | The forty-five defects, the simulator, signing and enrolment, live invariants, the scale investigation, three review passes, the Qdrant bake-off and the egress scheduler |
 | [docs/MEASUREMENTS.md](docs/MEASUREMENTS.md) | Every measured number and the harness that produced it |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System shape, feature plan, API surface, and all 104 modules |
-| [docs/RUNNING.md](docs/RUNNING.md) | Install, the three modes, two real devices, and how to check every claim |
+| [docs/RUNNING.md](docs/RUNNING.md) | The live deployment, install, the three modes, two real devices, and how to check every claim |
 | [STATISTICS.md](STATISTICS.md) | Counts and results, generated from the repository and checked in CI |
+| [DEPLOY.md](DEPLOY.md) | How the live deployment is put together — console on Netlify, two nodes on Render, and the two traps that cost an afternoon |
 | [CONTRIBUTING.md](CONTRIBUTING.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) · [LICENSE](LICENSE) | How a change earns its way in, how people are expected to behave, MIT |
 
 ---
 
-## Quick start — run it, and use every mode
+## It is already running — open it
+
+### → **[aegisedge.netlify.app](https://aegisedge.netlify.app)**
+
+Nothing to install. That is a live deployment: the console on Netlify, two real
+nodes on Render, meshed with each other.
+
+It starts **empty**, because the node ships empty — whatever you see, you put
+there. So the fastest tour is to put something in it:
+
+| Mode | Try |
+|---|---|
+| **USE IT** | Save a memory, ask a question about it. Then click **PEER**, save on **DEVICE A**, hit **RECONCILE** on **DEVICE B**, and search for it there — that is two independent machines converging directly, with no cloud between them. |
+| **PROVE IT** | Four claims, each with the button that would falsify it. |
+| **INSPECT IT** | The query plan Qdrant executed, the corpus projected to two dimensions, the egress queue priced against the current link, and live telemetry over a WebSocket. |
+
+Two honest notes about the free tier it runs on. **The first click may take
+about fifty seconds** — the containers sleep when idle and that is the wake, not
+the node, which boots in three seconds. And **memories do not survive a
+restart**: there is no persistent disk, so the node comes back empty. Both are
+deployment economics rather than properties of the system, and
+[DEPLOY.md](DEPLOY.md) has the two lines that change each.
+
+---
+
+## Quick start — run it yourself
+
+You do not need to. But the whole point of an offline-first node is that it runs
+on your machine with no network, so here is how.
 
 Once installed, it is two commands to a running system and nothing needs a
 network after that. Every command below was run to write this section, and the
