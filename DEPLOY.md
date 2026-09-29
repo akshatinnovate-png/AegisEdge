@@ -25,11 +25,12 @@ service; Render reads it.
 What it sets up:
 
 - Python 3.11, `pip install -r backend/requirements.txt`
+- The ONNX graphs compiled **at build time**, so a cold start does not pay for
+  them
 - `uvicorn aegis.main:app --host 0.0.0.0 --port $PORT`
-- A **10 GB persistent disk at `/var/aegis`**, with `AEGIS_DATA_DIR` and
-  `AEGIS_MODEL_DIR` pointing into it
 - Health check on `/api/v1/health`
 - **One instance**, deliberately
+- The **free** plan — no card, no disk
 
 Then set one environment variable in the Render dashboard once the Netlify site
 exists:
@@ -38,14 +39,40 @@ exists:
 AEGIS_CORS_ORIGINS = https://your-site.netlify.app
 ```
 
-### What to expect on first boot
+### What the free tier costs you
 
-It is slow, once. The node compiles `embedder.onnx` and `reranker.onnx` from the
-weights bundled in the wheel and content-addresses them into the registry —
-about **127 MB** written to the disk. Because the model directory is on the
-persistent disk, later deploys skip it.
+Two real limitations, neither hidden:
 
-Nothing is downloaded during this. Provisioning never touches the network.
+**The filesystem is ephemeral.** A persistent disk needs a paid instance, so
+memories, the write-ahead log and the Qdrant collections are gone when the
+service restarts or wakes from sleep. The node works completely; it just starts
+empty each time. The console will show an empty node and you ingest again.
+
+**It sleeps after 15 minutes idle.** The first request after that wakes it.
+
+The wake is fast because the models are compiled during the build rather than on
+boot: measured **3 seconds** from process start to a healthy response, against
+about 45 seconds when the graphs were built on first use. Nothing is downloaded
+at any point — the weights ship in the wheel and provisioning never touches the
+network.
+
+The node needs about **270 MB** of RSS with a small corpus, against the free
+tier's 512 MB, so there is room but not unlimited room: a corpus in the tens of
+thousands will want the paid instance.
+
+### Upgrading later
+
+Change `plan: free` to `plan: starter` and put the disk block back:
+
+```yaml
+    disk:
+      name: aegis-data
+      mountPath: /var/aegis
+      sizeGB: 10
+```
+
+...then point `AEGIS_DATA_DIR` and `AEGIS_MODEL_DIR` at `/var/aegis/...`.
+Nothing else changes, and memories survive restarts from then on.
 
 ### Why one instance
 
@@ -56,12 +83,6 @@ correctly, but the deploy would look broken.
 Scale by running **more nodes with their own disks** and letting them find each
 other over the mesh. That is what the sync engine is for, and it is the shape
 the whole system was designed around.
-
-### A paid instance is required
-
-The free tier has no persistent disk and spins down when idle. Without a disk
-the node recompiles the models on every wake and loses its memories — which is
-not a deployment, it is a demo that resets.
 
 ---
 

@@ -12,7 +12,10 @@ services:
   - type: web
     name: aegisedge-node
     runtime: python
-    plan: starter          # a persistent disk requires a paid instance type
+    # Free. No card, no disk — see the trade-offs below and in DEPLOY.md.
+    # Upgrade to `starter` and add the `disk:` block back to keep memories
+    # across restarts; everything else about this file stays the same.
+    plan: free
     region: oregon
     branch: main
 
@@ -24,30 +27,38 @@ services:
     # sync engine is for.
     numInstances: 1
 
-    buildCommand: pip install -r backend/requirements.txt
+    # The ONNX graphs are compiled from the bundled weights here, at build
+    # time, rather than on first boot. It takes about a second and the result
+    # is part of the deployed slug, so a cold start does not pay for it — which
+    # matters on the free tier, where the service sleeps and every wake would
+    # otherwise recompile them.
+    buildCommand: >-
+      pip install -r backend/requirements.txt &&
+      cd backend &&
+      python -c "from pathlib import Path; from aegis.inference.onnx_runtime import provision; provision(Path('models'))"
     startCommand: cd backend && uvicorn aegis.main:app --host 0.0.0.0 --port $PORT
 
     healthCheckPath: /api/v1/health
 
-    disk:
-      name: aegis-data
-      mountPath: /var/aegis
-      sizeGB: 10
+    # No disk. A persistent disk needs a paid instance, so on the free tier the
+    # filesystem is ephemeral: the node works completely, and its memories,
+    # write-ahead log and Qdrant collections are gone when the service restarts
+    # or wakes from sleep. That is a real limitation, not a hidden one — the
+    # console will simply show an empty node and you ingest again.
 
     envVars:
       - key: PYTHON_VERSION
         value: "3.11.9"
 
       # Memories, the write-ahead log, immutable segments and the embedded
-      # Qdrant all live here. On the disk, so a deploy does not erase them.
+      # Qdrant. Ephemeral on the free tier; point this at a mounted disk the
+      # moment there is one.
       - key: AEGIS_DATA_DIR
-        value: /var/aegis/data
+        value: /opt/render/project/src/backend/.aegis
 
-      # The ONNX graphs are compiled from the bundled weights on first boot and
-      # content-addressed into the registry. Putting them on the disk means that
-      # happens once rather than on every deploy.
+      # Where the build command put the compiled graphs.
       - key: AEGIS_MODEL_DIR
-        value: /var/aegis/models
+        value: /opt/render/project/src/backend/models
 
       - key: AEGIS_NODE_ID
         value: edge-render-01
