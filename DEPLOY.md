@@ -45,10 +45,22 @@ Two real limitations, neither hidden:
 
 **The filesystem is ephemeral.** A persistent disk needs a paid instance, so
 memories, the write-ahead log and the Qdrant collections are gone when the
-service restarts or wakes from sleep. The node works completely; it just starts
-empty each time. The console will show an empty node and you ingest again.
+container restarts. The node works completely; it just starts empty again.
 
-**It sleeps after 15 minutes idle.** The first request after that wakes it.
+**It sleeps after 15 minutes with no requests.** The first request after that
+wakes it.
+
+Those two combine into something worth stating plainly, because it is easy to
+read the first one as worse than it is: **the container is what holds the
+memories, and closing the page does not restart the container.** What restarts
+it is fifteen minutes of no traffic at all, a redeploy, or Render cycling the
+instance.
+
+So a keep-warm ping — anything hitting `/api/v1/health` every ten minutes —
+buys the instant first click *and* memories that stay put, because the idle
+timer never expires. Render can still cycle a free instance on its own and a
+push to `main` still redeploys, so this is reliable rather than guaranteed. The
+guarantee is the disk.
 
 The wake is fast because the models are compiled during the build rather than on
 boot: measured **3 seconds** from process start to a healthy response, against

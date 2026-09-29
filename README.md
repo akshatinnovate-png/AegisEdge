@@ -62,12 +62,19 @@ there. So the fastest tour is to put something in it:
 | **PROVE IT** | Four claims, each with the button that would falsify it. |
 | **INSPECT IT** | The query plan Qdrant executed, the corpus projected to two dimensions, the egress queue priced against the current link, and live telemetry over a WebSocket. |
 
-Two honest notes about the free tier it runs on. **The first click may take
-about fifty seconds** — the containers sleep when idle and that is the wake, not
-the node, which boots in three seconds. And **memories do not survive a
-restart**: there is no persistent disk, so the node comes back empty. Both are
-deployment economics rather than properties of the system, and
-[DEPLOY.md](DEPLOY.md) has the two lines that change each.
+Two honest notes about the free tier it runs on, both deployment economics
+rather than properties of the system.
+
+**The first click may take about fifty seconds.** That is the container waking,
+not the node — the node itself boots in three seconds, because the ONNX graphs
+are compiled at build time rather than on first use.
+
+**Memories live as long as the container does.** There is no persistent disk, so
+a restart brings the node back empty — but a restart means fifteen minutes with
+no requests at all, or a redeploy. Closing the page is not a restart, and a
+keep-warm ping every ten minutes buys both the instant first click and memories
+that stay put. It is not a durability guarantee; that is what the disk in
+[DEPLOY.md](DEPLOY.md) is for, two lines away.
 
 ---
 
