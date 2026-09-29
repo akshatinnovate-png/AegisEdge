@@ -305,45 +305,54 @@ class SyncEngine:
             leased = self.queue.lease(len(self.queue.pending))
             if not leased:
                 break
-            plan = self.egress.plan(
-                leased, link=self._egress_link(), points=self.store.points,
-                divergent=self._divergent_point_ids(),
-            )
-            batch = plan.send[:cap]
-            deferred = plan.deferred + plan.send[cap:]
-            if not batch:
-                self.queue.nack(deferred + plan.redundant)
-                break
-            # Real bytes, not an 1800-per-op guess: the planner already priced
-            # every operation to decide the order, so the budget it spends and
-            # the tokens taken here are the same number.
-            await self.bandwidth.take(min(max(plan.planned_bytes, 1),
-                                          self.bandwidth.capacity))
+            # Everything from here is inside a finally that returns whatever
+            # was not acknowledged. The lease takes the *whole* queue so the
+            # planner can see it, so an exception — or a cancellation at the
+            # bandwidth gate, which is not an exception path — would otherwise
+            # strand every queued operation in `inflight` until the process
+            # restarted.
+            settled: set[str] = set()
             try:
+                plan = self.egress.plan(
+                    leased, link=self._egress_link(), points=self.store.points,
+                    divergent=self._divergent_point_ids(),
+                )
+                batch = plan.send[:cap]
+                deferred = plan.deferred + plan.send[cap:]
+                if not batch:
+                    break
+                # Real bytes, and the bytes of what is actually going: the plan
+                # may be larger than one batch, and charging the bucket for
+                # operations this cycle is not sending would throttle the link
+                # against traffic that never happened.
+                cost = sum(self.egress.size_of(op) for op in batch)
+                await self.bandwidth.take(min(max(cost, 1), self.bandwidth.capacity))
                 result = await self.transport.push(batch)
-            except Exception:
-                self.queue.nack(leased)              # nothing is lost on a failed lease
-                raise
-            accepted = list(result.get("accepted", []))
-            self.queue.ack(accepted)
-            rejected = [op for op in batch if op.op_id in set(result.get("rejected", []))]
-            self.queue.ack([op.op_id for op in rejected])   # cloud already had newer
-            # A superseded operation is released only now, and only because the
-            # operation that supersedes it was accepted. Acking it any earlier
-            # would drop a write whenever the newer one never landed.
-            landed = set(accepted) | {op.op_id for op in rejected}
-            released = [op_id for keeper, ids in plan.releases.items() if keeper in landed
-                        for op_id in ids]
-            held = [op for op in plan.redundant if op.op_id not in set(released)]
-            if released:
-                self.queue.ack(released)
-                self.suppressed_ops += len(released)
-                self.suppressed_bytes += plan.redundant_bytes
-            self.queue.nack(deferred + held)
-            sent += len(accepted)
-            self.pushed += len(accepted)
-            METRICS.gauge("sync.queue_depth", self.queue.depth)
-            if deferred or held:
+                accepted = list(result.get("accepted", []))
+                rejected = [op.op_id for op in batch
+                            if op.op_id in set(result.get("rejected", []))]
+                self.queue.ack(accepted)
+                self.queue.ack(rejected)             # cloud already had newer
+                settled |= set(accepted) | set(rejected)
+
+                # A superseded operation is released only now, and only because
+                # the operation that supersedes it was accepted. Acking it any
+                # earlier would drop a write whenever the newer one never landed.
+                landed = set(accepted) | set(rejected)
+                released = [op_id for keeper, ids in plan.releases.items()
+                            if keeper in landed for op_id in ids]
+                if released:
+                    self.queue.ack(released)
+                    settled |= set(released)
+                    self.suppressed_ops += len(released)
+                    self.suppressed_bytes += self.egress.released_bytes(plan, released)
+                sent += len(accepted)
+                self.pushed += len(accepted)
+                METRICS.gauge("sync.queue_depth", self.queue.depth)
+                more = bool(deferred) or len(released) < len(plan.redundant)
+            finally:
+                self.queue.nack([op for op in leased if op.op_id not in settled])
+            if more:
                 break                                # the budget for this cycle is spent
         return sent
 

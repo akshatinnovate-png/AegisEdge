@@ -212,8 +212,23 @@ def test_a_hop_is_timed_as_it_is_executed_not_as_one_vectorised_call():
 
     # And the shipped calibration must land in the same territory as the
     # honest measurement above, not the vectorised one.
-    cost = CostModel().calibrate(dim=256, sample=2048)
-    assert cost.graph_ns_per_hop > naive, cost.as_dict()
+    #
+    # Measured in pairs, and compared as the minimum of each. The vectorised
+    # cost on this machine swings by more than 2x between samples — 265 ns in a
+    # quiet moment, 586 ns in a noisy one — so comparing a calibration taken
+    # now against a `naive` taken several seconds and ten microbenchmarks ago
+    # compares two different machine states and calls the difference a property
+    # of the code. Taking the noise floor of both, adjacent in time, is the
+    # same technique `test_cost_model_calibration_is_reproducible` documents.
+    paired_naive, paired_hop = [], []
+    for _ in range(3):
+        paired_naive.append(vectorised())
+        paired_hop.append(CostModel().calibrate(dim=256, sample=2048).graph_ns_per_hop)
+    floor_naive, floor_hop = min(paired_naive), min(paired_hop)
+    assert floor_hop > floor_naive, (
+        f"the shipped calibration ({floor_hop:.1f} ns) is no more expensive than a "
+        f"vectorised hop ({floor_naive:.1f} ns), so it is timing the arithmetic "
+        f"and not the traversal")
 
 
 def test_cost_model_calibration_is_reproducible():

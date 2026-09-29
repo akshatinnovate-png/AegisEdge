@@ -36,7 +36,7 @@ into modules for linking, and CI fails if the copies ever disagree:
 
 | | |
 |---|---|
-| [docs/ENGINEERING.md](docs/ENGINEERING.md) | The thirty-five defects, the simulator, signing and enrolment, live invariants, the scale investigation, two review passes, the Qdrant bake-off and the egress scheduler |
+| [docs/ENGINEERING.md](docs/ENGINEERING.md) | The forty-five defects, the simulator, signing and enrolment, live invariants, the scale investigation, three review passes, the Qdrant bake-off and the egress scheduler |
 | [docs/MEASUREMENTS.md](docs/MEASUREMENTS.md) | Every measured number and the harness that produced it |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System shape, feature plan, API surface, and all 104 modules |
 | [docs/RUNNING.md](docs/RUNNING.md) | Install, the three modes, two real devices, and how to check every claim |
@@ -304,7 +304,7 @@ guardrail.
 ## 3. What the stress runs broke
 
 The point of a stress test is the things it breaks. Sixteen of this project's
-thirty-five defects are below, each found by pushing until something gave way
+forty-five defects are below, each found by pushing until something gave way
 and then reading what actually happened rather than what was supposed to. All
 are fixed, with a regression test each — and one finding that is still open,
 because not finding the cause is also a result.
@@ -2303,7 +2303,7 @@ Point it at a live backend:
 - [ ] **~25 KB per memory is native, grows with the corpus, and is not accounted for.** The vector index, operation log, points, Qdrant, glibc arenas and allocator retention together explain about half of it
 - [ ] **Operation log compaction.** Retains every write forever so a peer offline for a month can reconcile — a deliberate property with an undeliberate bound. Measured at 3.2 KB of 46.8, it would buy ~7% in exchange for changing the part signatures, gossip and `bodies-intact` all depend on. Measuring first turned a confident plan into a bad trade
 - [ ] Ingest still decays with corpus size: 67.5 to 48.7 docs/s over ten thousand points, and resident memory still grows at ~50 KB per memory against the ~2 KB the vectors account for
-- [x] Thirty-five defects found and fixed — twelve under stress, four under deterministic simulation, five in a security review of that work, ten in a correctness review of it, three by racing Qdrant's engine against this node's own index, one by asking what a dying link should carry first — regression test each · **385 tests**
+- [x] Forty-five defects found and fixed — twelve under stress, four under deterministic simulation, five in a security review of that work, ten in a correctness review of it, three by racing Qdrant's engine against this node's own index, one by asking what a dying link should carry first, ten in a review of all of that — regression test each · **392 tests**
 - [x] The index-strategy guard reworked after it was found asserting a property of the *machine* rather than of the code; it now measures the machine and states, in the skip reason, which one it is on
 - [x] RaBitQ cold tier — unbiased estimator, per-vector error bound, bound-driven rescore depth
 - [x] Corpus-fitted embedding geometry — streaming covariance, Ledoit–Wolf shrinkage, rank-limited whitening

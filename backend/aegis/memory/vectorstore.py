@@ -60,13 +60,25 @@ class NativeStore:
 
     @staticmethod
     def _payload_of(point: MemoryPoint) -> dict[str, Any]:
-        """Flatten the fields the planner is allowed to reason about."""
+        """Flatten the fields the planner is allowed to reason about.
+
+        `tenant_id` is here because it was missing: the payload written to
+        Qdrant carried no tenant marker at all, so the payload index the store
+        asks Qdrant to build for `tenant_id` indexed a field that was never
+        written, and nothing reading the stored payload could tell whose memory
+        it was looking at.
+
+        This is defence in depth, not the boundary. Tenancy is enforced by
+        intersecting the visible id set in `MemoryStore.visible()`, before any
+        of this is consulted, and that stays where it is.
+        """
         return {
             "collection": point.collection, "sensitivity": point.sensitivity.value,
             "sync_class": point.sync_class.value, "model_version": point.model_version,
             "device_id": point.device_id, "ts": point.created_at,
             "confidence": point.confidence, "stale": point.stale, "pinned": point.pinned,
-            "source": point.source or "", **point.payload,
+            "source": point.source or "", "tenant_id": point.tenant_id,
+            **point.payload,
         }
 
     def upsert(self, point: MemoryPoint) -> None:
@@ -258,7 +270,8 @@ class QdrantStore(NativeStore):
                     late = self.late_provider(point.text)
                 except Exception:
                     late = None                 # a missing residual degrades rank, not writes
-            vector = self.hybrid.vector_of(point.dense, point.sparse, late)
+            vector = self.hybrid.vector_of(point.collection, point.dense,
+                                           point.sparse, late)
         else:
             vector = point.dense_list()         # a collection still on the old schema
         self.client.upsert(
@@ -316,9 +329,16 @@ class QdrantStore(NativeStore):
             by_collection.setdefault(point.collection, []).append(point)
 
         for name in self.collections:
-            if self.hybrid.schema.get(name, "").startswith("hybrid"):
+            schema = self.hybrid.schema.get(name, "")
+            if schema.startswith("hybrid") and not self.hybrid.wants_late(name):
                 report["skipped"].append({"collection": name, "reason": "already hybrid"})
                 continue
+            if self.hybrid.wants_late(name):
+                # Configured for late interaction after this collection was
+                # created. Same recreate, different reason, and it has to be
+                # said out loud rather than reported as a legacy upgrade.
+                report.setdefault("reasons", {})[name] = (
+                    "adding the late-interaction vector this collection was created without")
             mine = by_collection.get(name, [])
             try:
                 held = int(getattr(self.client.get_collection(name), "points_count", 0) or 0)

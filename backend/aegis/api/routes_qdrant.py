@@ -33,7 +33,8 @@ def _store(node: EdgeNode):
 
 
 @router.get("/qdrant")
-async def qdrant(node: EdgeNode = Depends(get_node)) -> dict:
+async def qdrant(node: EdgeNode = Depends(get_node),
+                 who: Principal = Depends(requires(Scope.READ))) -> dict:
     """What the engine is, what it holds, and which path queries take."""
     store = _store(node)
     pipeline = node.pipeline
@@ -91,7 +92,8 @@ async def bakeoff(body: SearchRequest, node: EdgeNode = Depends(get_node),
 
 @router.get("/qdrant/facets")
 async def facets(collection: str = "episodic", key: str = "sensitivity",
-                 limit: int = 8, node: EdgeNode = Depends(get_node)) -> dict:
+                 limit: int = 8, node: EdgeNode = Depends(get_node),
+                 who: Principal = Depends(requires(Scope.READ))) -> dict:
     """Payload value counts, computed by the engine rather than by a scan here."""
     store = _store(node)
     if collection not in store.collections:
@@ -103,7 +105,8 @@ async def facets(collection: str = "episodic", key: str = "sensitivity",
 
 @router.get("/qdrant/map")
 async def vector_map(collection: str = "episodic", limit: int = 600, query: str = "",
-                     k: int = 5, node: EdgeNode = Depends(get_node)) -> dict:
+                     k: int = 5, node: EdgeNode = Depends(get_node),
+                     who: Principal = Depends(requires(Scope.READ))) -> dict:
     """The corpus as the engine holds it, projected to two dimensions.
 
     Any two-dimensional picture of a 256-dimensional space is a lie of
@@ -133,15 +136,20 @@ async def vector_map(collection: str = "episodic", limit: int = 600, query: str 
         query_point = projection.project(vector)
 
     placed = scale(projection.coords, query_point)
+    # This plot carries memory text. It is scoped like every other route that
+    # returns content: one tenant's console must not be able to read another
+    # tenant's memories because the endpoint draws a picture rather than a list.
     points = [
         {"id": point_id, "xy": xy, "rank": hits.get(point_id),
          "sensitivity": payload.get("sensitivity"), "stale": bool(payload.get("stale")),
          "text": (payload.get("text") or "")[:120]}
         for point_id, xy, payload in zip(ids, placed["points"], payloads)
+        if who.anonymous or payload.get("tenant_id") == who.tenant_id
     ]
     return {
         "collection": collection, "backend": store.backend,
-        "sampled": len(points), "explained_variance": projection.explained,
+        "sampled": len(points), "of_sample": len(ids),
+        "explained_variance": projection.explained,
         "points": points, "query": placed["query"], "query_text": query,
         "matched": len(hits),
     }

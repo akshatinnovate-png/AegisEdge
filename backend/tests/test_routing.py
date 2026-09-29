@@ -126,3 +126,36 @@ async def test_a_tenancy_allow_set_is_never_handed_to_the_engine(node):
                                        tenant_id="acme")
     assert result.plan["engine"]["route"]["path"] == "index"
     assert all("globex" not in row["text"] for row in result.results)
+
+
+def test_an_engine_that_answers_nothing_stops_getting_the_queries():
+    """A warm-up counted in samples never ends if there are never any samples.
+
+    An engine that declines every query — a server that is down, collections
+    all on the old schema — produced no latency samples, so the router stayed
+    in "measuring the engine" forever and paid for the attempt every time.
+    """
+    router = PathRouter()
+    for _ in range(router.WARMUP + 2):
+        decision = _choose(router)
+        router.attempted()                       # asked, and it declined
+    assert _choose(router).path == "index"
+    assert "answered none of" in router.last.reason
+    # ...but it is retried periodically, because a server can come back
+    paths = []
+    for _ in range(router.SAMPLE_EVERY * 2):
+        paths.append(_choose(router).path)
+        router.attempted()
+    assert "engine" in paths
+
+
+def test_a_slow_engine_and_a_silent_one_are_not_the_same_state():
+    slow, silent = PathRouter(objective_ms=40.0), PathRouter(objective_ms=40.0)
+    for _ in range(slow.WARMUP + 2):
+        _choose(slow)
+        slow.attempted()
+        slow.observe("engine", 32.0)
+        _choose(silent)
+        silent.attempted()
+    assert "exceeds the" in _choose(slow).reason          # measured, and too slow
+    assert "answered none of" in _choose(silent).reason   # never measured at all

@@ -174,3 +174,34 @@ async def test_what_the_budget_defers_stays_in_the_durable_queue(node):
             break
         await node.sync.reconcile()
     assert node.sync.queue.depth == 0
+
+
+def test_pricing_the_queue_does_not_count_as_sending_it():
+    """`GET /sync/egress` calls the planner. A console poll is not traffic."""
+    clock = HybridClock("edge-a")
+    planner = EgressPlanner("edge-a")
+    ops = [_op("p1", clock), _op("p1", clock), _op("p2", clock)]
+
+    planner.plan(ops, link="healthy", record=False)
+    planner.plan(ops, link="healthy", order="fifo", record=False)
+    assert planner.planned == 0 and planner.suppressed == 0
+    assert planner.suppressed_bytes == 0 and planner.last is None
+
+    planner.plan(ops, link="healthy")
+    assert planner.planned == 2 and planner.suppressed == 1
+    assert planner.last is not None
+
+
+def test_only_the_bytes_actually_released_are_counted_as_saved():
+    """A partial release must not book the whole redundant set as a saving."""
+    clock = HybridClock("edge-a")
+    planner = EgressPlanner("edge-a")
+    first, second = _op("p1", clock), _op("p1", clock)
+    third, fourth = _op("p2", clock), _op("p2", clock)
+    plan = planner.plan([first, second, third, fourth], link="healthy")
+    assert len(plan.redundant) == 2
+
+    one = planner.released_bytes(plan, [first.op_id])
+    both = planner.released_bytes(plan, [first.op_id, third.op_id])
+    assert 0 < one < both == plan.redundant_bytes
+    assert planner.released_bytes(plan, []) == 0

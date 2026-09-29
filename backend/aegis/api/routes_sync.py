@@ -24,14 +24,15 @@ async def egress(node: EdgeNode = Depends(get_node)) -> dict:
     one does.
     """
     queued = list(node.sync.queue.pending)
-    plan = node.sync.egress.plan(
-        queued, link=node.sync._egress_link(), points=node.store.points,
-        divergent=node.sync._divergent_point_ids(),
-    )
-    control = node.sync.egress.plan(
-        queued, link=node.sync._egress_link(), points=node.store.points,
-        divergent=node.sync._divergent_point_ids(), order="fifo",
-    )
+    link, points = node.sync._egress_link(), node.store.points
+    divergent = node.sync._divergent_point_ids()
+    # `record=False` on both: this endpoint prices the queue and sends nothing,
+    # and a console polling it every few seconds must not make the node's
+    # lifetime counters climb as if it had.
+    control = node.sync.egress.plan(queued, link=link, points=points,
+                                    divergent=divergent, order="fifo", record=False)
+    plan = node.sync.egress.plan(queued, link=link, points=points,
+                                 divergent=divergent, record=False)
     by_id = {a.op.op_id: a for a in plan.assessments}
     return {
         "link": plan.link,

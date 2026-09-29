@@ -57,6 +57,12 @@ class PathRouter:
         self.to_engine = 0
         self.to_index = 0
         self.samples = 0
+        # Attempts, not samples. An engine that declines every query — a server
+        # that is down, a store whose collections are all on the old schema —
+        # produces no latency samples at all, so a warm-up counted in samples
+        # never completes and the router sends it every query forever. Counting
+        # what was *tried* is what lets the warm-up end either way.
+        self.attempts = 0
         self.last: Decision | None = None
 
     @staticmethod
@@ -72,6 +78,10 @@ class PathRouter:
 
     def observe(self, path: str, ms: float) -> None:
         (self.engine_ms if path == "engine" else self.index_ms).append(float(ms))
+
+    def attempted(self) -> None:
+        """The engine was asked, whatever came back."""
+        self.attempts += 1
 
     def choose(self, *, engine_available: bool, server: bool, degraded: bool) -> Decision:
         """Pick a path, and say why in words an operator can act on."""
@@ -106,6 +116,14 @@ class PathRouter:
             return Decision("index", "degraded: the faster path defends the budget")
 
         engine = self._p95(self.engine_ms)
+        if not self.engine_ms and self.attempts >= self.WARMUP:
+            # Tried and never once answered. Continuing to route to it would be
+            # paying for the attempt on every query with nothing to show for it.
+            if self.attempts % self.SAMPLE_EVERY == 0:
+                return Decision("engine", f"retrying an engine that has declined "
+                                          f"{self.attempts} times", sampled=True)
+            return Decision("index", f"the engine has answered none of "
+                                     f"{self.attempts} attempts")
         if len(self.engine_ms) < self.WARMUP:
             return Decision("engine", f"measuring the engine ({len(self.engine_ms)} "
                                       f"of {self.WARMUP} samples)")
@@ -129,7 +147,8 @@ class PathRouter:
             "recall_budget_ms": round(self.budget_ms, 1),
             "engine_p95_ms": round(self._p95(self.engine_ms), 3),
             "index_p95_ms": round(self._p95(self.index_ms), 3),
-            "queries": self.queries, "to_engine": self.to_engine,
+            "queries": self.queries, "attempts": self.attempts,
+            "to_engine": self.to_engine,
             "to_index": self.to_index, "samples": self.samples,
             "last": self.last.as_dict() if self.last else None,
         }

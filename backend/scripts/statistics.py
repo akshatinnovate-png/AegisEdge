@@ -31,10 +31,12 @@ DEFECTS: tuple[tuple[str, int], ...] = (
     ("A correctness review of it", 10),
     ("Racing Qdrant's engine against this node's own index", 3),
     ("Asking what a dying link should carry first", 1),
+    ("A review pass over all of that", 10),
 )
 WORDS = {31: "Thirty-one", 32: "Thirty-two", 33: "Thirty-three", 34: "Thirty-four",
          35: "Thirty-five", 36: "Thirty-six", 37: "Thirty-seven", 38: "Thirty-eight",
-         39: "Thirty-nine", 40: "Forty"}
+         39: "Thirty-nine", 40: "Forty", 41: "Forty-one", 42: "Forty-two",
+         43: "Forty-three", 44: "Forty-four", 45: "Forty-five", 46: "Forty-six"}
 O, R, B, D, G = "\033[38;5;208m", "\033[0m", "\033[1m", "\033[2m", "\033[32m"
 
 

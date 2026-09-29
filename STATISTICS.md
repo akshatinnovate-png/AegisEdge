@@ -10,17 +10,17 @@ stale.
 | | |
 |---|---:|
 | Modules in `backend/aegis` | 109 |
-| Lines of node code | 19,874 |
+| Lines of node code | 19,978 |
 | Test files | 28 |
-| Lines of test code | 5,217 |
-| Tests | 385 |
+| Lines of test code | 5,389 |
+| Tests | 392 |
 | Harnesses and tools in `backend/scripts` | 20 |
-| Lines of harness code | 4,348 |
+| Lines of harness code | 4,350 |
 | Frontend — HTML, CSS and JS, no build step | 2,887 |
 | Lines of documentation | 5,998 |
-| Commits | 53 |
+| Commits | 54 |
 
-Test code is about 26% the size of the code it
+Test code is about 27% the size of the code it
 tests. That is not a target; it is what happened when every defect had to
 arrive with the test that would have caught it.
 
@@ -48,7 +48,8 @@ run, on the same seeds with the same attacks, that finds something.
 | A correctness review of it | 10 |
 | Racing Qdrant's engine against this node's own index | 3 |
 | Asking what a dying link should carry first | 1 |
-| **Total, each with a regression test** | **35** |
+| A review pass over all of that | 10 |
+| **Total, each with a regression test** | **45** |
 
 Four remain open and are described in the README rather than closed quietly:
 an unexplained ~25 KB per memory, a ~2.8 KB/query growth with a one-variable

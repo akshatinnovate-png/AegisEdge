@@ -190,6 +190,7 @@ class RetrievalPipeline:
         if decision.path != "engine":
             return None
         sparse_query = self.sparse.encode(search_text)
+        self.router.attempted()
         # Recall still happens; it happens in the engine. The span keeps its name
         # so a trace is comparable across the two paths, with where it ran as a
         # child rather than as a different tree.

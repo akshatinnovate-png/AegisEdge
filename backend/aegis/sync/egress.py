@@ -125,6 +125,17 @@ class EgressPlanner:
 
     # -- pricing ----------------------------------------------------------
 
+    def released_bytes(self, plan: "EgressPlan", op_ids: Iterable[str]) -> int:
+        """What the operations released on this cycle would have cost.
+
+        The plan's `redundant_bytes` is the whole set. Only the ones whose
+        superseding operation actually landed are released, so adding the total
+        on a partial release counts bytes that were never saved — and counts
+        the held remainder again on the next cycle.
+        """
+        wanted = set(op_ids)
+        return sum(self.size_of(op) for op in plan.redundant if op.op_id in wanted)
+
     def size_of(self, op: Operation) -> int:
         """What this operation actually costs on the wire.
 
@@ -175,8 +186,14 @@ class EgressPlanner:
     def plan(self, ops: Iterable[Operation], *, link: str = "healthy",
              points: dict[str, Any] | None = None, divergent: set[str] | None = None,
              budget_bytes: int | None = None, now: float | None = None,
-             order: str = "value") -> EgressPlan:
-        """Decide what goes now. `order="fifo"` is the control, not a fallback."""
+             order: str = "value", record: bool = True) -> EgressPlan:
+        """Decide what goes now. `order="fifo"` is the control, not a fallback.
+
+        `record=False` prices the queue without touching the lifetime counters.
+        `GET /sync/egress` shows an operator what a cycle *would* do and sends
+        nothing; letting that inflate "operations suppressed" and "bytes not
+        sent" would make a console poll look like traffic.
+        """
         queued = list(ops)
         now = determinism.now() if now is None else now
         points = points or {}
@@ -184,7 +201,8 @@ class EgressPlanner:
         plan = EgressPlan(budget_bytes=max(budget, 0), link=link)
         if not queued or budget < 0:
             plan.deferred = queued
-            self.last = plan
+            if record:
+                self.last = plan
             return plan
 
         # 1. supersession. Newest per point by HLC wins; the rest are no-ops at
@@ -237,7 +255,8 @@ class EgressPlanner:
             ordered = sorted(plan.assessments,
                              key=lambda a: (not a.starving,
                                             a.op.ts if a.starving else -a.ratio))
-        self.starved_promotions += sum(1 for a in ordered if a.starving)
+        if record:
+            self.starved_promotions += sum(1 for a in ordered if a.starving)
 
         # 4. fill to the budget
         spent = 0
@@ -251,10 +270,11 @@ class EgressPlanner:
         plan.planned_bytes = spent
         plan.assessments = ordered
 
-        self.planned += len(plan.send)
-        self.suppressed += len(plan.redundant)
-        self.suppressed_bytes += plan.redundant_bytes
-        self.last = plan
+        if record:
+            self.planned += len(plan.send)
+            self.suppressed += len(plan.redundant)
+            self.suppressed_bytes += plan.redundant_bytes
+            self.last = plan
         return plan
 
     def snapshot(self) -> dict[str, Any]:

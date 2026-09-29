@@ -112,9 +112,17 @@ def translate(spec: Filter | None) -> Any | None:
     must, should, must_not = [], [], []
     try:
         for condition in spec.must:
-            # AND(x != v) is exactly NOT(x == v), which crosses the tree.
-            (must_not if condition.op is Op.NE else must).append(
-                _condition(flip(condition) if condition.op is Op.NE else condition))
+            # AND(x != v) is NOT(x == v) *and* x present. Qdrant's negated match
+            # alone also returns points that do not carry the field at all,
+            # while `Condition.matches` requires it — so translating to the
+            # match alone widens the filter, which is the one thing this module
+            # promises never to do. Excluding is-empty restores the meaning.
+            if condition.op is Op.NE:
+                must_not.append(_condition(flip(condition)))
+                must_not.append(qm.IsEmptyCondition(
+                    is_empty=qm.PayloadField(key=condition.field)))
+                continue
+            must.append(_condition(condition))
         for condition in spec.must_not:
             if condition.op is Op.NE:
                 # NOT(x != v) is AND(x == v) only while x is present, and our
@@ -324,29 +332,47 @@ class HybridPath:
 
     # -- writing ----------------------------------------------------------
 
-    def vector_of(self, dense: np.ndarray, sparse: dict[int, float],
-                  late: np.ndarray | None = None) -> dict[str, Any]:
-        """The named-vector payload for one point."""
+    def sparse_vector(self, sparse: dict[int, float]) -> Any:
+        """A sparse query or payload vector, with colliding terms merged.
+
+        Qdrant requires unique indices; this node's hashed term space can
+        collide, and the larger weight is the one that survives.
+        """
         from qdrant_client import models as qm
 
+        merged: dict[int, float] = {}
+        for term, weight in sparse.items():
+            key = int(term)
+            if weight > merged.get(key, float("-inf")):
+                merged[key] = float(weight)
+        ordered = sorted(merged.items())
+        return qm.SparseVector(indices=[t for t, _ in ordered],
+                               values=[w for _, w in ordered])
+
+    def vector_of(self, collection: str, dense: np.ndarray, sparse: dict[int, float],
+                  late: np.ndarray | None = None) -> dict[str, Any]:
+        """The named-vector payload for one point in `collection`.
+
+        The late vector is attached only when *this collection* was created
+        with one. Attaching it because the setting is on is how turning
+        `AEGIS_QDRANT_LATE_TOKENS` up on an existing node made every upsert
+        fail with `Not existing vector name error: late` — the configuration
+        changed, the collection did not, and writes are not the place to find
+        that out. `scripts/qdrant_migrate.py` is.
+        """
         vectors: dict[str, Any] = {DENSE: np.asarray(dense, dtype=np.float32).tolist()}
         if sparse:
-            # Qdrant requires unique indices; our hashed term space can collide,
-            # and the larger weight is the one that survives.
-            merged: dict[int, float] = {}
-            for term, weight in sparse.items():
-                key = int(term)
-                if weight > merged.get(key, float("-inf")):
-                    merged[key] = float(weight)
-            ordered = sorted(merged.items())
-            vectors[SPARSE] = qm.SparseVector(indices=[t for t, _ in ordered],
-                                             values=[w for _, w in ordered])
-        if late is not None and self.late_tokens > 0:
+            vectors[SPARSE] = self.sparse_vector(sparse)
+        if late is not None and self.has_late(collection):
             pruned = prune_late(late, self.late_tokens)
             if pruned.shape[0]:
                 vectors[LATE] = pruned.tolist()
                 self.late_points += 1
         return vectors
+
+    def wants_late(self, collection: str) -> bool:
+        """Configured for late interaction, but this collection has no vector for it."""
+        return self.late_tokens > 0 and self.schema.get(collection) == "hybrid"
 
     def late_bytes(self) -> int:
         """What one late residual costs on the wire, before quantization."""
@@ -392,8 +418,8 @@ class HybridPath:
             plan.stages.append(Stage("dense recall", "engine",
                                      f"HNSW over `{DENSE}`, cosine", limit=fetch))
         if mode != "dense" and sparse:
-            vector = self.vector_of(np.zeros(self.dim, dtype=np.float32), sparse)[SPARSE]
-            prefetch.append(qm.Prefetch(query=vector, using=SPARSE, limit=fetch,
+            prefetch.append(qm.Prefetch(query=self.sparse_vector(sparse),
+                                        using=SPARSE, limit=fetch,
                                         filter=qdrant_filter))
             plan.stages.append(Stage("sparse recall", "engine",
                                      f"inverted index over `{SPARSE}`, "

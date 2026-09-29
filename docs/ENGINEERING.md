@@ -7,7 +7,7 @@
 ## 3. What the stress runs broke
 
 The point of a stress test is the things it breaks. Sixteen of this project's
-thirty-five defects are below, each found by pushing until something gave way
+forty-five defects are below, each found by pushing until something gave way
 and then reading what actually happened rather than what was supposed to. All
 are fixed, with a regression test each — and one finding that is still open,
 because not finding the cause is also a result.

@@ -26,9 +26,13 @@ def test_translation_keeps_the_meaning_of_every_op_it_accepts():
     translated = translate(spec)
     assert translated is not None
     # `!=` is not a Qdrant condition — it is a negated match, and it has to
-    # cross the tree to stay true rather than be dropped on the floor.
+    # cross the tree to stay true rather than be dropped on the floor. It
+    # crosses as *two* conditions: not-this-value, and not-absent, because
+    # Qdrant's negated match alone would also return points without the field.
     assert len(translated.must) == 2
-    assert {c.key for c in translated.must_not} == {"device_id", "stale"}
+    keys = {c.key if hasattr(c, "key") else c.is_empty.key for c in translated.must_not}
+    assert keys == {"device_id", "stale"}
+    assert len(translated.must_not) == 3
     assert len(translated.should) == 1
 
 
@@ -246,3 +250,60 @@ def test_the_map_is_sampled_from_what_qdrant_holds(store):
     assert all(pid.startswith("m") for pid in ids)
     assert payloads[0]["text"].startswith("pump")
     assert rng is not None
+
+
+def test_turning_on_late_tokens_does_not_break_writes_to_older_collections(tmp_path):
+    """The setting changed; the collection did not. Writes are not where to find out.
+
+    Attaching the late vector because `late_tokens` is set, rather than because
+    the collection has one, made every upsert fail with
+    `Not existing vector name error: late` the moment the setting was raised on
+    an existing node.
+    """
+    from aegis.memory.schema import MemoryPoint
+    from aegis.memory.vectorstore import QdrantStore
+
+    store = QdrantStore(16, ("episodic",), str(tmp_path))
+    store.close()
+
+    reopened = QdrantStore(16, ("episodic",), str(tmp_path), late_tokens=8)
+    try:
+        assert reopened.hybrid.wants_late("episodic")     # configured, not provisioned
+        assert not reopened.hybrid.has_late("episodic")
+        reopened.late_provider = lambda text: np.ones((12, 16), dtype=np.float32)
+        point = MemoryPoint(id="m1", collection="episodic", text="pump",
+                            dense=np.zeros(16, dtype=np.float32), sparse={1: 1.0})
+        reopened.upsert(point)                            # must not raise
+
+        report = reopened.migrate_schema([point])
+        assert report["schema"]["episodic"] == "hybrid-late"
+        assert "late-interaction vector" in report["reasons"]["episodic"]
+        assert reopened.hybrid.has_late("episodic")
+    finally:
+        reopened.close()
+
+
+def test_a_not_equals_filter_does_not_quietly_match_a_missing_field():
+    """Qdrant's negated match also returns points without the field. Ours does not.
+
+    Translating `x != v` to `must_not[match(x == v)]` alone widens the filter,
+    which is the one thing this module promises never to do.
+    """
+    from qdrant_client import QdrantClient
+    from qdrant_client import models as qm
+
+    client = QdrantClient(location=":memory:")
+    client.create_collection(
+        "t", vectors_config={"dense": qm.VectorParams(size=4, distance=qm.Distance.COSINE)})
+    rows = {"has-other": {"device_id": "edge-01"}, "has-match": {"device_id": "edge-09"},
+            "absent": {}}
+    client.upsert("t", points=[
+        qm.PointStruct(id=i, vector={"dense": [1, 0, 0, 0]}, payload={"aegis_id": name, **pl})
+        for i, (name, pl) in enumerate(rows.items())])
+
+    spec = Filter(must=[Condition("device_id", Op.NE, "edge-09")])
+    hits = client.query_points("t", query=[1, 0, 0, 0], using="dense", limit=10,
+                               query_filter=translate(spec), with_payload=True).points
+    engine = sorted(h.payload["aegis_id"] for h in hits)
+    ours = sorted(name for name, payload in rows.items() if spec.matches(payload))
+    assert engine == ours == ["has-other"]

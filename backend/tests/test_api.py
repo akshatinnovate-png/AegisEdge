@@ -317,3 +317,35 @@ def test_quota_returns_429_not_500(client):
     client.post("/api/v1/memory/ingest", json={"text": "first"}, headers=headers)
     second = client.post("/api/v1/memory/ingest", json={"text": "second"}, headers=headers)
     assert second.status_code == 429
+
+
+def test_the_vector_map_is_scoped_like_every_other_route_that_returns_text(client):
+    """It draws a picture, but the picture carries memory text.
+
+    `/qdrant/map` returned every point's text and sensitivity label to any
+    caller, with no scope check and no tenant filter, because it was thought of
+    as a visualisation rather than as a content route. It is both.
+    """
+    client.post("/api/v1/tenants", json={"tenant_id": "map-acme", "name": "Acme",
+                                        "max_points": 50})
+    issued = client.post("/api/v1/tenants/map-acme/keys",
+                         json={"scopes": ["read", "write"], "label": "console"}).json()
+    headers = {"x-aegis-key": issued["secret"]}
+
+    client.post("/api/v1/memory/ingest",
+                json={"text": "Acme-only turbine bearing note"}, headers=headers)
+    client.post("/api/v1/memory/ingest", json={"text": "a note belonging to nobody"})
+
+    scoped = client.get("/api/v1/qdrant/map?collection=episodic&limit=200",
+                        headers=headers)
+    assert scoped.status_code == 200
+    texts = [row["text"] for row in scoped.json()["points"]]
+    assert any("Acme-only" in text for text in texts)
+    assert not any("belonging to nobody" in text for text in texts)
+
+    # and a key without the read scope gets nothing at all
+    write_only = client.post("/api/v1/tenants/map-acme/keys",
+                             json={"scopes": ["write"], "label": "ingest-only"}).json()
+    refused = client.get("/api/v1/qdrant/map",
+                         headers={"x-aegis-key": write_only["secret"]})
+    assert refused.status_code in (401, 403)
