@@ -8,7 +8,7 @@
 # fsyncs a write-ahead log, and runs background sync, gossip and invariant
 # loops. Netlify serves static assets and short-lived JS/TS edge functions with
 # no persistent disk and no long-running process, so the node runs somewhere
-# that can host one and this site is told its address. See DEPLOY-NETLIFY.md.
+# that can host one and this site is told its address. See DEPLOY.md.
 
 [build]
   publish = "frontend"
