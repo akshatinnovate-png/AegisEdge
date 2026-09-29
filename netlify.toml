@@ -1,0 +1,71 @@
+# Netlify — hosts the AegisEdge console.
+#
+# The console is a static page with no build step, so this is mostly a matter
+# of pointing Netlify at `frontend/` and telling it where the node lives.
+#
+# The node is NOT deployed here and cannot be. It is a stateful Python process
+# that holds an embedded Qdrant on disk, compiles two ONNX graphs at boot,
+# fsyncs a write-ahead log, and runs background sync, gossip and invariant
+# loops. Netlify serves static assets and short-lived JS/TS edge functions with
+# no persistent disk and no long-running process, so the node runs somewhere
+# that can host one and this site is told its address. See DEPLOY-NETLIFY.md.
+
+[build]
+  publish = "frontend"
+  # Nothing to build: no bundler, no framework, no node_modules. The console is
+  # the files in frontend/ exactly as they are in the repository.
+  command = ""
+
+[build.environment]
+  # Set AEGIS_API_URL in Netlify → Site configuration → Environment variables.
+  # The edge function below reads it and hands it to the console at request
+  # time, so the same deploy can point at a different node without a rebuild.
+  NODE_VERSION = "20"
+
+# --- headers ---------------------------------------------------------------
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
+
+[[headers]]
+  for = "/*.js"
+  [headers.values]
+    # The console has no content hashing, so a long cache would serve stale
+    # JavaScript against a node that has moved on. Revalidate every time.
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/*.css"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# The edge function that injects `window.AEGIS_API` declares its own routes in
+# netlify/edge-functions/aegis-config.ts. Declaring them here as well would
+# register it twice and run it twice per request.
+
+# --- optional: same-origin proxy -------------------------------------------
+
+# Direct mode is the default and the one that works completely: the console
+# calls the node's own URL, and the live WebSocket stream works because it is
+# also a direct connection.
+#
+# If you would rather not expose the node's URL, or your node has no TLS
+# certificate the browser trusts, uncomment this and replace the target. Netlify
+# will proxy REST calls same-origin — but it does NOT proxy WebSockets, so the
+# EVENT STREAM card will stay empty while every other panel works.
+#
+# [[redirects]]
+#   from = "/api/*"
+#   to = "https://your-node.example.com/api/:splat"
+#   status = 200
+#   force = true

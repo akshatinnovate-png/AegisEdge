@@ -1,0 +1,78 @@
+# Render — runs the AegisEdge node.
+#
+# The console is a static page and goes to Netlify (see netlify.toml). The node
+# is the half that needs a real host: it holds an embedded Qdrant on disk,
+# compiles two ONNX graphs at first boot, fsyncs a write-ahead log, serves a
+# WebSocket, and runs background sync, gossip and invariant loops. That needs a
+# long-lived process with a persistent disk, which is what this describes.
+#
+# Deploy: Render → New → Blueprint → point it at this repository.
+
+services:
+  - type: web
+    name: aegisedge-node
+    runtime: python
+    plan: starter          # a persistent disk requires a paid instance type
+    region: oregon
+    branch: main
+
+    # One instance, always. Embedded Qdrant takes an exclusive lock on its
+    # directory and the write-ahead log has a single writer, so a second
+    # instance on the same disk would be refused at boot — correctly, but the
+    # deploy would look broken. Scale by running more *nodes* with their own
+    # disks and letting them find each other over the mesh, which is what the
+    # sync engine is for.
+    numInstances: 1
+
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && uvicorn aegis.main:app --host 0.0.0.0 --port $PORT
+
+    healthCheckPath: /api/v1/health
+
+    disk:
+      name: aegis-data
+      mountPath: /var/aegis
+      sizeGB: 10
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+
+      # Memories, the write-ahead log, immutable segments and the embedded
+      # Qdrant all live here. On the disk, so a deploy does not erase them.
+      - key: AEGIS_DATA_DIR
+        value: /var/aegis/data
+
+      # The ONNX graphs are compiled from the bundled weights on first boot and
+      # content-addressed into the registry. Putting them on the disk means that
+      # happens once rather than on every deploy.
+      - key: AEGIS_MODEL_DIR
+        value: /var/aegis/models
+
+      - key: AEGIS_NODE_ID
+        value: edge-render-01
+
+      # Qdrant is a hard requirement; a node that silently fell back to the
+      # internal store would be telling its operator something untrue about
+      # where their data lives. Left at the default (required) on purpose.
+      - key: AEGIS_REQUIRE_QDRANT
+        value: "1"
+
+      # The console is served from another origin, so the node has to allow it.
+      # Replace with the Netlify site's URL once it exists — "*" is the default
+      # and is fine for a demo, wrong for anything else.
+      - key: AEGIS_CORS_ORIGINS
+        sync: false
+
+      # Set this and issue keys, and every route requires one. Leave it off for
+      # a judge-facing demo; turn it on for anything with real data in it.
+      - key: AEGIS_REQUIRE_AUTH
+        sync: false
+
+      # Point this at a Qdrant Server to move the query path onto a compiled
+      # engine — the router will then always choose it, because one call beats
+      # four. Empty means the embedded instance on the disk above.
+      - key: AEGIS_QDRANT_URL
+        sync: false
+      - key: AEGIS_QDRANT_API_KEY
+        sync: false
