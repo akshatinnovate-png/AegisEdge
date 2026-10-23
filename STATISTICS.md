@@ -5,6 +5,13 @@ itself, so these cannot drift from it. Every figure is a count of something
 here or a value read out of a committed result. CI fails if this file is
 stale.
 
+Every figure is also *checkable from any checkout*, which ruled one out. A
+commit count was here and is not any more: it depends on how deep the clone is,
+so it read 61 locally and 1 in CI against `actions/checkout`, which fetches one
+commit by default. It was unanswerable for a second reason too — generating the
+file at commit N makes the commit that contains it N+1, so the number could
+never describe the file it was written into.
+
 ## Code
 
 | | |
@@ -15,10 +22,9 @@ stale.
 | Lines of test code | 5,389 |
 | Tests | 392 |
 | Harnesses and tools in `backend/scripts` | 20 |
-| Lines of harness code | 4,350 |
+| Lines of harness code | 4,368 |
 | Frontend — HTML, CSS and JS, no build step | 2,887 |
 | Lines of documentation | 6,069 |
-| Commits | 61 |
 
 Test code is about 27% the size of the code it
 tests. That is not a target; it is what happened when every defect had to
